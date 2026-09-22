@@ -257,9 +257,13 @@ const ENRICHED_SAMPLE_SPECIAL_TOPICS: SpecialTopic[] = [
 ];
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Demo Mode is enabled by default to immediately showcase the full system
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<ActiveModule>('overview');
+  // Remember the selected data mode so a reload does not unexpectedly return to sample data.
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(() =>
+    localStorage.getItem('to-toan-data-mode') !== 'real'
+  );
+  const [activeTabState, setActiveTabState] = useState<ActiveModule>(() =>
+    (localStorage.getItem('to-toan-active-module') as ActiveModule) || 'overview'
+  );
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isFirestoreConnected, setIsFirestoreConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -329,6 +333,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Active Member (current simulated or logged in member)
   const [activeMemberId, setActiveMemberId] = useState<string>('gv-01');
 
+  const setActiveTab = (tab: ActiveModule) => {
+    localStorage.setItem('to-toan-active-module', tab);
+    setActiveTabState(tab);
+  };
+
+  const activeTab = activeTabState;
+
   // Test Firebase on mount
   useEffect(() => {
     testConnection()
@@ -337,6 +348,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsubscribeAuth = onAuthStateChanged(auth, user => {
       setCurrentUser(user);
+      if (user) {
+        // Firebase restores the signed-in session asynchronously after a reload.
+        // Always return authenticated users to the official Firestore data.
+        localStorage.setItem('to-toan-data-mode', 'real');
+        setIsDemoMode(false);
+      }
     });
 
     return () => unsubscribeAuth();
@@ -456,6 +473,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       setIsLoading(true);
       await signInWithPopup(auth, googleProvider);
+      localStorage.setItem('to-toan-data-mode', 'real');
+      setIsDemoMode(false);
       setNotification({ message: 'Đăng nhập Google thành công!', type: 'success' });
     } catch (err: any) {
       console.error(err);
@@ -468,6 +487,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     try {
       await signOut(auth);
+      localStorage.setItem('to-toan-data-mode', 'demo');
+      setIsDemoMode(true);
       setNotification({ message: 'Đã đăng xuất khỏi hệ thống.', type: 'info' });
     } catch (err: any) {
       console.error(err);
@@ -477,6 +498,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleDemoMode = () => {
     setIsDemoMode(prev => {
       const next = !prev;
+      localStorage.setItem('to-toan-data-mode', next ? 'demo' : 'real');
       setNotification({
         message: next
           ? 'Đã chuyển sang [CHẾ ĐỘ TRẢI NGHIỆM - DỮ LIỆU MẪU].'
@@ -1326,6 +1348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetToSampleData = async () => {
+    localStorage.setItem('to-toan-data-mode', 'demo');
     setIsDemoMode(true);
     setNotification({ message: 'Đã khôi phục dữ liệu mẫu thử nghiệm', type: 'info' });
   };
@@ -1360,6 +1383,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRealDocuments([]);
     setReportSnapshots([]);
     setRealAuditLogs([]);
+    localStorage.setItem('to-toan-data-mode', 'real');
     setIsDemoMode(false);
     setNotification({ message: 'Đã xóa trắng dữ liệu thật để bắt đầu năm học mới', type: 'info' });
   };
@@ -1439,6 +1463,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await saveList('documents', data.documents);
         await saveList('reportSnapshots', data.reportSnapshots);
       }
+      localStorage.setItem('to-toan-data-mode', 'real');
       setIsDemoMode(false);
       setNotification({ message: 'Đã phục hồi dữ liệu từ file sao lưu thành công', type: 'success' });
     } else {
