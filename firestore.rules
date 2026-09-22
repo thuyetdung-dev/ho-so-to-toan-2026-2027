@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /departments/{deptId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /members/{memberId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /invitations/{invitationId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /assignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /curriculumTopics/{topicId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /departmentPlans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /teacherPlans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /lessonPlans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /meetings/{meetingId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /lessonStudies/{studyId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /observations/{obsId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /questions/{questionId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /examBlueprints/{bpId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /exams/{examId} {
+      // Đề chưa công bố bảo mật: chỉ cho phép đọc khi đã công bố hoặc người dùng là tác giả/phản biện
+      allow read: if isSignedIn() && (
+        resource.data.isPublished == true ||
+        resource.data.authorId == request.auth.uid ||
+        resource.data.reviewerId == request.auth.uid
+      );
+      allow write: if isSignedIn();
+    }
+
+    match /examResults/{resultId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /specialTopics/{topicId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /trainings/{trainingId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /initiatives/{initId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /documents/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+  }
+}

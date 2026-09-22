@@ -1,0 +1,8 @@
+{
+  "name": "Remix HỒ SƠ TỔ TOÁN NĂM 2026-2027",
+  "description": "Sổ hồ sơ chuyên môn điện tử Tổ Toán THPT theo chuẩn Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
