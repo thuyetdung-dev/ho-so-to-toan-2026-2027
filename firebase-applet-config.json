@@ -1,12 +1,12 @@
 {
-  "projectId": "tonal-network-btvkm",
-  "appId": "1:6141022761:web:265d0419446e05829f8238",
-  "apiKey": "AIzaSyA0T166xg7_84_yGExhaUCI1oTCO1lCHkc",
-  "authDomain": "tonal-network-btvkm.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-remixhsttonnm202-3506ebd7-8bf6-4969-9db8-93de47efa62d",
-  "storageBucket": "tonal-network-btvkm.firebasestorage.app",
-  "messagingSenderId": "6141022761",
-  "measurementId": "",
-  "oAuthClientId": "6141022761-00vfpa66ggqefshfi69rnvp171ma20v6.apps.googleusercontent.com",
+  "projectId": "ho-so-to-toan-2026-2027",
+  "appId": "1:233985207775:web:51811813044cfe2acae86a",
+  "apiKey": "AIzaSyDBXgEM3pirvnMnLhHU5QWMGGjNv5jvbyg",
+  "authDomain": "ho-so-to-toan-2026-2027.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "ho-so-to-toan-2026-2027.firebasestorage.app",
+  "messagingSenderId": "233985207775",
+  "measurementId": "G-6X723HH2QG",
+  "oauthClientId": "",
   "recaptchaSiteKey": ""
 }
