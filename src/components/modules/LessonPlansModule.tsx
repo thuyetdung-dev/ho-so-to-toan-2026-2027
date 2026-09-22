@@ -42,6 +42,13 @@ export const LessonPlansModule: React.FC = () => {
   const [filterGrade, setFilterGrade] = useState<'all' | 10 | 11 | 12>('all');
   const [filterTeachingStatus, setFilterTeachingStatus] = useState<'all' | 'not_taught' | 'completed'>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newPlan, setNewPlan] = useState({
+    title: '',
+    topicTitle: '',
+    grade: 10 as 10 | 11 | 12,
+    week: 1,
+    periodCount: 1,
+  });
   const [commentText, setCommentText] = useState('');
   const [commentSection, setCommentSection] = useState('Hoạt động 1');
 
@@ -158,6 +165,60 @@ export const LessonPlansModule: React.FC = () => {
     setNotification({ message: `Đã nhân bản kế hoạch bài dạy từ tác giả ${plan.teacherName}`, type: 'success' });
   };
 
+  const handleCreatePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPlan.title.trim() || !newPlan.topicTitle.trim()) return;
+    const now = new Date().toISOString();
+    const activities: LessonPlanActivity[] = [
+      ['Hoạt động 1: Mở đầu', 'Tạo hứng thú và xác định nhiệm vụ học tập'],
+      ['Hoạt động 2: Hình thành kiến thức mới', 'Khám phá và hình thành kiến thức trọng tâm'],
+      ['Hoạt động 3: Luyện tập', 'Củng cố kiến thức và rèn luyện kỹ năng'],
+      ['Hoạt động 4: Vận dụng', 'Vận dụng kiến thức vào tình huống thực tiễn'],
+    ].map(([name, objectives], index) => ({
+      id: `activity-${Date.now()}-${index + 1}`,
+      name,
+      objectives,
+      content: '',
+      product: '',
+      implementation: '',
+    }));
+    const plan: LessonPlan = {
+      id: `lesson-plan-${Date.now()}`,
+      teacherId: activeMember.id,
+      teacherName: activeMember.displayName,
+      grade: newPlan.grade,
+      topicTitle: newPlan.topicTitle.trim(),
+      week: Math.max(1, newPlan.week),
+      periodCount: Math.max(1, newPlan.periodCount),
+      classNames: [],
+      title: newPlan.title.trim(),
+      status: 'draft',
+      version: 1,
+      objectivesKnowledge: '',
+      objectivesCompetence: '',
+      objectivesQualities: '',
+      equipment: '',
+      activities,
+      comments: [],
+      createdAt: now,
+      updatedAt: now,
+      teachingStatus: 'not_taught',
+      isTaught: false,
+      versionHistory: [{
+        version: 1,
+        updatedAt: now,
+        updatedBy: activeMember.displayName,
+        changeSummary: 'Khởi tạo kế hoạch bài dạy',
+        summary: 'Khởi tạo kế hoạch bài dạy',
+        status: 'draft',
+      }],
+    };
+    await saveLessonPlan(plan);
+    setSelectedPlanId(plan.id);
+    setShowCreateModal(false);
+    setNewPlan({ title: '', topicTitle: '', grade: 10, week: 1, periodCount: 1 });
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -175,6 +236,13 @@ export const LessonPlansModule: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Tạo giáo án mới</span>
+          </button>
           {selectedPlan && (
             <>
               <button
@@ -200,8 +268,45 @@ export const LessonPlansModule: React.FC = () => {
               </button>
             </>
           )}
-        </div>
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Tạo kế hoạch bài dạy mới</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Tạo sẵn cấu trúc 4 hoạt động theo Công văn 5512.</p>
+              </div>
+              <button type="button" onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-700" aria-label="Đóng"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleCreatePlan} className="grid grid-cols-2 gap-3 text-xs">
+              <label className="col-span-2 font-semibold text-slate-700">Tên giáo án <span className="text-rose-600">*</span>
+                <input required value={newPlan.title} onChange={e => setNewPlan(v => ({ ...v, title: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Ví dụ: Đường tiệm cận của đồ thị hàm số" />
+              </label>
+              <label className="col-span-2 font-semibold text-slate-700">Chủ đề/Bài học <span className="text-rose-600">*</span>
+                <input required value={newPlan.topicTitle} onChange={e => setNewPlan(v => ({ ...v, topicTitle: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">Khối
+                <select value={newPlan.grade} onChange={e => setNewPlan(v => ({ ...v, grade: Number(e.target.value) as 10 | 11 | 12 }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-normal">
+                  <option value={10}>Khối 10</option><option value={11}>Khối 11</option><option value={12}>Khối 12</option>
+                </select>
+              </label>
+              <label className="font-semibold text-slate-700">Tuần
+                <input type="number" min={1} max={35} value={newPlan.week} onChange={e => setNewPlan(v => ({ ...v, week: Number(e.target.value) }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">Số tiết
+                <input type="number" min={1} max={20} value={newPlan.periodCount} onChange={e => setNewPlan(v => ({ ...v, periodCount: Number(e.target.value) }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <div className="col-span-2 flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
+                <button type="submit" className="px-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5"><Plus className="w-4 h-4" /> Tạo giáo án</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
 
       {/* Main Grid: Left List / Right Full Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

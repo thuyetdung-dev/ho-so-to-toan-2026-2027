@@ -58,6 +58,7 @@ import {
   updateDoc,
   deleteDoc,
   onSnapshot,
+  getDocs,
 } from 'firebase/firestore';
 
 interface AppContextType {
@@ -343,24 +344,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sync real data with Firestore if not in Demo Mode
   useEffect(() => {
-    if (isDemoMode || !isFirestoreConnected) return;
+    if (isDemoMode || !isFirestoreConnected || !currentUser) return;
 
     try {
-      const unsubMembers = onSnapshot(collection(db, 'members'), snapshot => {
-        if (!snapshot.empty) {
-          const list: Member[] = [];
-          snapshot.forEach(docSnap => list.push({ ...docSnap.data(), id: docSnap.id } as Member));
-          setRealMembers(list);
-        }
-      }, err => handleFirestoreError(err, OperationType.LIST, 'members'));
+      const subscriptions: Array<() => void> = [];
+      const subscribeList = <T,>(collectionName: string, setter: React.Dispatch<React.SetStateAction<T[]>>, preserveWhenEmpty = false) => {
+        subscriptions.push(onSnapshot(collection(db, collectionName), snapshot => {
+          if (preserveWhenEmpty && snapshot.empty) return;
+          const list: T[] = [];
+          snapshot.forEach(docSnap => list.push({ ...docSnap.data(), id: docSnap.id } as T));
+          setter(list);
+        }, err => handleFirestoreError(err, OperationType.LIST, collectionName)));
+      };
+
+      subscriptions.push(onSnapshot(collection(db, 'departments'), snapshot => {
+        const preferred = snapshot.docs.find(item => item.id === realConfig.id) || snapshot.docs[0];
+        if (preferred) setRealConfig({ ...preferred.data(), id: preferred.id } as DepartmentConfig);
+      }, err => handleFirestoreError(err, OperationType.LIST, 'departments')));
+
+      subscribeList<Member>('members', setRealMembers, true);
+      subscribeList<SchoolClass>('classes', setRealClasses);
+      subscribeList<Assignment>('assignments', setRealAssignments);
+      subscribeList<DepartmentPlan>('departmentPlans', setRealDeptPlans);
+      subscribeList<TeacherPlan>('teacherPlans', setRealTeacherPlans);
+      subscribeList<LessonPlan>('lessonPlans', setRealLessonPlans);
+      subscribeList<Meeting>('meetings', setRealMeetings);
+      subscribeList<ObservationRecord>('observations', setRealObservations);
+      subscribeList<MemberInvitation>('invitations', setRealInvitations);
+      subscribeList<AccessRequest>('accessRequests', setRealAccessRequests);
+      subscribeList<Question>('questions', setRealQuestions);
+      subscribeList<ExamBlueprint>('examBlueprints', setRealExamBlueprints);
+      subscribeList<Exam>('exams', setRealExams);
+      subscribeList<ExamResultRecord>('examResults', setRealExamResults);
+      subscribeList<SpecialTopic>('specialTopics', setRealSpecialTopics);
+      subscribeList<SkknTopic>('skknTopics', setRealSkknTopics);
+      subscribeList<TrainingRecord>('trainings', setRealTrainings);
+      subscribeList<InitiativeRecord>('initiatives', setRealInitiatives);
+      subscribeList<SharedDocument>('documents', setRealDocuments);
+      subscribeList<ReportSnapshot>('reportSnapshots', setReportSnapshots);
+      subscribeList<AuditLog>('auditLogs', setRealAuditLogs);
 
       return () => {
-        unsubMembers();
+        subscriptions.forEach(unsubscribe => unsubscribe());
       };
     } catch (e) {
       console.warn('Firestore subscription restricted:', e);
     }
-  }, [isDemoMode, isFirestoreConnected]);
+  }, [isDemoMode, isFirestoreConnected, currentUser, realConfig.id]);
 
   // Current effective data depending on mode
   const currentMembers = isDemoMode ? SAMPLE_MEMBERS : realMembers;
@@ -1225,6 +1255,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return [...prev, snapshot];
     });
+    if (!isDemoMode && isFirestoreConnected) {
+      await setDoc(doc(db, 'reportSnapshots', snapshot.id), snapshot);
+    }
     setNotification({
       message: `Đã lưu báo cáo: "${snapshot.title}" (${snapshot.isLocked ? 'Đã chốt & khóa' : 'Bản nháp lưu'})`,
       type: 'success',
@@ -1236,7 +1269,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isDemoMode) {
       SAMPLE_SPECIAL_TOPICS.push(topic);
     } else {
-      setRealSpecialTopics(prev => [...prev, topic]);
+      setRealSpecialTopics(prev => [...prev.filter(item => item.id !== topic.id), topic]);
+      if (isFirestoreConnected) await setDoc(doc(db, 'specialTopics', topic.id), topic);
     }
     setNotification({ message: 'Đã lưu chuyên đề bồi dưỡng', type: 'success' });
   };
@@ -1245,7 +1279,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isDemoMode) {
       SAMPLE_TRAININGS.push(t);
     } else {
-      setRealTrainings(prev => [...prev, t]);
+      setRealTrainings(prev => [...prev.filter(item => item.id !== t.id), t]);
+      if (isFirestoreConnected) await setDoc(doc(db, 'trainings', t.id), t);
     }
     setNotification({ message: 'Đã lưu hồ sơ bồi dưỡng thường xuyên', type: 'success' });
   };
@@ -1254,7 +1289,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isDemoMode) {
       SAMPLE_INITIATIVES.push(init);
     } else {
-      setRealInitiatives(prev => [...prev, init]);
+      setRealInitiatives(prev => [...prev.filter(item => item.id !== init.id), init]);
+      if (isFirestoreConnected) await setDoc(doc(db, 'initiatives', init.id), init);
     }
     setNotification({ message: 'Đã lưu đăng ký sáng kiến kinh nghiệm', type: 'success' });
   };
@@ -1279,7 +1315,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isDemoMode) {
       SAMPLE_SKKN_TOPICS.unshift(skkn);
     } else {
-      setRealSkknTopics(prev => [skkn, ...prev]);
+      setRealSkknTopics(prev => [skkn, ...prev.filter(item => item.id !== skkn.id)]);
+      if (isFirestoreConnected) await setDoc(doc(db, 'skknTopics', skkn.id), skkn);
     }
     setNotification({ message: 'Đã lưu đề tài SKKN', type: 'success' });
   };
@@ -1294,6 +1331,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const clearAllRealData = async () => {
+    if (isFirestoreConnected) {
+      const collectionsToClear = [
+        'classes', 'assignments', 'departmentPlans', 'teacherPlans', 'lessonPlans',
+        'meetings', 'observations', 'questions', 'examBlueprints', 'exams', 'examResults',
+        'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots',
+      ];
+      for (const collectionName of collectionsToClear) {
+        const snapshot = await getDocs(collection(db, collectionName));
+        await Promise.all(snapshot.docs.map(item => deleteDoc(item.ref)));
+      }
+    }
     setRealClasses([]);
     setRealAssignments([]);
     setRealDeptPlans([]);
@@ -1310,6 +1358,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRealTrainings([]);
     setRealInitiatives([]);
     setRealDocuments([]);
+    setReportSnapshots([]);
     setRealAuditLogs([]);
     setIsDemoMode(false);
     setNotification({ message: 'Đã xóa trắng dữ liệu thật để bắt đầu năm học mới', type: 'info' });
@@ -1330,9 +1379,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       questions: currentQuestions,
       examBlueprints: currentExamBlueprints,
       exams: currentExams,
+      examResults: currentExamResults,
       specialTopics: currentSpecialTopics,
       skknTopics: currentSkknTopics,
+      trainings: currentTrainings,
+      initiatives: currentInitiatives,
       documents: currentDocuments,
+      reportSnapshots,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1356,7 +1409,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.observations) setRealObservations(data.observations);
       if (data.questions) setRealQuestions(data.questions);
       if (data.exams) setRealExams(data.exams);
+      if (data.examResults) setRealExamResults(data.examResults);
+      if (data.specialTopics) setRealSpecialTopics(data.specialTopics);
       if (data.skknTopics) setRealSkknTopics(data.skknTopics);
+      if (data.trainings) setRealTrainings(data.trainings);
+      if (data.initiatives) setRealInitiatives(data.initiatives);
+      if (data.documents) setRealDocuments(data.documents);
+      if (data.reportSnapshots) setReportSnapshots(data.reportSnapshots);
+      if (isFirestoreConnected) {
+        const saveList = async (collectionName: string, items: any[] = []) => {
+          await Promise.all(items.map(item => setDoc(doc(db, collectionName, item.id), item)));
+        };
+        await setDoc(doc(db, 'departments', data.config.id || realConfig.id), data.config);
+        await saveList('members', data.members);
+        await saveList('classes', data.classes);
+        await saveList('assignments', data.assignments);
+        await saveList('departmentPlans', data.departmentPlans);
+        await saveList('lessonPlans', data.lessonPlans);
+        await saveList('meetings', data.meetings);
+        await saveList('observations', data.observations);
+        await saveList('questions', data.questions);
+        await saveList('examBlueprints', data.examBlueprints);
+        await saveList('exams', data.exams);
+        await saveList('examResults', data.examResults);
+        await saveList('specialTopics', data.specialTopics);
+        await saveList('skknTopics', data.skknTopics);
+        await saveList('trainings', data.trainings);
+        await saveList('initiatives', data.initiatives);
+        await saveList('documents', data.documents);
+        await saveList('reportSnapshots', data.reportSnapshots);
+      }
       setIsDemoMode(false);
       setNotification({ message: 'Đã phục hồi dữ liệu từ file sao lưu thành công', type: 'success' });
     } else {

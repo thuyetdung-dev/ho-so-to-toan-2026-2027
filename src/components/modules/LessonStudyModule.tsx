@@ -13,6 +13,7 @@ import {
   FileCheck,
   Send,
   Sparkles,
+  X,
 } from 'lucide-react';
 
 export const LessonStudyModule: React.FC = () => {
@@ -29,6 +30,16 @@ export const LessonStudyModule: React.FC = () => {
 
   const [selectedMeetingId, setSelectedMeetingId] = useState<string>(meetings[0]?.id || '');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [newMeeting, setNewMeeting] = useState({
+    title: '',
+    type: 'regular' as Meeting['type'],
+    date: new Date().toISOString().split('T')[0],
+    location: 'Phòng họp tổ chuyên môn',
+    chairPerson: activeMember.displayName,
+    secretary: '',
+    content: '',
+    conclusions: '',
+  });
   const [opinionText, setOpinionText] = useState('');
   const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(2);
 
@@ -68,6 +79,44 @@ export const LessonStudyModule: React.FC = () => {
     await saveMeeting(updated);
     setOpinionText('');
     setNotification({ message: 'Đã lưu ý kiến phát biểu vào biên bản', type: 'success' });
+  };
+
+  const handleCreateMeeting = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMeeting.title.trim() || !newMeeting.date || !newMeeting.location.trim()) return;
+
+    const meeting: Meeting = {
+      id: `meeting-${Date.now()}`,
+      title: newMeeting.title.trim(),
+      type: newMeeting.type,
+      date: newMeeting.date,
+      location: newMeeting.location.trim(),
+      isOnline: false,
+      chairPerson: newMeeting.chairPerson.trim() || activeMember.displayName,
+      secretary: newMeeting.secretary.trim(),
+      attendees: allMembers.filter(m => m.status === 'active').map(m => m.displayName),
+      absentees: [],
+      content: newMeeting.content.trim(),
+      memberOpinions: [],
+      conclusions: newMeeting.conclusions.trim(),
+      tasks: [],
+      status: 'draft',
+      updatedAt: new Date().toISOString(),
+    };
+
+    await saveMeeting(meeting);
+    setSelectedMeetingId(meeting.id);
+    setShowAddModal(false);
+    setNewMeeting({
+      title: '',
+      type: 'regular',
+      date: new Date().toISOString().split('T')[0],
+      location: 'Phòng họp tổ chuyên môn',
+      chairPerson: activeMember.displayName,
+      secretary: '',
+      content: '',
+      conclusions: '',
+    });
   };
 
   return (
@@ -347,6 +396,65 @@ export const LessonStudyModule: React.FC = () => {
           )}
         </div>
       </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Tạo cuộc họp mới</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Biên bản sẽ được lưu vào Firestore ở trạng thái bản nháp.</p>
+              </div>
+              <button type="button" onClick={() => setShowAddModal(false)} className="p-1 text-slate-400 hover:text-slate-700" aria-label="Đóng">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateMeeting} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <label className="sm:col-span-2 font-semibold text-slate-700">
+                Tên cuộc họp <span className="text-rose-600">*</span>
+                <input required value={newMeeting.title} onChange={e => setNewMeeting(v => ({ ...v, title: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Ví dụ: Sinh hoạt chuyên môn tháng 9/2026" />
+              </label>
+              <label className="font-semibold text-slate-700">
+                Loại cuộc họp
+                <select value={newMeeting.type} onChange={e => setNewMeeting(v => ({ ...v, type: e.target.value as Meeting['type'] }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-normal">
+                  <option value="regular">Sinh hoạt định kỳ</option>
+                  <option value="extraordinary">Họp đột xuất</option>
+                  <option value="lesson_study">Nghiên cứu bài học</option>
+                </select>
+              </label>
+              <label className="font-semibold text-slate-700">
+                Ngày họp <span className="text-rose-600">*</span>
+                <input required type="date" value={newMeeting.date} onChange={e => setNewMeeting(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="sm:col-span-2 font-semibold text-slate-700">
+                Địa điểm <span className="text-rose-600">*</span>
+                <input required value={newMeeting.location} onChange={e => setNewMeeting(v => ({ ...v, location: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">
+                Chủ trì
+                <input value={newMeeting.chairPerson} onChange={e => setNewMeeting(v => ({ ...v, chairPerson: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">
+                Thư ký
+                <input value={newMeeting.secretary} onChange={e => setNewMeeting(v => ({ ...v, secretary: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Họ tên thư ký" />
+              </label>
+              <label className="sm:col-span-2 font-semibold text-slate-700">
+                Nội dung
+                <textarea rows={5} value={newMeeting.content} onChange={e => setNewMeeting(v => ({ ...v, content: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" placeholder="Các nội dung cần thảo luận..." />
+              </label>
+              <label className="sm:col-span-2 font-semibold text-slate-700">
+                Kết luận ban đầu
+                <textarea rows={3} value={newMeeting.conclusions} onChange={e => setNewMeeting(v => ({ ...v, conclusions: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" />
+              </label>
+              <div className="sm:col-span-2 flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
+                <button type="submit" className="px-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5"><Plus className="w-4 h-4" /> Tạo và lưu</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
