@@ -107,10 +107,10 @@ export const ReportsModule: React.FC = () => {
 
     return {
       title: `Báo cáo sơ kết hoạt động chuyên môn ${term} – Năm học ${config.academicYear}`,
-      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${config.academicYear}: ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${lessonPlans.length} kế hoạch bài dạy được lưu (${lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${specialTopics.length} chuyên đề bồi dưỡng, ${skknTopics.length} đề tài SKKN; ${questionsText}; và ${examsText}. ${testingText}`,
+      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${config.academicYear}: ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${lessonPlans.length} kế hoạch bài dạy được lưu (${lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${specialTopics.length} chuyên đề bồi dưỡng, ${skknTopics.length} đề tài SKKN. ${testingText}`,
       adv: `1. (Tổ trưởng điền) Việc chấp hành quy chế chuyên môn, thực hiện chương trình GDPT 2018.\n2. (Tổ trưởng điền) Ứng dụng CNTT, đổi mới phương pháp dạy học.\n3. ${allScores.length > 0 ? `Đã tổng hợp kết quả kiểm tra: điểm trung bình ${avgScore.toFixed(2)}.` : '(Tổ trưởng điền) Kết quả kiểm tra, đánh giá.'}`,
-      lim: `1. Số lượng câu hỏi ở mức độ vận dụng cao trong ngân hàng đề cần tiếp tục được bổ sung và chuẩn hóa.\n2. ${live.observationsCount < 4 ? 'Hoạt động dự giờ chéo giữa các đồng nghiệp trong tổ cần được đẩy mạnh theo đúng kế hoạch.' : 'Hoạt động viết sáng kiến kinh nghiệm cấp cơ sở cần đẩy nhanh tiến độ thử nghiệm thực tiễn.'}`,
-      dir: `1. Tiếp tục rà soát, thẩm định và chuẩn hóa ngân hàng câu hỏi định dạng 2025 theo đúng ma trận và bản đặc tả.\n2. Tổ chức chuyên đề sinh hoạt chuyên môn theo hướng nghiên cứu bài học tập trung vào các dạng bài toán ứng dụng thực tế.\n3. Duy trì kế hoạch phụ đạo học sinh có kết quả kiểm tra dưới trung bình và bồi dưỡng học sinh khá giỏi.`,
+      lim: `1. (Tổ trưởng điền) Những hạn chế trong thực hiện chương trình, kiểm tra đánh giá.\n2. ${live.observationsCount < 4 ? 'Hoạt động dự giờ chéo giữa các đồng nghiệp trong tổ cần được đẩy mạnh theo đúng kế hoạch.' : 'Hoạt động viết sáng kiến kinh nghiệm cấp cơ sở cần đẩy nhanh tiến độ thử nghiệm thực tiễn.'}`,
+      dir: `1. Tiếp tục đổi mới kiểm tra, đánh giá theo định hướng phát triển năng lực, bám sát định dạng đề thi tốt nghiệp THPT.\n2. Tổ chức chuyên đề sinh hoạt chuyên môn theo hướng nghiên cứu bài học tập trung vào các dạng bài toán ứng dụng thực tế.\n3. Duy trì kế hoạch phụ đạo học sinh có kết quả kiểm tra dưới trung bình và bồi dưỡng học sinh khá giỏi.`,
     };
   };
 
@@ -226,10 +226,8 @@ export const ReportsModule: React.FC = () => {
       { 'Mục': 'Số buổi họp chuyên môn', 'Nội dung': live.meetingsCount },
       { 'Mục': 'Số buổi SHCM theo NCBH', 'Nội dung': live.lessonStudyCount },
       { 'Mục': 'Số tiết dự giờ', 'Nội dung': live.observationsCount },
-      { 'Mục': 'Số câu hỏi trong ngân hàng', 'Nội dung': live.questionsCount },
       { 'Mục': 'Số kế hoạch bài dạy', 'Nội dung': live.plansCount },
       { 'Mục': 'Điểm trung bình các bảng điểm', 'Nội dung': live.avgScore || 'Chưa có dữ liệu' },
-      { 'Mục': 'Số đề kiểm tra đã lập', 'Nội dung': live.examsCount },
       { 'Mục': 'Báo cáo tổng quan', 'Nội dung': executiveSummary },
       { 'Mục': 'Ưu điểm & Kết quả đạt được', 'Nội dung': advantages },
       { 'Mục': 'Tồn tại & Hạn chế', 'Nội dung': limitations },
@@ -246,7 +244,6 @@ export const ReportsModule: React.FC = () => {
       'Lớp phụ trách': t.classes,
       'Số tiết dự giờ đồng nghiệp': t.obsDone,
       'Số tiết được dự': t.obsReceived,
-      'Số câu hỏi đóng góp ngân hàng': t.questionsContributed,
     }));
     exportToExcel([{ name: 'ThongKeGiaoVien', data: rows }], `Thong_Ke_Tien_Do_To_Toan_${config.academicYear}`);
   };
@@ -320,10 +317,10 @@ export const ReportsModule: React.FC = () => {
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-              <div className="text-xs text-slate-500 font-medium">Ngân hàng câu hỏi</div>
-              <div className="text-2xl font-bold text-purple-600 mt-1">{questions.length}</div>
+              <div className="text-xs text-slate-500 font-medium">Kế hoạch bài dạy</div>
+              <div className="text-2xl font-bold text-purple-600 mt-1">{lessonPlans.length}</div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {approvedQuestionsCount} câu đã duyệt
+                {lessonPlans.filter(p => p.status === 'approved').length} giáo án đã duyệt
               </div>
             </div>
           </div>
@@ -546,7 +543,6 @@ export const ReportsModule: React.FC = () => {
                     <th className="p-3">Lớp phụ trách</th>
                     <th className="p-3 text-center">Tiết dự giờ</th>
                     <th className="p-3 text-center">Tiết được dự</th>
-                    <th className="p-3 text-center">Câu hỏi đóng góp</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -558,7 +554,6 @@ export const ReportsModule: React.FC = () => {
                       <td className="p-3 text-slate-700 font-medium">{t.classes}</td>
                       <td className="p-3 text-center font-semibold text-slate-800">{t.obsDone}</td>
                       <td className="p-3 text-center font-semibold text-slate-800">{t.obsReceived}</td>
-                      <td className="p-3 text-center font-bold text-purple-700">{t.questionsContributed}</td>
                     </tr>
                   ))}
                 </tbody>

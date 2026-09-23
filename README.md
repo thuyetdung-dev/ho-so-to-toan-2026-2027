@@ -122,6 +122,12 @@ firebase deploy --only firestore:rules
 - Thêm hàm serverless `api/ai.ts` + `vercel.json`; `server.ts` dùng lại đúng hàm này nên chạy trên máy hay Vercel đều giống nhau.
 - Trang Trợ lý AI tự kiểm tra máy chủ đã có khóa Gemini chưa và hướng dẫn cách thêm nếu thiếu.
 
+### Bản 2.0.3 – Gọn giao diện
+- Bỏ khỏi menu 2 mục "Ngân hàng câu hỏi & Đề" và "Phân tích kết quả" (mã nguồn vẫn giữ trong `src/components/modules/ExamCreatorModule.tsx`, `AnalyticsModule.tsx` nếu cần bật lại). Menu đánh số lại 1–11.
+- Trang Tổng quan: bỏ cột "Cấu trúc Ngân hàng câu hỏi" và hộp "Lưu ý quy định chuyên môn", nội dung chính dàn rộng toàn trang.
+- Bảng "Kế hoạch dạy học theo CV 5512" trên Tổng quan trước đây là 3 bài **viết cứng**; nay lấy đúng các bài của tuần hiện tại từ Kế hoạch dạy học của tổ (tính theo ngày bắt đầu năm học), kèm trạng thái thực dạy thật.
+- Bỏ các dòng chữ bịa: "100% đã được phê duyệt", "Đạt chỉ tiêu kế hoạch tháng"; Báo cáo không còn nhắc tới ngân hàng câu hỏi/đề.
+
 ## 5. Cấu trúc thư mục chính
 
 ```

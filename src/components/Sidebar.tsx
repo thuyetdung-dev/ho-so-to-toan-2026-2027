@@ -12,8 +12,6 @@ import {
   Printer,
   Bot,
   Settings,
-  FileCheck2,
-  ChartNoAxesCombined,
 } from 'lucide-react';
 
 export const MODULE_IDS = [
@@ -24,8 +22,6 @@ export const MODULE_IDS = [
   'lesson-study',
   'observations',
   'special-topics',
-  'exams',
-  'analytics',
   'documents',
   'reports',
   'ai-assistant',
@@ -53,7 +49,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     lessonPlans,
     departmentPlans,
     accessRequests,
-    questions,
     permissions,
   } = useApp();
 
@@ -61,7 +56,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pendingLessonPlans = permissions.isLeader ? lessonPlans.filter(p => p.status === 'submitted').length : 0;
   const pendingDeptPlans = permissions.canApproveDeptPlan ? departmentPlans.filter(p => p.status === 'submitted').length : 0;
   const pendingRequests = permissions.isLeader ? accessRequests.filter(r => r.status === 'pending').length : 0;
-  const pendingQuestions = permissions.isLeader ? questions.filter(q => q.status === 'pending').length : 0;
 
   const navItems = [
     {
@@ -117,37 +111,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: null,
     },
     {
-      id: 'exams' as ActiveModule,
-      label: '8. Ngân hàng câu hỏi & Đề',
-      desc: 'Định dạng đề 2025, in đề',
-      icon: FileCheck2,
-      badge: pendingQuestions > 0 ? `${pendingQuestions}` : null,
-      badgeColor: 'bg-amber-500',
-    },
-    {
-      id: 'analytics' as ActiveModule,
-      label: '9. Phân tích kết quả',
-      desc: 'Phổ điểm, tỉ lệ đạt theo lớp',
-      icon: ChartNoAxesCombined,
-      badge: null,
-    },
-    {
       id: 'documents' as ActiveModule,
-      label: '10. Tài liệu dùng chung',
+      label: '8. Tài liệu dùng chung',
       desc: 'Văn bản, mẫu biểu, bài giảng',
       icon: FolderOpen,
       badge: null,
     },
     {
       id: 'reports' as ActiveModule,
-      label: '11. Báo cáo & In',
+      label: '9. Báo cáo & In',
       desc: 'Báo cáo tháng, học kỳ, xuất Excel',
       icon: Printer,
       badge: null,
     },
     {
       id: 'ai-assistant' as ActiveModule,
-      label: '12. Trợ lý AI Toán học',
+      label: '10. Trợ lý AI Toán học',
       desc: 'Soạn đề, giải toán, tóm tắt dự giờ',
       icon: Bot,
       badge: 'Gemini',
@@ -155,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'settings' as ActiveModule,
-      label: '13. Cài đặt & Lưu trữ',
+      label: '11. Cài đặt & Lưu trữ',
       desc: 'Sao lưu JSON, phân quyền, nhật ký',
       icon: Settings,
       badge: null,

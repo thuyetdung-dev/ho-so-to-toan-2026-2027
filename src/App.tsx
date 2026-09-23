@@ -25,8 +25,6 @@ const LessonPlansModule = lazy(() => import('./components/modules/LessonPlansMod
 const LessonStudyModule = lazy(() => import('./components/modules/LessonStudyModule').then(m => ({ default: m.LessonStudyModule })));
 const ObservationModule = lazy(() => import('./components/modules/ObservationModule').then(m => ({ default: m.ObservationModule })));
 const SpecialTopicsModule = lazy(() => import('./components/modules/SpecialTopicsModule').then(m => ({ default: m.SpecialTopicsModule })));
-const ExamCreatorModule = lazy(() => import('./components/modules/ExamCreatorModule').then(m => ({ default: m.ExamCreatorModule })));
-const AnalyticsModule = lazy(() => import('./components/modules/AnalyticsModule').then(m => ({ default: m.AnalyticsModule })));
 const DocumentsModule = lazy(() => import('./components/modules/DocumentsModule').then(m => ({ default: m.DocumentsModule })));
 const ReportsModule = lazy(() => import('./components/modules/ReportsModule').then(m => ({ default: m.ReportsModule })));
 const AiAssistantModule = lazy(() => import('./components/modules/AiAssistantModule').then(m => ({ default: m.AiAssistantModule })));
@@ -125,10 +123,6 @@ const MainLayout: React.FC = () => {
         return <ObservationModule />;
       case 'special-topics':
         return <SpecialTopicsModule />;
-      case 'exams':
-        return <ExamCreatorModule />;
-      case 'analytics':
-        return <AnalyticsModule />;
       case 'documents':
         return <DocumentsModule />;
       case 'reports':

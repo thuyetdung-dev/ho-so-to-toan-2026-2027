@@ -19,6 +19,14 @@ interface OverviewModuleProps {
   onNavigate: (module: ActiveModule) => void;
 }
 
+const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+  completed: { label: 'Đã dạy', cls: 'bg-emerald-100 text-emerald-800' },
+  in_progress: { label: 'Đang dạy', cls: 'bg-amber-100 text-amber-800' },
+  planned: { label: 'Theo kế hoạch', cls: 'bg-slate-100 text-slate-700' },
+  delayed: { label: 'Chậm tiến độ', cls: 'bg-rose-100 text-rose-800' },
+  make_up: { label: 'Dạy bù', cls: 'bg-violet-100 text-violet-800' },
+};
+
 export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) => {
   const {
     activeMember,
@@ -30,8 +38,6 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
     lessonPlans,
     meetings,
     observations,
-    questions,
-    exams,
     permissions,
   } = useApp();
 
@@ -39,8 +45,6 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
   const myLessonPlans = lessonPlans.filter(p => p.teacherId === activeMember.id);
   const pendingLessonPlans = lessonPlans.filter(p => p.status === 'submitted');
   const myObservations = observations.filter(o => o.observerId === activeMember.id || o.teacherId === activeMember.id);
-  const approvedQuestionsCount = questions.filter(q => q.status === 'approved').length;
-  const pendingQuestionsCount = questions.filter(q => q.status === 'pending').length;
 
   // Bản cũ lấy 2 phần tử đầu mảng (không phải cuộc họp sắp tới). Nay: sắp tới trước, nếu không có thì gần nhất.
   const today = new Date().toISOString().slice(0, 10);
@@ -50,10 +54,16 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
     : [...meetings].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   ).slice(0, 2);
 
-  // Question distribution by grade
-  const qGrade10 = questions.filter(q => q.grade === 10).length;
-  const qGrade11 = questions.filter(q => q.grade === 11).length;
-  const qGrade12 = questions.filter(q => q.grade === 12).length;
+  // Tuần học hiện tại tính từ ngày bắt đầu năm học (bản cũ hiển thị 3 bài học viết cứng)
+  const start = new Date(config.startDate || `${config.academicYear.slice(0, 4)}-09-05`);
+  const weeksTotal = config.weeksCount || 35;
+  const rawWeek = Math.floor((Date.now() - start.getTime()) / (7 * 24 * 3600 * 1000)) + 1;
+  const currentWeek = Number.isFinite(rawWeek) ? Math.min(Math.max(rawWeek, 1), weeksTotal) : 1;
+  const weekRows = ([12, 11, 10] as const).flatMap(grade => {
+    const plans = departmentPlans.filter(p => p.grade === grade);
+    const plan = plans.find(p => p.academicYear === config.academicYear) || plans[0];
+    return (plan?.distribution || []).filter(it => Number(it.week) === currentWeek).map(item => ({ grade, item }));
+  });
 
   return (
     <div className="space-y-6">
@@ -130,7 +140,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
       )}
 
       {/* Primary KPI Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div
           onClick={() => onNavigate('members')}
           className="bg-white border border-slate-200 rounded-xl p-4 cursor-pointer hover:border-blue-300 transition-all shadow-xs"
@@ -155,7 +165,9 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
           </div>
           <div className="text-xl font-bold text-slate-900">{lessonPlans.length} giáo án</div>
           <div className="text-[11px] text-slate-500 mt-1">
-            {pendingLessonPlans.length > 0 ? `${pendingLessonPlans.length} chờ duyệt` : '100% đã được phê duyệt'}
+            {pendingLessonPlans.length > 0
+              ? `${pendingLessonPlans.length} chờ duyệt`
+              : `${lessonPlans.filter(p => p.status === 'approved').length} đã được phê duyệt`}
           </div>
         </div>
 
@@ -169,14 +181,13 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
             <Eye className="w-4 h-4 text-amber-600" />
           </div>
           <div className="text-xl font-bold text-slate-900">{observations.length} lượt dự giờ</div>
-          <div className="text-[11px] text-slate-500 mt-1">Đạt chỉ tiêu kế hoạch tháng</div>
+          <div className="text-[11px] text-slate-500 mt-1">{myObservations.length} phiếu liên quan đến bạn</div>
         </div>
       </div>
 
-      {/* Main Content Split: Recent Activities & Question Bank Progress */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Schedule & Curriculum Progress */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Nội dung chính (đã bỏ cột Ngân hàng câu hỏi & Lưu ý theo yêu cầu) */}
+      <div className="grid grid-cols-1 gap-6">
+        <div className="space-y-6">
           {/* Sinh hoạt chuyên môn sắp tới */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
             <div className="flex items-center justify-between mb-4">
@@ -237,7 +248,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-emerald-600" />
-                <h2 className="text-sm font-bold text-slate-800">Kế hoạch dạy học theo CV 5512 (Tuần này)</h2>
+                <h2 className="text-sm font-bold text-slate-800">Kế hoạch dạy học theo CV 5512 (Tuần {currentWeek})</h2>
               </div>
               <button
                 onClick={() => onNavigate('plans')}
@@ -259,121 +270,36 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  <tr className="hover:bg-slate-50">
-                    <td className="p-2.5 font-bold text-blue-700">Khối 12</td>
-                    <td className="p-2.5 font-medium text-slate-800">Đường tiệm cận của đồ thị hàm số</td>
-                    <td className="p-2.5">4 tiết</td>
-                    <td className="p-2.5 text-slate-500">GeoGebra minh họa đồ thị</td>
-                    <td className="p-2.5">
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-semibold">
-                        Đúng tiến độ
-                      </span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50">
-                    <td className="p-2.5 font-bold text-cyan-700">Khối 11</td>
-                    <td className="p-2.5 font-medium text-slate-800">Hàm số lượng giác và đồ thị</td>
-                    <td className="p-2.5">4 tiết</td>
-                    <td className="p-2.5 text-slate-500">Máy chiếu, thước vẽ parabol</td>
-                    <td className="p-2.5">
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-semibold">
-                        Đúng tiến độ
-                      </span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50">
-                    <td className="p-2.5 font-bold text-emerald-700">Khối 10</td>
-                    <td className="p-2.5 font-medium text-slate-800">Bất phương trình bậc nhất hai ẩn</td>
-                    <td className="p-2.5">3 tiết</td>
-                    <td className="p-2.5 text-slate-500">Phiếu học tập nhóm</td>
-                    <td className="p-2.5">
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-semibold">
-                        Đúng tiến độ
-                      </span>
-                    </td>
-                  </tr>
+                  {weekRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-center text-slate-500">
+                        {departmentPlans.length === 0
+                          ? 'Chưa có Kế hoạch dạy học của tổ. Vào mục 3 để soạn kế hoạch cho từng khối.'
+                          : `Tuần ${currentWeek}: kế hoạch các khối chưa có bài dạy nào.`}
+                      </td>
+                    </tr>
+                  ) : (
+                    weekRows.map(({ grade, item }) => {
+                      const st = STATUS_LABEL[item.status || 'planned'] || STATUS_LABEL.planned;
+                      return (
+                        <tr key={`${grade}-${item.id}`} className="hover:bg-slate-50">
+                          <td className={`p-2.5 font-bold ${grade === 12 ? 'text-blue-700' : grade === 11 ? 'text-cyan-700' : 'text-emerald-700'}`}>Khối {grade}</td>
+                          <td className="p-2.5 font-medium text-slate-800">{item.topicTitle}</td>
+                          <td className="p-2.5">{item.periods} tiết</td>
+                          <td className="p-2.5 text-slate-500">{item.equipment || '—'}</td>
+                          <td className="p-2.5">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${st.cls}`}>{st.label}</span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        {/* Right Col: Question Bank Stats & Quick Help */}
-        <div className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-            <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center justify-between">
-              <span>Cấu trúc Ngân hàng câu hỏi</span>
-              <span className="text-[11px] text-slate-400 font-normal">GDPT 2018</span>
-            </h2>
-
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs font-medium mb-1">
-                  <span className="text-slate-600">Khối 12 (Trọng tâm tốt nghiệp)</span>
-                  <span className="font-bold text-blue-700">{qGrade12} câu</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-600 rounded-full"
-                    style={{ width: `${Math.min(100, (qGrade12 / (questions.length || 1)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-medium mb-1">
-                  <span className="text-slate-600">Khối 11</span>
-                  <span className="font-bold text-cyan-700">{qGrade11} câu</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-cyan-600 rounded-full"
-                    style={{ width: `${Math.min(100, (qGrade11 / (questions.length || 1)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-medium mb-1">
-                  <span className="text-slate-600">Khối 10</span>
-                  <span className="font-bold text-emerald-700">{qGrade10} câu</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-600 rounded-full"
-                    style={{ width: `${Math.min(100, (qGrade10 / (questions.length || 1)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5 pt-4 border-t border-slate-100">
-              <div className="text-[11px] text-slate-500 font-medium mb-2">Định dạng đề mới 2025:</div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="p-2 bg-slate-50 rounded border border-slate-200">
-                  <div className="font-bold text-slate-700">Đúng / Sai</div>
-                  <div className="text-[11px] text-slate-500">4 câu / 4.0đ</div>
-                </div>
-                <div className="p-2 bg-slate-50 rounded border border-slate-200">
-                  <div className="font-bold text-slate-700">Trả lời ngắn</div>
-                  <div className="text-[11px] text-slate-500">6 câu / 3.0đ</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Guidelines box */}
-          <div className="bg-linear-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 shadow-xs">
-            <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
-              Lưu ý quy định chuyên môn
-            </h3>
-            <ul className="text-xs text-blue-800 space-y-2 list-disc list-inside">
-              <li>Mọi công thức Toán sử dụng chuẩn KaTeX: inline <code>$...$</code> hoặc block <code>$$...$$</code>.</li>
-              <li>Chế độ trải nghiệm hoàn toàn cách ly với cơ sở dữ liệu thật trên Cloud Firestore.</li>
-              <li>Các đề kiểm tra chưa công bố chỉ tác giả và tổ trưởng có quyền xem.</li>
-            </ul>
-          </div>
-        </div>
       </div>
     </div>
   );
