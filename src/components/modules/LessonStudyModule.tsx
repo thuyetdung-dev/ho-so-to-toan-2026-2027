@@ -14,21 +14,35 @@ import {
   Send,
   Sparkles,
   X,
+  Pencil,
+  Trash2,
+  Printer,
 } from 'lucide-react';
+import { useConfirm } from '../common/ConfirmDialog';
+import { newId, todayISO } from '../../utils/ids';
 
 export const LessonStudyModule: React.FC = () => {
   const {
     activeMember,
     meetings,
     saveMeeting,
+    deleteMeeting,
     allMembers,
     config,
     setNotification,
+    permissions,
   } = useApp();
+  const confirm = useConfirm();
 
-  const isLeader = activeMember.role === 'head' || activeMember.role === 'deputy' || activeMember.role === 'admin';
+  const isLeader = permissions.isLeader;
 
-  const [selectedMeetingId, setSelectedMeetingId] = useState<string>(meetings[0]?.id || '');
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string>('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [attendees, setAttendees] = useState<string[]>([]);
+  const [absenteesText, setAbsenteesText] = useState('');
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskAssignee, setTaskAssignee] = useState('');
+  const [taskDeadline, setTaskDeadline] = useState(todayISO());
   const [showAddModal, setShowAddModal] = useState(false);
   const [newMeeting, setNewMeeting] = useState({
     title: '',
@@ -43,7 +57,82 @@ export const LessonStudyModule: React.FC = () => {
   const [opinionText, setOpinionText] = useState('');
   const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(2);
 
-  const selectedMeeting = meetings.find(m => m.id === selectedMeetingId) || meetings[0];
+  const sortedMeetings = [...meetings].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const selectedMeeting = meetings.find(m => m.id === selectedMeetingId) || sortedMeetings[0];
+  const activeMembers = allMembers.filter(m => m.status === 'active');
+
+  const openCreate = () => {
+    setEditingId(null);
+    setNewMeeting({
+      title: '',
+      type: 'regular',
+      date: todayISO(),
+      location: 'Phòng họp tổ chuyên môn',
+      chairPerson: activeMember.displayName,
+      secretary: '',
+      content: '',
+      conclusions: '',
+    });
+    setAttendees(activeMembers.map(m => m.displayName));
+    setAbsenteesText('');
+    setShowAddModal(true);
+  };
+
+  const openEdit = (m: Meeting) => {
+    setEditingId(m.id);
+    setNewMeeting({
+      title: m.title,
+      type: m.type,
+      date: m.date,
+      location: m.location,
+      chairPerson: m.chairPerson,
+      secretary: m.secretary,
+      content: m.content,
+      conclusions: m.conclusions,
+    });
+    setAttendees(m.attendees || []);
+    setAbsenteesText((m.absentees || []).map(a => `${a.name}${a.reason ? ` - ${a.reason}` : ''}`).join('\n'));
+    setShowAddModal(true);
+  };
+
+  const handleDeleteMeeting = async () => {
+    if (!selectedMeeting) return;
+    const ok = await confirm({
+      title: 'Xóa biên bản họp?',
+      message: `Biên bản "${selectedMeeting.title}" sẽ bị xóa vĩnh viễn.`,
+      confirmText: 'Xóa biên bản',
+      danger: true,
+    });
+    if (ok) {
+      await deleteMeeting(selectedMeeting.id);
+      setSelectedMeetingId('');
+    }
+  };
+
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMeeting || !taskTitle.trim()) return;
+    const task: MeetingTask = {
+      id: newId('task'),
+      title: taskTitle.trim(),
+      assigneeName: taskAssignee || activeMember.displayName,
+      deadline: taskDeadline,
+      status: 'pending',
+    };
+    if (await saveMeeting({ ...selectedMeeting, tasks: [...(selectedMeeting.tasks || []), task] }, { silent: true })) {
+      setTaskTitle('');
+      setNotification({ message: 'Đã giao nhiệm vụ', type: 'success' });
+    }
+  };
+
+  const cycleTaskStatus = async (taskId: string) => {
+    if (!selectedMeeting) return;
+    const next: Record<MeetingTask['status'], MeetingTask['status']> = { pending: 'in_progress', in_progress: 'completed', completed: 'pending' };
+    await saveMeeting(
+      { ...selectedMeeting, tasks: selectedMeeting.tasks.map(t => (t.id === taskId ? { ...t, status: next[t.status] } : t)) },
+      { silent: true },
+    );
+  };
 
   const handleLockMeeting = async () => {
     if (!selectedMeeting) return;
@@ -54,11 +143,20 @@ export const LessonStudyModule: React.FC = () => {
       lockedAt: isLocked ? undefined : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await saveMeeting(updated);
-    setNotification({
-      message: isLocked ? 'Đã mở khóa biên bản sinh hoạt' : 'Đã chốt và khóa biên bản sinh hoạt chuyên môn',
-      type: 'info',
-    });
+    if (!isLocked) {
+      const ok = await confirm({
+        title: 'Chốt và khóa biên bản?',
+        message: 'Sau khi chốt, thành viên không thể thêm ý kiến. Chỉ Tổ trưởng/Tổ phó mới mở khóa được.',
+        confirmText: 'Chốt biên bản',
+      });
+      if (!ok) return;
+    }
+    if (await saveMeeting(updated, { silent: true })) {
+      setNotification({
+        message: isLocked ? 'Đã mở khóa biên bản sinh hoạt' : 'Đã chốt và khóa biên bản sinh hoạt chuyên môn',
+        type: 'info',
+      });
+    }
   };
 
   const handleAddOpinion = async (e: React.FormEvent) => {
@@ -76,17 +174,28 @@ export const LessonStudyModule: React.FC = () => {
       updatedAt: new Date().toISOString(),
     };
 
-    await saveMeeting(updated);
-    setOpinionText('');
-    setNotification({ message: 'Đã lưu ý kiến phát biểu vào biên bản', type: 'success' });
+    if (await saveMeeting(updated, { silent: true })) {
+      setOpinionText('');
+      setNotification({ message: 'Đã lưu ý kiến phát biểu vào biên bản', type: 'success' });
+    }
   };
 
   const handleCreateMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMeeting.title.trim() || !newMeeting.date || !newMeeting.location.trim()) return;
 
+    const existing = editingId ? meetings.find(m => m.id === editingId) : undefined;
+    const absentees = absenteesText
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(l => {
+        const [name, ...rest] = l.split(' - ');
+        return { name: name.trim(), reason: rest.join(' - ').trim() };
+      });
     const meeting: Meeting = {
-      id: `meeting-${Date.now()}`,
+      ...(existing || {}),
+      id: existing?.id || newId('meeting'),
       title: newMeeting.title.trim(),
       type: newMeeting.type,
       date: newMeeting.date,
@@ -94,19 +203,20 @@ export const LessonStudyModule: React.FC = () => {
       isOnline: false,
       chairPerson: newMeeting.chairPerson.trim() || activeMember.displayName,
       secretary: newMeeting.secretary.trim(),
-      attendees: allMembers.filter(m => m.status === 'active').map(m => m.displayName),
-      absentees: [],
+      attendees,
+      absentees,
       content: newMeeting.content.trim(),
-      memberOpinions: [],
+      memberOpinions: existing?.memberOpinions || [],
       conclusions: newMeeting.conclusions.trim(),
-      tasks: [],
-      status: 'draft',
+      tasks: existing?.tasks || [],
+      status: existing?.status || 'draft',
       updatedAt: new Date().toISOString(),
     };
 
-    await saveMeeting(meeting);
+    if (!(await saveMeeting(meeting))) return;
     setSelectedMeetingId(meeting.id);
     setShowAddModal(false);
+    setEditingId(null);
     setNewMeeting({
       title: '',
       type: 'regular',
@@ -135,7 +245,7 @@ export const LessonStudyModule: React.FC = () => {
 
         {isLeader && (
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={openCreate}
             id="btn-add-meeting"
             className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
           >
@@ -211,7 +321,10 @@ export const LessonStudyModule: React.FC = () => {
         <div className="lg:col-span-4 space-y-3">
           <div className="text-xs font-bold text-slate-700 px-1">Danh sách các kỳ họp ({meetings.length})</div>
           <div className="space-y-2">
-            {meetings.map(m => {
+            {sortedMeetings.length === 0 && (
+              <div className="p-4 text-center text-xs text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">Chưa có buổi họp nào.</div>
+            )}
+            {sortedMeetings.map(m => {
               const isSelected = m.id === selectedMeeting?.id;
               const isFinalized = m.status === 'finalized';
 
@@ -266,6 +379,20 @@ export const LessonStudyModule: React.FC = () => {
                   <h2 className="text-base font-bold text-slate-900 mt-1">{selectedMeeting.title}</h2>
                 </div>
 
+                <div className="flex flex-wrap gap-2 print:hidden">
+                <button onClick={() => window.print()} className="px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1 border border-slate-200">
+                  <Printer className="w-3.5 h-3.5" /> In
+                </button>
+                {isLeader && selectedMeeting.status !== 'finalized' && (
+                  <button onClick={() => openEdit(selectedMeeting)} className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 border border-blue-200 hover:bg-blue-50 rounded-lg flex items-center gap-1">
+                    <Pencil className="w-3.5 h-3.5" /> Sửa
+                  </button>
+                )}
+                {permissions.isAdminOrHead && (
+                  <button onClick={handleDeleteMeeting} className="px-2.5 py-1.5 text-xs text-rose-700 border border-rose-200 hover:bg-rose-50 rounded-lg" aria-label="Xóa biên bản">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 {isLeader && (
                   <button
                     onClick={handleLockMeeting}
@@ -288,6 +415,7 @@ export const LessonStudyModule: React.FC = () => {
                     )}
                   </button>
                 )}
+                </div>
               </div>
 
               {/* Thông tin chung */}
@@ -306,8 +434,16 @@ export const LessonStudyModule: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-500">Có mặt: </span>
-                  <span className="font-semibold text-slate-800">{selectedMeeting.attendees?.join(', ')}</span>
+                  <span className="font-semibold text-slate-800">{selectedMeeting.attendees?.join(', ') || '—'}</span>
                 </div>
+                {selectedMeeting.absentees?.length > 0 && (
+                  <div className="sm:col-span-2">
+                    <span className="text-slate-500">Vắng: </span>
+                    <span className="font-semibold text-slate-800">
+                      {selectedMeeting.absentees.map(a => `${a.name}${a.reason ? ` (${a.reason})` : ''}`).join(', ')}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Nội dung họp */}
@@ -366,7 +502,7 @@ export const LessonStudyModule: React.FC = () => {
                 </div>
 
                 {/* Nhiệm vụ có hạn */}
-                {selectedMeeting.tasks?.length > 0 && (
+                {(selectedMeeting.tasks?.length > 0 || isLeader) && (
                   <div className="space-y-2 pt-2">
                     <div className="text-xs font-bold text-slate-700">Các công việc được giao:</div>
                     <div className="space-y-1.5">
@@ -379,12 +515,37 @@ export const LessonStudyModule: React.FC = () => {
                             <span className="font-medium text-slate-900">{t.title}</span>
                             <span className="text-slate-500 ml-2">({t.assigneeName} • Hạn: {t.deadline})</span>
                           </div>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                            {t.status === 'completed' ? 'Hoàn thành' : 'Đang thực hiện'}
-                          </span>
+                          <button
+                            type="button"
+                            disabled={!(isLeader || (t.assigneeName === activeMember.displayName && selectedMeeting.status !== 'finalized'))}
+                            onClick={() => cycleTaskStatus(t.id)}
+                            title="Bấm để đổi trạng thái"
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold disabled:cursor-default ${
+                              t.status === 'completed'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : t.status === 'in_progress'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {t.status === 'completed' ? 'Hoàn thành' : t.status === 'in_progress' ? 'Đang thực hiện' : 'Chưa bắt đầu'}
+                          </button>
                         </div>
                       ))}
                     </div>
+                    {isLeader && (
+                      <form onSubmit={handleAddTask} className="grid grid-cols-1 sm:grid-cols-[2fr_1.2fr_1fr_auto] gap-2 pt-1 print:hidden">
+                        <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="Nội dung nhiệm vụ..." className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg" aria-label="Nhiệm vụ" />
+                        <select value={taskAssignee} onChange={e => setTaskAssignee(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-300 rounded-lg bg-white" aria-label="Người thực hiện">
+                          <option value="">— Người thực hiện —</option>
+                          {activeMembers.map(m => (
+                            <option key={m.id} value={m.displayName}>{m.displayName}</option>
+                          ))}
+                        </select>
+                        <input type="date" value={taskDeadline} onChange={e => setTaskDeadline(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-300 rounded-lg" aria-label="Hạn" />
+                        <button type="submit" className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Giao việc</button>
+                      </form>
+                    )}
                   </div>
                 )}
               </div>
@@ -402,7 +563,7 @@ export const LessonStudyModule: React.FC = () => {
           <div className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Tạo cuộc họp mới</h3>
+                <h3 className="text-base font-bold text-slate-900">{editingId ? 'Sửa biên bản họp' : 'Tạo cuộc họp mới'}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Biên bản sẽ được lưu vào Firestore ở trạng thái bản nháp.</p>
               </div>
               <button type="button" onClick={() => setShowAddModal(false)} className="p-1 text-slate-400 hover:text-slate-700" aria-label="Đóng">
@@ -439,17 +600,40 @@ export const LessonStudyModule: React.FC = () => {
                 Thư ký
                 <input value={newMeeting.secretary} onChange={e => setNewMeeting(v => ({ ...v, secretary: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Họ tên thư ký" />
               </label>
+              <fieldset className="sm:col-span-2">
+                <legend className="font-semibold text-slate-700 mb-1">Thành viên có mặt</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeMembers.map(m => {
+                    const on = attendees.includes(m.displayName);
+                    return (
+                      <label key={m.id} className={`px-2 py-1 rounded border cursor-pointer ${on ? 'bg-blue-50 border-blue-300 text-blue-800' : 'border-slate-200 text-slate-500'}`}>
+                        <input
+                          type="checkbox"
+                          className="mr-1"
+                          checked={on}
+                          onChange={() => setAttendees(p => (on ? p.filter(n => n !== m.displayName) : [...p, m.displayName]))}
+                        />
+                        {m.displayName}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+              <label className="sm:col-span-2 font-semibold text-slate-700">
+                Vắng mặt (mỗi dòng: Họ tên - Lý do)
+                <textarea rows={2} value={absenteesText} onChange={e => setAbsenteesText(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" />
+              </label>
               <label className="sm:col-span-2 font-semibold text-slate-700">
                 Nội dung
                 <textarea rows={5} value={newMeeting.content} onChange={e => setNewMeeting(v => ({ ...v, content: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" placeholder="Các nội dung cần thảo luận..." />
               </label>
               <label className="sm:col-span-2 font-semibold text-slate-700">
-                Kết luận ban đầu
+                Kết luận
                 <textarea rows={3} value={newMeeting.conclusions} onChange={e => setNewMeeting(v => ({ ...v, conclusions: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" />
               </label>
               <div className="sm:col-span-2 flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
-                <button type="submit" className="px-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5"><Plus className="w-4 h-4" /> Tạo và lưu</button>
+                <button type="submit" className="px-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5"><Plus className="w-4 h-4" /> {editingId ? 'Lưu thay đổi' : 'Tạo và lưu'}</button>
               </div>
             </form>
           </div>

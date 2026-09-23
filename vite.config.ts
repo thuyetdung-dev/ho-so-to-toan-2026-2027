@@ -11,6 +11,10 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname, '.'),
       },
     },
+    build: {
+      // firebase SDK (~600 kB) nằm trong một chunk riêng; các phân hệ đã được tách lazy-load
+      chunkSizeWarningLimit: 800,
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.

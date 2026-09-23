@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { useApp } from '../../context/AppContext';
+import { useApp, lessonSnapshot } from '../../context/AppContext';
+import { VersionDiffModal } from '../common/VersionDiffModal';
+import { LessonPlanEditorModal } from './LessonPlanEditorModal';
+import { useConfirm } from '../common/ConfirmDialog';
+import { newId, todayISO } from '../../utils/ids';
 import { LessonPlan, LessonPlanActivity } from '../../types';
 import { MathText } from '../../utils/katex-renderer';
 import {
@@ -22,6 +26,9 @@ import {
   X,
   ChevronRight,
   BookOpen,
+  Pencil,
+  Trash2,
+  Printer as PrinterIcon,
 } from 'lucide-react';
 
 export const LessonPlansModule: React.FC = () => {
@@ -32,11 +39,17 @@ export const LessonPlansModule: React.FC = () => {
     submitLessonPlan,
     reviewLessonPlan,
     updateLessonPlanTeachingStatus,
+    deleteLessonPlan,
     classes,
     setNotification,
+    permissions,
   } = useApp();
+  const confirm = useConfirm();
 
-  const isLeader = activeMember.role === 'head' || activeMember.role === 'deputy' || activeMember.role === 'admin';
+  const isLeader = permissions.isLeader;
+  const [editingPlan, setEditingPlan] = useState<LessonPlan | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [onlyMine, setOnlyMine] = useState(false);
 
   const [selectedPlanId, setSelectedPlanId] = useState<string>(lessonPlans[0]?.id || '');
   const [filterGrade, setFilterGrade] = useState<'all' | 10 | 11 | 12>('all');
@@ -63,23 +76,45 @@ export const LessonPlansModule: React.FC = () => {
   // Version History & Diff Viewer State (Lỗi 21)
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showDiffModal, setShowDiffModal] = useState(false);
-  const [diffVersionA, setDiffVersionA] = useState<number>(1);
-  const [diffVersionB, setDiffVersionB] = useState<number>(2);
 
   // Teaching Status Modal State (Lỗi 21)
   const [showTeachingModal, setShowTeachingModal] = useState(false);
   const [teachingStatus, setTeachingStatus] = useState<'not_taught' | 'in_progress' | 'completed'>('completed');
-  const [teachingDate, setTeachingDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [teachingDate, setTeachingDate] = useState<string>(todayISO());
   const [teachingClasses, setTeachingClasses] = useState<string[]>([]);
 
-  const selectedPlan = lessonPlans.find(p => p.id === selectedPlanId) || lessonPlans[0];
-
-  const filteredPlans = lessonPlans.filter(p => {
+  const filteredPlans = lessonPlans
+    .filter(p => {
     if (filterGrade !== 'all' && p.grade !== filterGrade) return false;
+    if (onlyMine && p.teacherId !== activeMember.id) return false;
+    if (searchText.trim()) {
+      const kw = searchText.trim().toLowerCase();
+      if (!`${p.title} ${p.topicTitle} ${p.teacherName}`.toLowerCase().includes(kw)) return false;
+    }
     if (filterTeachingStatus === 'not_taught' && p.isTaught) return false;
     if (filterTeachingStatus === 'completed' && !p.isTaught) return false;
     return true;
-  });
+  })
+    .sort((a, b) => a.grade - b.grade || a.week - b.week);
+
+  const selectedPlan = lessonPlans.find(p => p.id === selectedPlanId) || filteredPlans[0];
+  const isOwner = !!selectedPlan && selectedPlan.teacherId === activeMember.id;
+  const canEdit = !!selectedPlan && permissions.canContribute && (isOwner || isLeader) && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
+  const canSubmit = !!selectedPlan && isOwner && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
+  const canDelete = !!selectedPlan && ((isOwner && selectedPlan.status === 'draft') || permissions.isAdminOrHead);
+
+  const handleDelete = async () => {
+    if (!selectedPlan) return;
+    const ok = await confirm({
+      title: 'Xóa kế hoạch bài dạy?',
+      message: `"${selectedPlan.title}" sẽ bị xóa vĩnh viễn cùng các góp ý và lịch sử phiên bản.`,
+      confirmText: 'Xóa',
+      danger: true,
+    });
+    if (!ok) return;
+    await deleteLessonPlan(selectedPlan.id);
+    setSelectedPlanId('');
+  };
 
   const handleExecuteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,7 +149,7 @@ export const LessonPlansModule: React.FC = () => {
     if (!commentText.trim() || !selectedPlan) return;
 
     const newComment = {
-      id: `c-${Date.now()}`,
+      id: newId('c'),
       authorId: activeMember.id,
       authorName: activeMember.displayName,
       sectionId: commentSection,
@@ -129,15 +164,18 @@ export const LessonPlansModule: React.FC = () => {
       updatedAt: new Date().toISOString(),
     };
 
-    await saveLessonPlan(updated);
-    setCommentText('');
-    setNotification({ message: 'Đã thêm góp ý cho kế hoạch bài dạy', type: 'success' });
+    if (await saveLessonPlan(updated, { silent: true })) {
+      setCommentText('');
+      setNotification({ message: 'Đã thêm góp ý cho kế hoạch bài dạy', type: 'success' });
+    }
   };
 
   const handleClonePlan = async (plan: LessonPlan) => {
     const cloned: LessonPlan = {
       ...plan,
-      id: `lp-clone-${Date.now()}`,
+      id: newId('lp'),
+      approvedBy: undefined,
+      taughtClasses: [],
       teacherId: activeMember.id,
       teacherName: activeMember.displayName,
       title: `${plan.title} (Bản điều chỉnh của ${activeMember.displayName})`,
@@ -156,13 +194,15 @@ export const LessonPlansModule: React.FC = () => {
           changeSummary: `Nhân bản từ giáo án gốc của ${plan.teacherName}`,
           summary: `Nhân bản từ giáo án gốc của ${plan.teacherName}`,
           status: 'draft',
+          dataSnapshot: lessonSnapshot(plan),
         },
       ],
       updatedAt: new Date().toISOString(),
     };
-    await saveLessonPlan(cloned);
-    setSelectedPlanId(cloned.id);
-    setNotification({ message: `Đã nhân bản kế hoạch bài dạy từ tác giả ${plan.teacherName}`, type: 'success' });
+    if (await saveLessonPlan(cloned, { silent: true })) {
+      setSelectedPlanId(cloned.id);
+      setNotification({ message: `Đã nhân bản kế hoạch bài dạy từ tác giả ${plan.teacherName}. Bạn có thể chỉnh sửa bản sao ngay.`, type: 'success' });
+    }
   };
 
   const handleCreatePlan = async (e: React.FormEvent) => {
@@ -175,7 +215,7 @@ export const LessonPlansModule: React.FC = () => {
       ['Hoạt động 3: Luyện tập', 'Củng cố kiến thức và rèn luyện kỹ năng'],
       ['Hoạt động 4: Vận dụng', 'Vận dụng kiến thức vào tình huống thực tiễn'],
     ].map(([name, objectives], index) => ({
-      id: `activity-${Date.now()}-${index + 1}`,
+      id: newId(`activity${index + 1}`),
       name,
       objectives,
       content: '',
@@ -183,7 +223,7 @@ export const LessonPlansModule: React.FC = () => {
       implementation: '',
     }));
     const plan: LessonPlan = {
-      id: `lesson-plan-${Date.now()}`,
+      id: newId('lp'),
       teacherId: activeMember.id,
       teacherName: activeMember.displayName,
       grade: newPlan.grade,
@@ -213,9 +253,10 @@ export const LessonPlansModule: React.FC = () => {
         status: 'draft',
       }],
     };
-    await saveLessonPlan(plan);
+    if (!(await saveLessonPlan(plan))) return;
     setSelectedPlanId(plan.id);
     setShowCreateModal(false);
+    setEditingPlan(plan); // mở ngay trình soạn thảo nội dung
     setNewPlan({ title: '', topicTitle: '', grade: 10, week: 1, periodCount: 1 });
   };
 
@@ -236,13 +277,13 @@ export const LessonPlansModule: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
+          {permissions.canContribute && <button
             onClick={() => setShowCreateModal(true)}
             className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Tạo giáo án mới</span>
-          </button>
+          </button>}
           {selectedPlan && (
             <>
               <button
@@ -254,13 +295,7 @@ export const LessonPlansModule: React.FC = () => {
               </button>
 
               <button
-                onClick={() => {
-                  if (selectedPlan.versionHistory && selectedPlan.versionHistory.length > 1) {
-                    setDiffVersionA(selectedPlan.versionHistory[0].version);
-                    setDiffVersionB(selectedPlan.version);
-                  }
-                  setShowDiffModal(true);
-                }}
+                onClick={() => setShowDiffModal(true)}
                 className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 rounded-lg border border-slate-200 flex items-center gap-1.5 shadow-xs transition-colors"
               >
                 <GitCompare className="w-3.5 h-3.5 text-indigo-600" />
@@ -313,6 +348,19 @@ export const LessonPlansModule: React.FC = () => {
         {/* Left Col: Plan Selector & Filter */}
         <div className="lg:col-span-4 space-y-3">
           <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+            <div className="flex items-center gap-2">
+              <input
+                type="search"
+                value={searchText}
+                onChange={e => setSearchText(e.target.value)}
+                placeholder="Tìm theo tên bài, chủ đề, người soạn..."
+                className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                aria-label="Tìm giáo án"
+              />
+              <label className="text-[11px] text-slate-600 flex items-center gap-1 shrink-0">
+                <input type="checkbox" checked={onlyMine} onChange={e => setOnlyMine(e.target.checked)} /> Của tôi
+              </label>
+            </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-700">Lọc theo khối:</span>
               <div className="flex gap-1">
@@ -362,6 +410,11 @@ export const LessonPlansModule: React.FC = () => {
           </div>
 
           <div className="space-y-2 max-h-[75vh] overflow-y-auto pr-1">
+            {filteredPlans.length === 0 && (
+              <div className="p-4 text-center text-xs text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
+                Không có giáo án phù hợp bộ lọc.
+              </div>
+            )}
             {filteredPlans.map(plan => {
               const isSelected = plan.id === selectedPlan?.id;
 
@@ -482,7 +535,7 @@ export const LessonPlansModule: React.FC = () => {
 
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Teaching progress update button */}
-                  <button
+                  {(isOwner || isLeader) && <button
                     onClick={() => {
                       const statusVal =
                         selectedPlan.teachingStatus === 'teaching' || selectedPlan.teachingStatus === 'in_progress'
@@ -491,7 +544,7 @@ export const LessonPlansModule: React.FC = () => {
                           ? 'completed'
                           : 'not_taught';
                       setTeachingStatus(statusVal);
-                      setTeachingDate(selectedPlan.taughtDate || new Date().toISOString().split('T')[0]);
+                      setTeachingDate(selectedPlan.taughtDate || todayISO());
                       setTeachingClasses(selectedPlan.taughtClasses || selectedPlan.classNames || []);
                       setShowTeachingModal(true);
                     }}
@@ -503,19 +556,45 @@ export const LessonPlansModule: React.FC = () => {
                   >
                     <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
                     <span>{selectedPlan.isTaught ? `Đã dạy (${selectedPlan.taughtDate || 'Xong'})` : 'Ghi nhận thực dạy'}</span>
-                  </button>
+                  </button>}
 
-                  <button
+                  {permissions.canContribute && <button
                     onClick={() => handleClonePlan(selectedPlan)}
                     className="px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center gap-1 border border-slate-200"
                     title="Nhân bản để điều chỉnh cho lớp của bạn"
                   >
                     <Copy className="w-3.5 h-3.5" />
                     <span>Nhân bản</span>
-                  </button>
+                  </button>}
 
-                  {/* Submission control for Teacher */}
-                  {(selectedPlan.status === 'draft' || selectedPlan.status === 'returned') && (
+                  {canEdit && (
+                    <button
+                      onClick={() => setEditingPlan(selectedPlan)}
+                      className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-blue-50 text-blue-700 rounded-lg flex items-center gap-1 border border-blue-200"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Soạn / Sửa</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => window.print()}
+                    className="px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center gap-1 border border-slate-200"
+                    title="In / Xuất PDF giáo án"
+                  >
+                    <PrinterIcon className="w-3.5 h-3.5" />
+                    <span>In</span>
+                  </button>
+                  {canDelete && (
+                    <button
+                      onClick={handleDelete}
+                      className="px-2.5 py-1.5 text-xs font-medium bg-white hover:bg-rose-50 text-rose-700 rounded-lg flex items-center gap-1 border border-rose-200"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {/* Submission control: chỉ người soạn mới trình duyệt giáo án của mình */}
+                  {canSubmit && (
                     <button
                       onClick={() => setShowSubmitModal(true)}
                       className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1 shadow-xs"
@@ -526,7 +605,7 @@ export const LessonPlansModule: React.FC = () => {
                   )}
 
                   {/* Approval controls for Leader */}
-                  {isLeader && selectedPlan.status === 'submitted' && (
+                  {isLeader && selectedPlan.status === 'submitted' && (!isOwner || permissions.isAdminOrHead) && (
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => {
@@ -560,9 +639,14 @@ export const LessonPlansModule: React.FC = () => {
                   I. Mục tiêu bài dạy (Theo chuẩn GDPT 2018)
                 </h3>
                 <div className="space-y-2 text-xs text-slate-700">
-                  <p><strong>1. Về kiến thức:</strong> {selectedPlan.objectivesKnowledge}</p>
-                  <p><strong>2. Về năng lực:</strong> {selectedPlan.objectivesCompetence}</p>
-                  <p><strong>3. Về phẩm chất:</strong> {selectedPlan.objectivesQualities}</p>
+                  <div><strong>1. Về kiến thức:</strong> <MathText as="span" content={selectedPlan.objectivesKnowledge || '—'} /></div>
+                  <div><strong>2. Về năng lực:</strong> <MathText as="span" content={selectedPlan.objectivesCompetence || '—'} /></div>
+                  <div><strong>3. Về phẩm chất:</strong> <MathText as="span" content={selectedPlan.objectivesQualities || '—'} /></div>
+                  {!selectedPlan.objectivesKnowledge && canEdit && (
+                    <button onClick={() => setEditingPlan(selectedPlan)} className="text-blue-700 font-semibold underline">
+                      Giáo án chưa có nội dung – bấm để soạn
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -594,11 +678,11 @@ export const LessonPlansModule: React.FC = () => {
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">b) Nội dung: </span>
-                        <MathText content={act.content} />
+                        <MathText as="span" content={act.content || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">c) Sản phẩm: </span>
-                        <MathText content={act.product} />
+                        <MathText as="span" content={act.product || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">d) Tổ chức thực hiện: </span>
@@ -942,94 +1026,22 @@ export const LessonPlansModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Diff Comparison (Lỗi 21) */}
       {showDiffModal && selectedPlan && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2 text-indigo-700">
-                <GitCompare className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900">So sánh Hai phiên bản Giáo án (Diff Viewer)</h3>
-              </div>
-              <button onClick={() => setShowDiffModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <VersionDiffModal
+          title={selectedPlan.title}
+          history={selectedPlan.versionHistory || []}
+          current={lessonSnapshot(selectedPlan)}
+          onClose={() => setShowDiffModal(false)}
+        />
+      )}
 
-            <div className="flex items-center justify-between gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">Bản cũ (A):</span>
-                <select
-                  value={diffVersionA}
-                  onChange={e => setDiffVersionA(Number(e.target.value))}
-                  className="px-2 py-1 border border-slate-300 rounded bg-white font-bold text-blue-700"
-                >
-                  <option value={1}>v1 (Bản nộp ban đầu)</option>
-                  <option value={2}>v2 (Bản đã chỉnh sửa)</option>
-                </select>
-              </div>
-
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">Bản mới (B):</span>
-                <select
-                  value={diffVersionB}
-                  onChange={e => setDiffVersionB(Number(e.target.value))}
-                  className="px-2 py-1 border border-slate-300 rounded bg-white font-bold text-emerald-700"
-                >
-                  <option value={1}>v1</option>
-                  <option value={2}>v2 (Hiện tại)</option>
-                  <option value={3}>v3 (Mới nhất)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-3 text-xs">
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                    <tr>
-                      <th className="p-2.5">Thành phần giáo án</th>
-                      <th className="p-2.5 bg-rose-50/50 text-rose-900">Phiên bản A (v{diffVersionA})</th>
-                      <th className="p-2.5 bg-emerald-50/50 text-emerald-900">Phiên bản B (v{diffVersionB})</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-slate-700">
-                    <tr>
-                      <td className="p-2.5 font-medium">Trạng thái duyệt</td>
-                      <td className="p-2.5 bg-rose-50/20 text-rose-800 font-bold">Chờ duyệt / Cần sửa</td>
-                      <td className="p-2.5 bg-emerald-50/20 text-emerald-800 font-bold">Đã phê duyệt (Approved)</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2.5 font-medium">Hoạt động 3 (Luyện tập)</td>
-                      <td className="p-2.5 bg-rose-50/20">3 bài tập trắc nghiệm cơ bản</td>
-                      <td className="p-2.5 bg-emerald-50/20 font-bold">
-                        Bổ sung 2 bài toán ứng dụng thực tế & bài toán mở
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="p-2.5 font-medium">Thiết bị dạy học</td>
-                      <td className="p-2.5 bg-rose-50/20">Bảng phụ, phiếu học tập</td>
-                      <td className="p-2.5 bg-emerald-50/20 font-bold">
-                        Máy chiếu + Mô hình GeoGebra 3D tương tác
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 flex justify-end">
-              <button
-                onClick={() => setShowDiffModal(false)}
-                className="px-4 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg"
-              >
-                Đóng đối chiếu
-              </button>
-            </div>
-          </div>
-        </div>
+      {editingPlan && (
+        <LessonPlanEditorModal
+          plan={editingPlan}
+          classes={classes}
+          onCancel={() => setEditingPlan(null)}
+          onSave={plan => saveLessonPlan(plan)}
+        />
       )}
     </div>
   );

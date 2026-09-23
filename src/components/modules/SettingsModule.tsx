@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useConfirm } from '../common/ConfirmDialog';
+import { newId } from '../../utils/ids';
 import { useApp } from '../../context/AppContext';
 import {
   Settings,
@@ -57,9 +59,13 @@ export const SettingsModule: React.FC = () => {
     exportSystemBackup,
     importSystemBackup,
     setNotification,
+    permissions,
+    canSimulateRoles,
+    isLoading,
   } = useApp();
+  const confirm = useConfirm();
 
-  const isLeader = activeMember.role === 'head' || activeMember.role === 'admin';
+  const isLeader = permissions.isAdminOrHead;
 
   // Navigation tab in Settings
   const [activeTab, setActiveTab] = useState<
@@ -93,7 +99,7 @@ export const SettingsModule: React.FC = () => {
   const [newClassRoom, setNewClassRoom] = useState('');
 
   // Calendar Milestone State
-  const [milestones, setMilestones] = useState<AcademicCalendarMilestone[]>(config.academicCalendar || []);
+  const [milestones, setMilestones] = useState<AcademicCalendarMilestone[]>(config.academicCalendar || config.calendarMilestones || []);
   const [showAddMilestoneModal, setShowAddMilestoneModal] = useState(false);
   const [newMilestoneName, setNewMilestoneName] = useState('');
   const [newMilestoneTerm, setNewMilestoneTerm] = useState<'HK1' | 'HK2' | 'CaNam'>('HK1');
@@ -140,6 +146,24 @@ export const SettingsModule: React.FC = () => {
   const [newTemplateShortPoints, setNewTemplateShortPoints] = useState(3.0);
   const [newTemplateDesc, setNewTemplateDesc] = useState('');
 
+  // Đồng bộ lại biểu mẫu khi cấu hình thay đổi (dữ liệu thật tải về sau, đổi chế độ demo/thật...).
+  // Bản cũ chỉ đọc cấu hình lúc mở trang → khi lưu có thể ghi đè cấu hình thật bằng giá trị mặc định.
+  useEffect(() => {
+    setSchoolName(config.schoolName);
+    setDepartmentName(config.departmentName);
+    setAcademicYear(config.academicYear);
+    setCurrentTerm(config.currentTerm);
+    setStandardPeriods(config.standardPeriods || 17);
+    setWeeksCount(config.weeksCount || 35);
+    setMilestones(config.academicCalendar || config.calendarMilestones || []);
+    setTopics(config.curriculumTopics || []);
+    setCompetencies(config.competencyTags || []);
+    setCriteria(config.observationCriteria || []);
+    setExamTemplates(config.examTemplates || []);
+    const [y1] = (config.academicYear || '').split('-').map(Number);
+    if (y1) setNextYearInput(`${y1 + 1}-${y1 + 2}`);
+  }, [config]);
+
   // Handlers
   const handleSaveGeneralConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -154,10 +178,17 @@ export const SettingsModule: React.FC = () => {
   };
 
   const handleExecuteYearTransition = async () => {
-    if (!nextYearInput.trim()) {
-      setNotification({ message: 'Vui lòng nhập tên năm học mới (Ví dụ: 2027-2028)', type: 'error' });
+    if (!/^\d{4}-\d{4}$/.test(nextYearInput.trim())) {
+      setNotification({ message: 'Năm học mới phải có dạng YYYY-YYYY (ví dụ 2027-2028)', type: 'error' });
       return;
     }
+    const ok = await confirm({
+      title: `Chuyển sang năm học ${nextYearInput.trim()}?`,
+      message: 'Toàn bộ phân công giảng dạy năm hiện tại sẽ bị xóa để phân công lại. Nên tải tệp sao lưu JSON trước khi thực hiện.',
+      confirmText: 'Chuyển năm học',
+      danger: true,
+    });
+    if (!ok) return;
     setIsTransitioning(true);
     try {
       await transitionToNewAcademicYear(nextYearInput.trim(), {
@@ -178,7 +209,7 @@ export const SettingsModule: React.FC = () => {
     e.preventDefault();
     if (!newClassName.trim()) return;
     const newCls: SchoolClass = {
-      id: `cls-${Date.now()}`,
+      id: newId('cls'),
       name: newClassName.trim().toUpperCase(),
       grade: newClassGrade,
       track: newClassTrack,
@@ -192,15 +223,14 @@ export const SettingsModule: React.FC = () => {
   };
 
   const handleSaveCalendar = async (newList: AcademicCalendarMilestone[]) => {
-    setMilestones(newList);
-    await updateConfig({ academicCalendar: newList });
+    if (await updateConfig({ academicCalendar: newList, calendarMilestones: newList })) setMilestones(newList);
   };
 
   const handleAddMilestone = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMilestoneName.trim()) return;
     const newM: AcademicCalendarMilestone = {
-      id: `milestone-${Date.now()}`,
+      id: newId('milestone'),
       title: newMilestoneName.trim(),
       term: newMilestoneTerm,
       startDate: newMilestoneStart || new Date().toISOString().split('T')[0],
@@ -229,7 +259,7 @@ export const SettingsModule: React.FC = () => {
     e.preventDefault();
     if (!newTopicName.trim()) return;
     const topic: CurriculumTopic = {
-      id: `top-${Date.now()}`,
+      id: newId('top'),
       code: newTopicCode.trim() || `TOP-${Date.now().toString().slice(-4)}`,
       name: newTopicName.trim(),
       grade: newTopicGrade,
@@ -258,7 +288,7 @@ export const SettingsModule: React.FC = () => {
     e.preventDefault();
     if (!newCompName.trim() || !newCompCode.trim()) return;
     const comp: MathCompetencyTag = {
-      id: `comp-${Date.now()}`,
+      id: newId('comp'),
       code: newCompCode.trim().toUpperCase(),
       name: newCompName.trim(),
       description: newCompDesc.trim(),
@@ -288,7 +318,7 @@ export const SettingsModule: React.FC = () => {
     e.preventDefault();
     if (!newCritName.trim()) return;
     const crit: ObservationCriterionItem = {
-      id: `crit-${Date.now()}`,
+      id: newId('crit'),
       code: `TC-${Date.now().toString().slice(-3)}`,
       category: newCritCategory,
       name: newCritName.trim(),
@@ -315,7 +345,7 @@ export const SettingsModule: React.FC = () => {
     if (!newTemplateName.trim()) return;
     const totalScore = Number(newTemplateMcqPoints) + Number(newTemplateTfPoints) + Number(newTemplateShortPoints);
     const tmpl: ExamTemplateStructure = {
-      id: `tmpl-${Date.now()}`,
+      id: newId('tmpl'),
       name: newTemplateName.trim(),
       durationMinutes: Number(newTemplateDuration),
       totalQuestions: Number(newTemplateMcqCount) + Number(newTemplateTfCount) + Number(newTemplateShortCount),
@@ -342,15 +372,48 @@ export const SettingsModule: React.FC = () => {
 
   const handleBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-
+    if (file.size > 20 * 1024 * 1024) {
+      setNotification({ message: 'Tệp sao lưu quá lớn (tối đa 20 MB).', type: 'error' });
+      return;
+    }
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
+      const ok = await confirm({
+        title: 'Phục hồi dữ liệu từ tệp sao lưu?',
+        message: isDemoMode
+          ? 'Dữ liệu trong tệp sẽ được nạp vào chế độ DỮ LIỆU MẪU để xem thử (không ảnh hưởng dữ liệu thật).'
+          : 'Các bản ghi trong tệp sẽ GHI ĐÈ bản ghi cùng mã trên Firestore. Nên tải bản sao lưu hiện tại trước.',
+        confirmText: 'Phục hồi',
+        danger: !isDemoMode,
+      });
+      if (!ok) return;
       await importSystemBackup(parsed);
     } catch (err: any) {
-      setNotification({ message: `Lỗi giải mã file sao lưu: ${err.message}`, type: 'error' });
+      setNotification({ message: `Lỗi đọc file sao lưu: ${err.message}`, type: 'error' });
     }
+  };
+
+  const handleClearAll = async () => {
+    const ok = await confirm({
+      title: 'XÓA TRẮNG toàn bộ dữ liệu chuyên môn?',
+      message: 'Toàn bộ lớp, phân công, kế hoạch, giáo án, biên bản, dự giờ, câu hỏi, đề, tài liệu, báo cáo trên Firestore sẽ bị xóa VĨNH VIỄN. Thành viên, cấu hình và nhật ký được giữ lại. Hãy tải tệp sao lưu trước!',
+      confirmText: 'Xóa vĩnh viễn',
+      danger: true,
+      requireText: 'XOA TRANG',
+    });
+    if (ok) await clearAllRealData();
+  };
+
+  const handleResetSample = async () => {
+    const ok = await confirm({
+      title: 'Khôi phục dữ liệu mẫu?',
+      message: 'Mọi thay đổi bạn đã thử trong chế độ demo sẽ mất. Dữ liệu thật không bị ảnh hưởng.',
+      confirmText: 'Khôi phục',
+    });
+    if (ok) await resetToSampleData();
   };
 
   const filteredClasses = selectedGradeFilter === 0
@@ -1054,8 +1117,8 @@ export const SettingsModule: React.FC = () => {
             </table>
           </div>
 
-          {/* Switch Role Simulator */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          {/* Switch Role Simulator – chỉ có ở chế độ demo (bản cũ cho mạo danh cả ở dữ liệu thật) */}
+          {canSimulateRoles && <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div>
               <span className="text-xs font-bold text-slate-800">Mô phỏng vai trò làm việc: </span>
               <span className="text-xs text-slate-500">
@@ -1081,7 +1144,7 @@ export const SettingsModule: React.FC = () => {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
         </div>
       )}
 
@@ -1114,20 +1177,20 @@ export const SettingsModule: React.FC = () => {
 
             <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={resetToSampleData}
+                onClick={handleResetSample}
                 className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 flex items-center gap-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Khôi phục dữ liệu mẫu gốc</span>
               </button>
 
-              <button
-                onClick={clearAllRealData}
+              {permissions.isAdmin && !isDemoMode && <button
+                onClick={handleClearAll}
                 className="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 flex items-center gap-1.5"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Xóa trắng để đưa vào sử dụng thật</span>
-              </button>
+              </button>}
             </div>
           </div>
 
@@ -1151,11 +1214,13 @@ export const SettingsModule: React.FC = () => {
                 <span>Tải tệp sao lưu JSON</span>
               </button>
 
-              <label className="px-3.5 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-300 flex items-center gap-1.5 cursor-pointer">
+              {(isLeader || isDemoMode) && (
+              <label className={`px-3.5 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-300 flex items-center gap-1.5 cursor-pointer ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
                 <Upload className="w-4 h-4 text-blue-600" />
-                <span>Phục hồi từ tệp JSON</span>
-                <input type="file" accept=".json" onChange={handleBackupUpload} className="hidden" />
+                <span>{isLoading ? 'Đang phục hồi...' : 'Phục hồi từ tệp JSON'}</span>
+                <input type="file" accept=".json,application/json" onChange={handleBackupUpload} className="hidden" />
               </label>
+              )}
             </div>
           </div>
         </div>

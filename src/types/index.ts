@@ -86,14 +86,26 @@ export interface ExamTemplateStructure {
   description?: string;
 }
 
+export type QuestionType = 'mcq' | 'true_false' | 'short_answer' | 'essay';
+export type QuestionDifficulty = 'NB' | 'TH' | 'VD' | 'VDC';
+
 export interface Question {
   id: string;
   content: string;
-  type: string;
-  difficulty: string;
+  type: QuestionType | string;
+  difficulty: QuestionDifficulty | string;
   grade: 10 | 11 | 12;
   topic?: string;
+  /** Phương án A-D (trắc nghiệm) hoặc 4 mệnh đề a-d (đúng/sai) */
+  options?: string[];
+  /** mcq: 'A'..'D'; true_false: 'ĐSĐS'; short_answer/essay: đáp án */
   answer?: string;
+  solution?: string;
+  authorId?: string;
+  authorName?: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: unknown;
 }
 
@@ -109,6 +121,15 @@ export interface Exam {
   title: string;
   status: string;
   isPublished: boolean;
+  grade?: 10 | 11 | 12;
+  durationMinutes?: number;
+  templateName?: string;
+  questionIds?: string[];
+  authorId?: string;
+  authorName?: string;
+  academicYear?: string;
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: unknown;
 }
 
@@ -116,16 +137,40 @@ export interface ExamResultRecord {
   id: string;
   className: string;
   scores?: number[];
+  examTitle?: string;
+  grade?: 10 | 11 | 12;
+  teacherName?: string;
+  date?: string;
+  academicYear?: string;
+  createdAt?: string;
   [key: string]: unknown;
 }
 
 export type ScoreRecord = ExamResultRecord;
 
+export type DocumentCategory = 'van_ban' | 'mau_bieu' | 'bai_giang' | 'de_kiem_tra' | 'hoc_lieu' | 'khac';
+
 export interface SharedDocument {
   id: string;
   title: string;
   url?: string;
+  category?: DocumentCategory | string;
+  description?: string;
+  grade?: 10 | 11 | 12 | 0;
+  uploaderId?: string;
+  uploaderName?: string;
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: unknown;
+}
+
+/** Chỉ mục phân quyền (id = email viết thường) — Firestore rules dùng để kiểm tra quyền. */
+export interface AccessIndexEntry {
+  id: string;
+  email: string;
+  role: UserRole;
+  memberId: string;
+  updatedAt: string;
 }
 
 export interface DepartmentConfig {
@@ -431,6 +476,7 @@ export interface SpecialTopic {
   totalPeriods?: number;
   description?: string;
   attachmentsCount?: number;
+  materialsUrl?: string;
   createdAt?: string;
   updatedAt?: string;
 }

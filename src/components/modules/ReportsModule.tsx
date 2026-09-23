@@ -21,6 +21,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { exportToExcel } from '../../utils/excel';
+import { newId } from '../../utils/ids';
 
 export const ReportsModule: React.FC = () => {
   const {
@@ -37,9 +38,12 @@ export const ReportsModule: React.FC = () => {
     saveReportSnapshot,
     activeMember,
     setNotification,
+    permissions,
+    lessonPlans,
+    skknTopics,
   } = useApp();
 
-  const isLeader = activeMember.role === 'head' || activeMember.role === 'deputy' || activeMember.role === 'admin';
+  const isLeader = permissions.isLeader;
 
   const [activeReportTab, setActiveReportTab] = useState<'summary' | 'teacher_stats' | 'so_sinh_hoat'>('summary');
 
@@ -58,23 +62,31 @@ export const ReportsModule: React.FC = () => {
 
   // Live aggregated metrics
   const approvedQuestionsCount = questions.filter(q => q.status === 'approved').length;
-  const lessonStudyMeetingsCount = meetings.filter(m => m.type === 'lesson_study' || m.title?.toLowerCase().includes('nghiên cứu')).length;
+  const lessonStudyMeetingsCount = meetings.filter(m => m.type === 'lesson_study').length;
+  // Bản cũ gán cứng điểm trung bình 7.42 và lấy max(số buổi NCBH, số chuyên đề) → số liệu báo cáo sai.
+  const allScores = scoreRecords.flatMap(r => (Array.isArray(r.scores) ? r.scores.filter(x => typeof x === 'number' && !Number.isNaN(x)) : []));
+  const avgScore = allScores.length ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 100) / 100 : 0;
+  const activeTeachers = allMembers.filter(m => m.status === 'active' && m.role !== 'principal');
+  const assignedTeacherIds = new Set(assignments.map(a => a.teacherId));
+  const assignedPct = activeTeachers.length ? Math.round((activeTeachers.filter(m => assignedTeacherIds.has(m.id)).length / activeTeachers.length) * 100) : 0;
 
   const calculateLiveMetrics = () => ({
     membersCount: allMembers.length,
     meetingsCount: meetings.length,
-    lessonStudyCount: Math.max(lessonStudyMeetingsCount, specialTopics.length),
+    lessonStudyCount: lessonStudyMeetingsCount,
     observationsCount: observations.length,
     questionsCount: questions.length,
     examsCount: exams.length,
-    avgScore: scoreRecords.length > 0 ? 7.42 : 0,
+    avgScore,
+    plansCount: lessonPlans.length,
+    specialTopicsCount: specialTopics.length,
   });
 
   // Generate live default narrative strictly based on actual numbers
   const generateLiveNarrative = (term = 'Giữa HK1') => {
     const live = calculateLiveMetrics();
     const meetingsText = live.meetingsCount > 0
-      ? `đã tổ chức ${live.meetingsCount} buổi sinh hoạt chuyên môn${live.lessonStudyCount > 0 ? ` (trong đó có ${live.lessonStudyCount} chuyên đề nghiên cứu bài học)` : ' (chưa có chuyên đề NCBH)'}`
+      ? `đã tổ chức ${live.meetingsCount} buổi sinh hoạt chuyên môn${live.lessonStudyCount > 0 ? ` (trong đó có ${live.lessonStudyCount} buổi theo nghiên cứu bài học)` : ' (chưa có buổi sinh hoạt theo NCBH)'}`
       : 'chưa có dữ liệu buổi sinh hoạt chuyên môn';
 
     const observationsText = live.observationsCount > 0
@@ -89,14 +101,14 @@ export const ReportsModule: React.FC = () => {
       ? `xây dựng ${live.examsCount} đề kiểm tra theo định dạng mới 2025`
       : 'chưa có dữ liệu đề kiểm tra chính thức';
 
-    const testingText = scoreRecords.length > 0
-      ? `Dữ liệu kết quả kiểm tra gồm ${scoreRecords.length} bài thi đã được phân tích phổ điểm và chỉ số trắc nghiệm Item Analysis (độ khó P, độ phân biệt D).`
-      : 'Chưa có dữ liệu bài làm kiểm tra được nạp vào để phân tích Item Analysis trong kỳ này.';
+    const testingText = allScores.length > 0
+      ? `Đã nhập ${scoreRecords.length} bảng điểm (${allScores.length} lượt học sinh), điểm trung bình ${avgScore.toFixed(2)}.`
+      : 'Chưa có dữ liệu kết quả kiểm tra được nhập trong kỳ này.';
 
     return {
       title: `Báo cáo sơ kết hoạt động chuyên môn ${term} – Năm học ${config.academicYear}`,
-      summary: `Tổ chuyên môn Toán gồm ${live.membersCount} giáo viên. Trong kỳ ${term} năm học ${config.academicYear}: 100% giáo viên tham gia giảng dạy theo định mức phân công (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${questionsText}; và ${examsText}. ${testingText}`,
-      adv: `1. Chấp hành nghiêm túc quy chế chuyên môn, phân phối chương trình GDPT 2018 và chuẩn bị Kế hoạch bài dạy theo định hướng phát triển năng lực.\n2. Tích cực ứng dụng CNTT, đưa các công cụ trực quan hóa (như GeoGebra) vào giảng dạy hình học không gian và khảo sát hàm số.\n3. ${scoreRecords.length > 0 ? 'Đã thực hiện phân tích Item Analysis đánh giá độ khó và độ phân cách các câu hỏi trắc nghiệm sau đợt kiểm tra.' : 'Đã bước đầu áp dụng công cụ ma trận và bản đặc tả đề thi theo định dạng tốt nghiệp THPT 2025.'}`,
+      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${config.academicYear}: ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${lessonPlans.length} kế hoạch bài dạy được lưu (${lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${specialTopics.length} chuyên đề bồi dưỡng, ${skknTopics.length} đề tài SKKN; ${questionsText}; và ${examsText}. ${testingText}`,
+      adv: `1. (Tổ trưởng điền) Việc chấp hành quy chế chuyên môn, thực hiện chương trình GDPT 2018.\n2. (Tổ trưởng điền) Ứng dụng CNTT, đổi mới phương pháp dạy học.\n3. ${allScores.length > 0 ? `Đã tổng hợp kết quả kiểm tra: điểm trung bình ${avgScore.toFixed(2)}.` : '(Tổ trưởng điền) Kết quả kiểm tra, đánh giá.'}`,
       lim: `1. Số lượng câu hỏi ở mức độ vận dụng cao trong ngân hàng đề cần tiếp tục được bổ sung và chuẩn hóa.\n2. ${live.observationsCount < 4 ? 'Hoạt động dự giờ chéo giữa các đồng nghiệp trong tổ cần được đẩy mạnh theo đúng kế hoạch.' : 'Hoạt động viết sáng kiến kinh nghiệm cấp cơ sở cần đẩy nhanh tiến độ thử nghiệm thực tiễn.'}`,
       dir: `1. Tiếp tục rà soát, thẩm định và chuẩn hóa ngân hàng câu hỏi định dạng 2025 theo đúng ma trận và bản đặc tả.\n2. Tổ chức chuyên đề sinh hoạt chuyên môn theo hướng nghiên cứu bài học tập trung vào các dạng bài toán ứng dụng thực tế.\n3. Duy trì kế hoạch phụ đạo học sinh có kết quả kiểm tra dưới trung bình và bồi dưỡng học sinh khá giỏi.`,
     };
@@ -142,7 +154,12 @@ export const ReportsModule: React.FC = () => {
   // Save or Update Snapshot
   const handleSaveSnapshot = async (lock = false) => {
     const live = calculateLiveMetrics();
-    const snapshotId = selectedSnapshotId === 'snap-current' ? `snap-${Date.now()}` : selectedSnapshotId;
+    if (!isLeader) {
+      setNotification({ message: 'Chỉ Tổ trưởng/Tổ phó được lưu và chốt báo cáo.', type: 'error' });
+      return;
+    }
+    const snapshotId = selectedSnapshotId === 'snap-current' ? newId('snap') : selectedSnapshotId;
+    const previous = reportSnapshots.find(s => s.id === snapshotId);
     const author = isLeader ? `${activeMember.displayName} (Tổ trưởng)` : activeMember.displayName;
 
     const newSnapshot: ReportSnapshot = {
@@ -151,7 +168,7 @@ export const ReportsModule: React.FC = () => {
       academicYear: config.academicYear,
       term: reportTerm,
       periodLabel: `Sơ kết ${reportTerm}`,
-      createdAt: new Date().toISOString(),
+      createdAt: previous?.createdAt || new Date().toISOString(),
       finalizedBy: lock ? author : (finalizedBy || author),
       isLocked: lock,
       sectionsIncluded: [
@@ -167,7 +184,7 @@ export const ReportsModule: React.FC = () => {
       futureDirections,
     };
 
-    await saveReportSnapshot(newSnapshot);
+    if (!(await saveReportSnapshot(newSnapshot))) return;
     setSelectedSnapshotId(newSnapshot.id);
     setIsLocked(lock);
     if (lock) setFinalizedBy(author);
@@ -207,9 +224,11 @@ export const ReportsModule: React.FC = () => {
       { 'Mục': 'Người lập / chốt', 'Nội dung': finalizedBy || activeMember.displayName },
       { 'Mục': 'Số thành viên tổ', 'Nội dung': live.membersCount },
       { 'Mục': 'Số buổi họp chuyên môn', 'Nội dung': live.meetingsCount },
-      { 'Mục': 'Số chuyên đề NCBH', 'Nội dung': live.lessonStudyCount },
+      { 'Mục': 'Số buổi SHCM theo NCBH', 'Nội dung': live.lessonStudyCount },
       { 'Mục': 'Số tiết dự giờ', 'Nội dung': live.observationsCount },
       { 'Mục': 'Số câu hỏi trong ngân hàng', 'Nội dung': live.questionsCount },
+      { 'Mục': 'Số kế hoạch bài dạy', 'Nội dung': live.plansCount },
+      { 'Mục': 'Điểm trung bình các bảng điểm', 'Nội dung': live.avgScore || 'Chưa có dữ liệu' },
       { 'Mục': 'Số đề kiểm tra đã lập', 'Nội dung': live.examsCount },
       { 'Mục': 'Báo cáo tổng quan', 'Nội dung': executiveSummary },
       { 'Mục': 'Ưu điểm & Kết quả đạt được', 'Nội dung': advantages },

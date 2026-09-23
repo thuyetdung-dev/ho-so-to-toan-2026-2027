@@ -1,140 +1,254 @@
 rules_version = '2';
+// =====================================================================
+// Quy tắc bảo mật Firestore – Sổ Sinh hoạt Chuyên môn Tổ Toán
+// ---------------------------------------------------------------------
+// Bản cũ cho MỌI tài khoản Google đã đăng nhập đọc/ghi/xóa toàn bộ dữ liệu
+// (kể cả tự thêm mình vào danh sách thành viên với vai trò admin).
+// Bản này phân quyền theo vai trò, dựa trên chỉ mục /accessIndex/{email}
+// do ứng dụng tự đồng bộ từ danh sách thành viên.
+//
+// Chủ sở hữu (OWNER) luôn có quyền Quản trị để khởi tạo hệ thống lần đầu.
+// Email này PHẢI trùng với OWNER_EMAIL trong src/firebase.ts.
+// =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    function isSignedIn() {
+
+    function signedIn() {
       return request.auth != null;
     }
-    
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function myEmail() {
+      return signedIn() && request.auth.token.email != null
+        ? request.auth.token.email.lower()
+        : '';
+    }
+    function isOwner() {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && myEmail() == 'thuyetdung@gmail.com';
+    }
+    function indexPath() {
+      return /databases/$(database)/documents/accessIndex/$(myEmail());
+    }
+    function hasIndex() {
+      return signedIn() && myEmail() != '' && exists(indexPath());
+    }
+    function myRole() {
+      return isOwner() ? 'admin' : (hasIndex() ? get(indexPath()).data.role : 'none');
+    }
+    function isMember() {
+      return isOwner() || hasIndex();
+    }
+    function isLeader() {
+      return myRole() in ['admin', 'head', 'deputy'];
+    }
+    function isAdminOrHead() {
+      return myRole() in ['admin', 'head'];
+    }
+    function isAdmin() {
+      return myRole() == 'admin';
+    }
+    function isPrincipal() {
+      return myRole() == 'principal';
+    }
+    function canContribute() {
+      return isMember() && !isPrincipal();
+    }
+    // Ai được gán vai trò nào: admin ← chỉ Quản trị; head ← Tổ trưởng/Quản trị; còn lại ← Tổ trưởng/Tổ phó
+    function canAssignRole(role) {
+      return role == 'admin' ? isAdmin() : (role == 'head' ? isAdminOrHead() : isLeader());
+    }
+    function validId(id) {
+      return id is string && id.size() <= 160 && id.matches('^[a-zA-Z0-9_@.+\\-]+$');
+    }
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
-    // Default deny
+    // Mặc định từ chối
     match /{document=**} {
       allow read, write: if false;
     }
 
-    match /departments/{deptId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ---------- Phân quyền ----------
+    match /accessIndex/{email} {
+      allow get: if signedIn() && (email == myEmail() || isMember());
+      allow list: if isLeader();
+      // Tổ trưởng/Tổ phó quản lý trong phạm vi vai trò được phép gán
+      allow create, update: if isLeader()
+        && canAssignRole(request.resource.data.role)
+        && (resource == null || canAssignRole(resource.data.role));
+      allow delete: if isLeader() && canAssignRole(resource.data.role);
+      // Người được mời tự kích hoạt bằng thư mời hợp lệ (id thư mời = email)
+      allow create: if signedIn() && email == myEmail()
+        && exists(/databases/$(database)/documents/invitations/$(email))
+        && get(/databases/$(database)/documents/invitations/$(email)).data.status == 'pending'
+        && request.resource.data.role == get(/databases/$(database)/documents/invitations/$(email)).data.role;
     }
 
     match /members/{memberId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read: if isMember();
+      allow create, update: if isLeader() && validId(memberId)
+        && canAssignRole(request.resource.data.role)
+        && (resource == null || canAssignRole(resource.data.role));
+      allow delete: if isAdminOrHead() && canAssignRole(resource.data.role);
+      // Người được mời tự tạo hồ sơ của mình khi nhận thư mời
+      allow create: if signedIn() && validId(memberId)
+        && request.resource.data.email == myEmail()
+        && exists(/databases/$(database)/documents/invitations/$(myEmail()))
+        && get(/databases/$(database)/documents/invitations/$(myEmail())).data.status == 'pending'
+        && request.resource.data.role == get(/databases/$(database)/documents/invitations/$(myEmail())).data.role;
+      // Thành viên tự cập nhật thông tin cá nhân (không đổi vai trò/email/trạng thái)
+      allow update: if isMember() && resource.data.email == myEmail()
+        && changedOnly(['displayName', 'phone', 'qualifications', 'subject', 'uid']);
     }
 
-    match /invitations/{invitationId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /invitations/{invId} {
+      allow get: if signedIn() && (invId == myEmail() || isLeader());
+      allow list: if isLeader();
+      allow create, update: if isLeader() && canAssignRole(request.resource.data.role);
+      allow delete: if isLeader();
+      // Người được mời đánh dấu đã nhận lời
+      allow update: if signedIn() && invId == myEmail()
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'accepted'
+        && changedOnly(['status', 'acceptedAt']);
     }
 
     match /accessRequests/{requestId} {
-      allow read, write: if isSignedIn();
+      allow read: if isLeader() || (signedIn() && resource.data.email == myEmail());
+      allow create: if signedIn() && validId(requestId)
+        && request.resource.data.email == myEmail()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() <= 2000;
+      allow update, delete: if isLeader();
     }
 
-    match /classes/{classId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ---------- Cấu hình ----------
+    match /departments/{deptId} {
+      allow read: if isMember();
+      allow write: if isAdminOrHead();
     }
 
-    match /assignments/{assignmentId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ---------- Danh mục do tổ trưởng quản lý ----------
+    match /classes/{id} {
+      allow read: if isMember();
+      allow write: if isLeader() && validId(id);
+    }
+    match /assignments/{id} {
+      allow read: if isMember();
+      allow write: if isLeader() && validId(id);
+    }
+    match /curriculumTopics/{id} {
+      allow read: if isMember();
+      allow write: if isLeader();
+    }
+    match /departmentPlans/{id} {
+      allow read: if isMember();
+      allow create, delete: if isLeader();
+      // Tổ trưởng soạn/trình; BGH phê duyệt; giáo viên cập nhật tiến độ dạy
+      allow update: if isLeader() || isPrincipal()
+        || (canContribute() && changedOnly(['distribution', 'updatedAt']));
+    }
+    match /reportSnapshots/{id} {
+      allow read: if isMember();
+      allow create: if isLeader();
+      allow update: if isLeader() && (resource.data.isLocked != true || isAdminOrHead());
+      allow delete: if isAdminOrHead();
     }
 
-    match /curriculumTopics/{topicId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ---------- Hồ sơ chuyên môn (mọi thành viên đóng góp) ----------
+    match /teacherPlans/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
     }
-
-    match /departmentPlans/{planId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /lessonPlans/{id} {
+      allow read: if isMember();
+      allow create: if canContribute() && validId(id) && request.resource.data.status == 'draft';
+      // Giáo viên không tự chuyển giáo án sang "đã duyệt"/"trả lại"
+      allow update: if isLeader() || (canContribute() && (
+        request.resource.data.status in ['draft', 'submitted'] ||
+        request.resource.data.status == resource.data.status
+      ));
+      allow delete: if isLeader() || (canContribute() && resource.data.status == 'draft');
     }
-
-    match /teacherPlans/{planId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /meetings/{id} {
+      allow read: if isMember();
+      allow create: if isLeader() && validId(id);
+      // Biên bản đã chốt chỉ tổ trưởng mở khóa; thành viên thêm ý kiến khi còn nháp
+      allow update: if isLeader()
+        || (canContribute() && resource.data.status != 'finalized'
+            && changedOnly(['memberOpinions', 'tasks', 'updatedAt']));
+      allow delete: if isAdminOrHead();
     }
-
-    match /lessonPlans/{planId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /lessonStudies/{id} {
+      allow read: if isMember();
+      allow write: if canContribute();
     }
-
-    match /meetings/{meetingId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /observations/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
     }
-
-    match /lessonStudies/{studyId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /questions/{id} {
+      allow read: if isMember();
+      // Giáo viên thêm/sửa câu hỏi ở trạng thái "chờ duyệt"; chỉ tổ trưởng/tổ phó duyệt
+      allow create, update: if validId(id) && (isLeader() || (canContribute() && request.resource.data.status == 'pending'));
+      allow delete: if isLeader();
     }
-
-    match /observations/{obsId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /examBlueprints/{id} {
+      allow read: if isMember();
+      allow write: if canContribute();
     }
-
-    match /questions/{questionId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /examBlueprints/{bpId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /exams/{examId} {
-      // Đề chưa công bố bảo mật: chỉ cho phép đọc khi đã công bố hoặc người dùng là tác giả/phản biện
-      allow read: if isSignedIn() && (
+    match /exams/{id} {
+      // Đề chưa công bố: chỉ tác giả, tổ trưởng/tổ phó, BGH được xem
+      allow read: if isMember() && (
         resource.data.isPublished == true ||
-        resource.data.authorId == request.auth.uid ||
-        resource.data.reviewerId == request.auth.uid
+        resource.data.authorUid == request.auth.uid ||
+        isLeader() || isPrincipal()
       );
-      allow write: if isSignedIn();
+      allow create: if canContribute() && validId(id) && request.resource.data.authorUid == request.auth.uid;
+      // Tác giả sửa đề của mình nhưng không tự công bố
+      allow update: if isLeader() || (canContribute() && resource.data.authorUid == request.auth.uid
+        && request.resource.data.isPublished == resource.data.isPublished);
+      allow delete: if isLeader() || (canContribute() && resource.data.authorUid == request.auth.uid);
+    }
+    match /examResults/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
+    }
+    match /specialTopics/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
+    }
+    match /skknTopics/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
+    }
+    match /trainings/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
+    }
+    match /initiatives/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
+    }
+    match /documents/{id} {
+      allow read: if isMember();
+      allow create, update: if canContribute() && validId(id);
+      allow delete: if isLeader();
     }
 
-    match /examResults/{resultId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /specialTopics/{topicId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /skknTopics/{topicId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /trainings/{trainingId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /initiatives/{initId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /documents/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /reportSnapshots/{snapshotId} {
-      allow read, write: if isSignedIn();
-    }
-
+    // ---------- Nhật ký: chỉ ghi thêm, không sửa/xóa ----------
     match /auditLogs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow read: if isLeader() || isPrincipal();
+      allow create: if isMember() && validId(logId);
       allow update, delete: if false;
     }
   }

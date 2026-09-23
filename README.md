@@ -1,25 +1,112 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.0)
 
-# Run and deploy your AI Studio app
+Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.
+Ứng dụng dùng React + Vite, dữ liệu lưu trên Firebase (Firestore), đăng nhập bằng Google, Trợ lý AI dùng Gemini.
 
-This contains everything you need to run your app locally.
+## 1. Chạy trên máy
 
-View your app in AI Studio: https://ai.studio/apps/3506ebd7-8bf6-4969-9db8-93de47efa62d
+Yêu cầu: Node.js 20 trở lên.
 
-## Run Locally
+```bash
+npm install
+cp .env.example .env.local     # rồi điền GEMINI_API_KEY (nếu dùng Trợ lý AI)
+npm run dev                    # mở http://localhost:3000
+```
 
-**Prerequisites:**  Node.js
+Chạy bản chính thức:
 
+```bash
+npm run build
+npm start                      # phục vụ thư mục dist/ + API AI trên cổng 3000
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+> Lưu ý: `npm run dev` giờ chạy qua `server.ts` (có API `/api/ai`). Nếu chạy `vite` trực tiếp (`npm run dev:vite`) thì Trợ lý AI sẽ không hoạt động.
 
-## Verify before deployment
+Kiểm tra trước khi triển khai: `npm run lint`, `npm test`, `npm run build`.
 
-Run `npm run lint` and `npm run build`. This repaired package includes the
-missing modules and the shared application state required by those modules.
+## 2. Triển khai quy tắc bảo mật Firestore (BẮT BUỘC)
+
+Quy tắc cũ cho **mọi tài khoản Google** đọc/ghi/xóa toàn bộ dữ liệu. Hãy triển khai quy tắc mới:
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase deploy --only firestore:rules
+```
+
+(Hoặc mở Firebase Console → Firestore Database → Rules → dán nội dung tệp `firestore.rules` → Publish.)
+
+### Chuyển dữ liệu cũ sang cơ chế phân quyền mới
+
+1. Chủ sở hữu hệ thống là email khai báo trong `firestore.rules` (hàm `isOwner`) và `src/firebase.ts` (`OWNER_EMAIL`) – hiện là `thuyetdung@gmail.com`. Nếu đổi người quản trị, sửa **cả hai** nơi.
+2. Sau khi triển khai quy tắc, chủ sở hữu **đăng nhập trước**. Ứng dụng sẽ tự tạo chỉ mục phân quyền (`accessIndex`) cho mọi thành viên đang có trong danh sách. Từ lúc đó các thành viên khác đăng nhập bình thường.
+3. Thư mời cũ (mã dạng `inv-...`) không dùng được với cơ chế mới – hãy gửi lại thư mời. Thư mời mới dùng email làm mã: giáo viên chỉ cần đăng nhập Google bằng đúng email được mời là tự vào tổ.
+
+### Phân quyền
+
+| Vai trò | Được làm |
+|---|---|
+| Quản trị (admin) | Mọi việc, kể cả xóa trắng dữ liệu, cấp quyền Quản trị |
+| Tổ trưởng (head) | Cấu hình tổ, chuyển năm học, phục hồi sao lưu, quản lý thành viên, duyệt kế hoạch/giáo án/câu hỏi |
+| Tổ phó (deputy) | Quản lý lớp, phân công, thư mời; duyệt giáo án, câu hỏi; soạn/trình kế hoạch tổ |
+| Giáo viên (teacher) | Soạn giáo án (của mình), dự giờ, câu hỏi (chờ duyệt), đề, tài liệu, bảng điểm |
+| Ban Giám hiệu (principal) | Xem toàn bộ, phê duyệt Kế hoạch dạy học của tổ |
+
+## 3. Những gì đã sửa và nâng cấp ở bản 2.0
+
+### Lỗi bảo mật nghiêm trọng
+- **Ai đăng nhập Google cũng ghi/xóa được toàn bộ dữ liệu**, kể cả tự thêm mình làm admin → viết lại `firestore.rules` phân quyền theo vai trò.
+- **Ở chế độ dữ liệu thật, mọi người đăng nhập đều mang quyền của thành viên đầu tiên (Quản trị)**; thêm vào đó ai cũng "đổi vai" sang Tổ trưởng/Admin được → danh tính nay lấy theo email Google; đổi vai chỉ còn ở chế độ demo.
+- **Nút "Xóa trắng dữ liệu" không hỏi lại, ai cũng bấm được** → chỉ Quản trị, phải gõ xác nhận `XOA TRANG`.
+- Phục hồi sao lưu JSON: ai cũng làm được, có thể ghi đè danh sách thành viên để chiếm quyền → chỉ Tổ trưởng/Quản trị, có kiểm tra dữ liệu và hỏi xác nhận.
+- Nhúng GeoGebra/mở liên kết không kiểm tra địa chỉ (có thể chèn `javascript:`) → chỉ cho http/https, iframe chỉ nhận geogebra.org.
+- Thư viện `xlsx` 0.18.5 có lỗ hổng mức cao (prototype pollution, ReDoS) → thay bằng bản vá 0.20.3 (`@e965/xlsx`, bản phát hành lại SheetJS trên npm).
+- Khi chưa đăng nhập ở chế độ thật vẫn vào được giao diện → nay hiện màn hình đăng nhập.
+
+### Lỗi làm mất/sai dữ liệu
+- Lưu Firestore **lỗi âm thầm** khi có trường trống (`undefined`): duyệt kế hoạch, khóa biên bản, dạy bù... không được lưu nhưng vẫn báo "thành công" → bật `ignoreUndefinedProperties`, mọi lỗi ghi đều hiện thông báo.
+- Nhập phân công từ Excel **chỉ hiện trên màn hình, không ghi vào CSDL**; giáo viên không khớp tên bị gán mã giả → nay ghi thật, kiểm tra từng dòng (khối, số tiết, tên GV).
+- Chuyển năm học **chỉ xóa phân công trên màn hình** (tải lại là hiện lại), tùy chọn "sao chép kế hoạch" không có tác dụng ở dữ liệu thật → sửa, có hỏi xác nhận.
+- Trang Cài đặt đọc cấu hình **trước khi dữ liệu thật tải xong** → bấm lưu có thể ghi đè cấu hình thật bằng giá trị mặc định.
+- Chế độ demo sửa trực tiếp mảng dữ liệu mẫu nên giao diện không cập nhật (thêm chuyên đề/SKKN không hiện, duyệt yêu cầu truy cập không thêm thành viên) → toàn bộ dữ liệu demo là state riêng.
+- Tài liệu dùng chung bị nhân đôi khi sửa; mã bản ghi `prefix-${Date.now()}` trùng nhau khi thao tác nhanh (nhật ký ghi đè nhau).
+- Lịch năm học ở chế độ mẫu luôn rỗng (đọc sai trường `academicCalendar` / `calendarMilestones`).
+
+### Chức năng "giả" / hiển thị sai
+- Màn **So sánh phiên bản (Diff)** của kế hoạch tổ và giáo án hiển thị nội dung **viết cứng**, không phải dữ liệu thật → nay lưu ảnh chụp đầy đủ mỗi lần trình/duyệt và so sánh thật (thêm/bớt/sửa từng bài).
+- Báo cáo gán cứng **điểm trung bình 7.42**, "100% giáo viên được phân công", số buổi NCBH lấy nhầm số chuyên đề → tính từ dữ liệu thật.
+- Phiếu dự giờ **tự điền nhận xét mẫu** khi để trống (hồ sơ có nội dung không có thật); form thiếu ô "Biện pháp hỗ trợ" và "Nhận xét chung".
+- Nút "Tải học liệu", "Tải toàn văn SKKN" chỉ hiện thông báo, không tải gì → nay mở liên kết thật.
+- Link mời `?invite=` không được ứng dụng xử lý → cơ chế mời theo email.
+- Chọn Khối 10/11 nhưng hiện kế hoạch Khối 12; trạng thái "Bù tiết" hiện nút trống; "Cuộc họp sắp tới" thực ra là 2 phần tử đầu mảng; vai trò "guest" không tồn tại trong thư mời.
+- Lỗi hiển thị KaTeX: `'$$$'` bị thay thành `'$'` thay vì `'$$'` (chuỗi thay thế `'$$'` trong JavaScript nghĩa là một dấu `$`).
+- Thông báo hiện 2 lần (Navbar + góc màn hình).
+
+### Phân quyền trên giao diện
+- Giáo viên trình/duyệt được kế hoạch tổ; BGH không duyệt được dù nội dung ghi "trình BGH phê duyệt" → Tổ trưởng/Tổ phó trình, BGH/Tổ trưởng duyệt.
+- Ai cũng trình duyệt giáo án của người khác, tự duyệt giáo án của mình → chỉ người soạn trình; tổ trưởng/phó duyệt.
+- Nhập Excel, xóa lớp/phân công không hỏi lại và không giới hạn quyền.
+
+### Tính năng mới
+- **Soạn nội dung giáo án** (mục tiêu, thiết bị, 4 hoạt động a-b-c-d) có xem trước công thức; xóa, in giáo án; tìm kiếm, lọc "của tôi".
+- **Tạo/sửa Kế hoạch dạy học của tổ** (phân phối chương trình, kiểm tra định kỳ), xóa kế hoạch.
+- **Ngân hàng câu hỏi** định dạng 2025 (trắc nghiệm, Đúng/Sai 4 ý, trả lời ngắn ≤ 4 ký tự, tự luận), quy trình duyệt câu hỏi; **tạo đề tự động** theo cấu trúc 12 + 4 + 6, sắp dễ→khó, in đề, xem đáp án, công bố.
+- **Phân tích kết quả**: dán cột điểm từ Excel → điểm TB, trung vị, độ lệch chuẩn, tỉ lệ ≥5/≥8/<3,5, phổ điểm, so sánh lớp, xuất Excel.
+- **Tài liệu dùng chung**: thêm/sửa/xóa liên kết, phân loại, lọc theo khối, tìm kiếm.
+- **Trợ lý AI (Gemini)**: hỏi đáp, giải toán, soạn câu hỏi, gợi ý giáo án, tóm tắt dự giờ; khóa API chỉ ở máy chủ, yêu cầu đăng nhập, giới hạn 30 lượt/10 phút mỗi người.
+- Quản lý thành viên: sửa hồ sơ, đổi vai trò, chuyển công tác/nghỉ hưu (tự thu hồi quyền), xóa; chọn vai trò khi duyệt yêu cầu truy cập.
+- Biên bản họp: sửa, điểm danh có mặt/vắng, giao việc có hạn và theo dõi trạng thái, in, xóa; hỏi xác nhận khi chốt.
+- Dự giờ: nhiều hoạt động, gắn với giáo án, giáo viên được dự phản hồi, in phiếu, lọc "tôi dự / dự giờ tôi".
+- Chuyên đề & SKKN: thêm/sửa/xóa, liên kết học liệu, đăng ký SKKN.
+- Hộp thoại xác nhận cho mọi thao tác xóa; chặn lỗi theo từng phân hệ (không trắng cả trang); tải phân hệ theo nhu cầu (JS tải lúc mở trang giảm từ ~1,8 MB xuống ~0,9 MB); báo "Ngoại tuyến" khi mất mạng; in ấn gọn (ẩn thanh điều hướng).
+
+## 4. Cấu trúc thư mục chính
+
+```
+server.ts                 Máy chủ Express: giao diện + API /api/ai
+firestore.rules           Quy tắc bảo mật Firestore (triển khai bằng firebase deploy)
+src/context/AppContext.tsx  Trạng thái, đồng bộ Firestore, phân quyền
+src/components/modules/   Các phân hệ (Kế hoạch, Giáo án, Dự giờ, Đề, Phân tích, ...)
+src/utils/                diff (so sánh phiên bản), stats (thống kê điểm), ids, excel, katex
+tests/                    Kiểm thử đơn vị (npm test)
+```

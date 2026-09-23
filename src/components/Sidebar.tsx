@@ -12,20 +12,27 @@ import {
   Printer,
   Bot,
   Settings,
+  FileCheck2,
+  ChartNoAxesCombined,
 } from 'lucide-react';
 
-export type ActiveModule =
-  | 'overview'
-  | 'members'
-  | 'plans'
-  | 'lesson-plans'
-  | 'lesson-study'
-  | 'observations'
-  | 'special-topics'
-  | 'documents'
-  | 'reports'
-  | 'ai-assistant'
-  | 'settings';
+export const MODULE_IDS = [
+  'overview',
+  'members',
+  'plans',
+  'lesson-plans',
+  'lesson-study',
+  'observations',
+  'special-topics',
+  'exams',
+  'analytics',
+  'documents',
+  'reports',
+  'ai-assistant',
+  'settings',
+] as const;
+
+export type ActiveModule = (typeof MODULE_IDS)[number];
 
 interface SidebarProps {
   activeModule: ActiveModule;
@@ -44,11 +51,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     activeMember,
     config,
     lessonPlans,
-    meetings,
+    departmentPlans,
+    accessRequests,
+    questions,
+    permissions,
   } = useApp();
 
-  // Badges calculation
-  const pendingLessonPlans = lessonPlans.filter(p => p.status === 'submitted').length;
+  // Badges: chỉ hiện số việc cần xử lý với người có quyền xử lý
+  const pendingLessonPlans = permissions.isLeader ? lessonPlans.filter(p => p.status === 'submitted').length : 0;
+  const pendingDeptPlans = permissions.canApproveDeptPlan ? departmentPlans.filter(p => p.status === 'submitted').length : 0;
+  const pendingRequests = permissions.isLeader ? accessRequests.filter(r => r.status === 'pending').length : 0;
+  const pendingQuestions = permissions.isLeader ? questions.filter(q => q.status === 'pending').length : 0;
 
   const navItems = [
     {
@@ -63,14 +76,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: '2. Thành viên & Phân công',
       desc: 'Hồ sơ GV & thời khóa biểu 5512',
       icon: Users,
-      badge: null,
+      badge: pendingRequests > 0 ? `${pendingRequests}` : null,
+      badgeColor: 'bg-rose-500',
     },
     {
       id: 'plans' as ActiveModule,
       label: '3. Kế hoạch của tổ & GV',
       desc: 'Phụ lục I, III CV 5512',
       icon: CalendarDays,
-      badge: null,
+      badge: pendingDeptPlans > 0 ? `${pendingDeptPlans}` : null,
+      badgeColor: 'bg-amber-500',
     },
     {
       id: 'lesson-plans' as ActiveModule,
@@ -102,22 +117,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: null,
     },
     {
+      id: 'exams' as ActiveModule,
+      label: '8. Ngân hàng câu hỏi & Đề',
+      desc: 'Định dạng đề 2025, in đề',
+      icon: FileCheck2,
+      badge: pendingQuestions > 0 ? `${pendingQuestions}` : null,
+      badgeColor: 'bg-amber-500',
+    },
+    {
+      id: 'analytics' as ActiveModule,
+      label: '9. Phân tích kết quả',
+      desc: 'Phổ điểm, tỉ lệ đạt theo lớp',
+      icon: ChartNoAxesCombined,
+      badge: null,
+    },
+    {
       id: 'documents' as ActiveModule,
-      label: '8. Tài liệu dùng chung',
+      label: '10. Tài liệu dùng chung',
       desc: 'Văn bản, mẫu biểu, bài giảng',
       icon: FolderOpen,
       badge: null,
     },
     {
       id: 'reports' as ActiveModule,
-      label: '9. Báo cáo & In',
+      label: '11. Báo cáo & In',
       desc: 'Báo cáo tháng, học kỳ, xuất Excel',
       icon: Printer,
       badge: null,
     },
     {
       id: 'ai-assistant' as ActiveModule,
-      label: '10. Trợ lý AI Toán học',
+      label: '12. Trợ lý AI Toán học',
       desc: 'Soạn đề, giải toán, tóm tắt dự giờ',
       icon: Bot,
       badge: 'Gemini',
@@ -125,7 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'settings' as ActiveModule,
-      label: '11. Cài đặt & Lưu trữ',
+      label: '13. Cài đặt & Lưu trữ',
       desc: 'Sao lưu JSON, phân quyền, nhật ký',
       icon: Settings,
       badge: null,
@@ -143,7 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`fixed md:sticky top-16 z-40 h-[calc(100vh-4rem)] w-64 lg:w-72 bg-slate-50 border-r border-slate-200 overflow-y-auto flex flex-col transition-transform duration-200 ease-in-out ${
+        className={`fixed md:sticky top-16 left-0 z-40 print:hidden h-[calc(100vh-4rem)] w-64 lg:w-72 bg-slate-50 border-r border-slate-200 overflow-y-auto flex flex-col transition-transform duration-200 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >

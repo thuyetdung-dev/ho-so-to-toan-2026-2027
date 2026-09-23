@@ -13,16 +13,16 @@ interface MathRendererProps {
 function cleanLatexString(raw: string): string {
   if (!raw) return '';
   // Normalize escaped dollar signs or odd artifacts
-  return raw
-    .replace(/\\\$/g, '$')
-    .replace(/\$\$\$/g, '$$');
+  // Lưu ý: trong chuỗi thay thế của String.replace, '$$' nghĩa là MỘT dấu '$'.
+  // Bản cũ viết '$$' nên '$$$' bị rút thành '$' thay vì '$$' → công thức hiển thị sai.
+  return raw.replace(/\$\$\$/g, () => '$$');
 }
 
 /**
  * KaTeX renderer safely parses LaTeX math enclosed in $...$, $$...$$, \(...\), or \[...\]
  * Handles nested dollar signs, special characters, and never double-renders.
  */
-export const MathText: React.FC<MathRendererProps> = ({ content, className = '', block = false }) => {
+export const MathText: React.FC<MathRendererProps & { as?: 'div' | 'span' }> = ({ content, className = '', block = false, as = 'div' }) => {
   const renderedElements = useMemo(() => {
     if (!content || typeof content !== 'string') return null;
 
@@ -64,6 +64,8 @@ export const MathText: React.FC<MathRendererProps> = ({ content, className = '',
             displayMode: isBlock && !isSingleDollar && !isParenInline,
             throwOnError: false,
             strict: false,
+            trust: false,
+            maxExpand: 1000,
           });
           return (
             <span
@@ -91,7 +93,8 @@ export const MathText: React.FC<MathRendererProps> = ({ content, className = '',
     });
   }, [content, block]);
 
-  return <div className={`math-content leading-relaxed ${className}`}>{renderedElements}</div>;
+  const Tag = as;
+  return <Tag className={`math-content leading-relaxed ${className}`}>{renderedElements}</Tag>;
 };
 
 interface GeoGebraEmbedProps {
@@ -100,8 +103,17 @@ interface GeoGebraEmbedProps {
 
 export const GeoGebraViewer: React.FC<GeoGebraEmbedProps> = ({ url }) => {
   if (!url) return null;
-  let embedUrl = url;
-  const match = url.match(/geogebra\.org\/m\/([a-zA-Z0-9]+)/);
+  // Chỉ nhúng tài nguyên của geogebra.org (bản cũ nhúng mọi URL → có thể bị chèn javascript:)
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const isGeoGebra = parsed.protocol === 'https:' && /(^|\.)geogebra\.org$/.test(parsed.hostname);
+  if (!isGeoGebra) return null;
+  let embedUrl = parsed.toString();
+  const match = parsed.pathname.match(/\/m\/([a-zA-Z0-9]+)/);
   if (match && match[1]) {
     embedUrl = `https://www.geogebra.org/material/iframe/id/${match[1]}/width/640/height/400/border/888888/sfsb/true/smb/false/stb/false/stbh/false/ai/false/asb/false/sri/false/rc/false/ld/false/sdz/false/ctl/false`;
   }
@@ -119,6 +131,8 @@ export const GeoGebraViewer: React.FC<GeoGebraEmbedProps> = ({ url }) => {
           src={embedUrl}
           title="GeoGebra Interactive Applet"
           className="w-full h-full border-0"
+          sandbox="allow-scripts allow-same-origin allow-popups"
+          referrerPolicy="no-referrer"
           allowFullScreen
         />
       </div>

@@ -32,6 +32,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
     observations,
     questions,
     exams,
+    permissions,
   } = useApp();
 
   // Metrics
@@ -41,8 +42,13 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
   const approvedQuestionsCount = questions.filter(q => q.status === 'approved').length;
   const pendingQuestionsCount = questions.filter(q => q.status === 'pending').length;
 
-  // Upcoming meetings
-  const upcomingMeetings = meetings.slice(0, 2);
+  // Bản cũ lấy 2 phần tử đầu mảng (không phải cuộc họp sắp tới). Nay: sắp tới trước, nếu không có thì gần nhất.
+  const today = new Date().toISOString().slice(0, 10);
+  const futureMeetings = meetings.filter(m => (m.date || '') >= today).sort((a, b) => a.date.localeCompare(b.date));
+  const upcomingMeetings = (futureMeetings.length
+    ? futureMeetings
+    : [...meetings].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  ).slice(0, 2);
 
   // Question distribution by grade
   const qGrade10 = questions.filter(q => q.grade === 10).length;
@@ -87,7 +93,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
             <Eye className="w-3.5 h-3.5 text-slate-600" />
             <span>Đăng ký dự giờ</span>
           </button>
-          {(activeMember.role === 'head' || activeMember.role === 'deputy' || activeMember.role === 'admin') && (
+          {permissions.isLeader && (
             <button
               onClick={() => onNavigate('lesson-study')}
               id="btn-quick-meeting"
@@ -101,7 +107,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
       </div>
 
       {/* Role-Specific Work Queue / Reminders */}
-      {(activeMember.role === 'head' || activeMember.role === 'deputy') && pendingLessonPlans.length > 0 && (
+      {permissions.isLeader && pendingLessonPlans.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />

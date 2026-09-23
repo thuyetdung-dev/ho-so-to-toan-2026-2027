@@ -23,11 +23,21 @@ import {
   ShieldAlert,
   X,
 } from 'lucide-react';
+import { useConfirm } from '../common/ConfirmDialog';
+import { newId } from '../../utils/ids';
 import {
   downloadAssignmentTemplate,
   exportToExcel,
   parseExcelFile,
 } from '../../utils/excel';
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Quản trị',
+  head: 'Tổ trưởng',
+  deputy: 'Tổ phó',
+  teacher: 'Giáo viên',
+  principal: 'BGH',
+};
 
 export const MembersModule: React.FC = () => {
   const {
@@ -47,9 +57,15 @@ export const MembersModule: React.FC = () => {
     cancelInvitation,
     respondToAccessRequest,
     setNotification,
+    permissions,
+    saveMember,
+    removeMember,
   } = useApp();
+  const confirm = useConfirm();
 
-  const isLeader = activeMember.role === 'head' || activeMember.role === 'deputy' || activeMember.role === 'admin';
+  const isLeader = permissions.isLeader;
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [requestRoles, setRequestRoles] = useState<Record<string, UserRole>>({});
 
   const [activeTab, setActiveTab] = useState<'assignments' | 'members' | 'classes' | 'invitations'>('assignments');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -66,8 +82,16 @@ export const MembersModule: React.FC = () => {
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
 
   // Assignment Form State
-  const [selectedTeacherId, setSelectedTeacherId] = useState(allMembers[0]?.id || '');
-  const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const teachingMembers = allMembers.filter(m => m.status === 'active' && m.role !== 'principal');
+
+  const openAddAssignment = () => {
+    // Bản cũ khởi tạo khi dữ liệu chưa tải → ô chọn rỗng, bấm Lưu không có tác dụng
+    setSelectedTeacherId(prev => prev || teachingMembers[0]?.id || '');
+    setSelectedClassId(prev => prev || classes[0]?.id || '');
+    setShowAddModal(true);
+  };
   const [subjectName, setSubjectName] = useState('Toán');
   const [periods, setPeriods] = useState(4);
   const [duties, setDuties] = useState('');
@@ -101,7 +125,10 @@ export const MembersModule: React.FC = () => {
     e.preventDefault();
     const teacher = allMembers.find(m => m.id === selectedTeacherId);
     const cls = classes.find(c => c.id === selectedClassId);
-    if (!teacher || !cls) return;
+    if (!teacher || !cls) {
+      setNotification({ message: 'Vui lòng chọn giáo viên và lớp (cần tạo danh sách lớp trước).', type: 'error' });
+      return;
+    }
 
     // Check duplicate assignment
     const exists = assignments.find(
@@ -113,7 +140,7 @@ export const MembersModule: React.FC = () => {
     }
 
     const newAsg: Assignment = {
-      id: `asg-${Date.now()}`,
+      id: newId('asg'),
       teacherId: teacher.id,
       teacherName: teacher.displayName,
       classId: cls.id,
@@ -136,7 +163,7 @@ export const MembersModule: React.FC = () => {
     if (!newClassName.trim()) return;
 
     const newCls: SchoolClass = {
-      id: `cls-${Date.now()}`,
+      id: newId('cls'),
       name: newClassName.trim().toUpperCase(),
       grade: newClassGrade,
       studentCount: Number(newClassStudents),
@@ -165,12 +192,57 @@ export const MembersModule: React.FC = () => {
     setShowInviteModal(false);
   };
 
-  const handleCopyInviteLink = (invitationId: string) => {
-    const url = `${window.location.origin}/?invite=${invitationId}`;
-    navigator.clipboard.writeText(url);
-    setCopiedTokenId(invitationId);
-    setNotification({ message: 'Đã sao chép liên kết mời thành viên vào bộ nhớ tạm!', type: 'success' });
-    setTimeout(() => setCopiedTokenId(null), 3000);
+  // Bản cũ tạo link ?invite=... nhưng ứng dụng không hề xử lý tham số này.
+  // Nay: người được mời chỉ cần mở ứng dụng và đăng nhập Google đúng email được mời.
+  const handleCopyInviteLink = async (invitationId: string) => {
+    const inv = invitations.find(i => i.id === invitationId);
+    const text = `Mời thầy/cô tham gia ${config.departmentName} trên Sổ sinh hoạt chuyên môn số.\nMở: ${window.location.origin}\nChọn "Dữ liệu thật" → "Đăng nhập bằng Google" bằng email ${inv?.email || ''}.`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedTokenId(invitationId);
+      setNotification({ message: 'Đã sao chép lời mời (kèm đường dẫn và hướng dẫn) vào bộ nhớ tạm!', type: 'success' });
+      setTimeout(() => setCopiedTokenId(null), 3000);
+    } catch {
+      setNotification({ message: 'Trình duyệt không cho phép sao chép. Hãy gửi đường dẫn trang cho giáo viên.', type: 'error' });
+    }
+  };
+
+  const handleDeleteClass = async (c: SchoolClass) => {
+    const used = assignments.filter(a => a.classId === c.id || a.className === c.name).length;
+    const ok = await confirm({
+      title: `Xóa lớp ${c.name}?`,
+      message: used ? `Lớp đang có ${used} phân công giảng dạy. Các phân công này sẽ không còn gắn với lớp.` : 'Lớp sẽ bị xóa khỏi danh mục.',
+      confirmText: 'Xóa lớp',
+      danger: true,
+    });
+    if (ok) await deleteClass(c.id);
+  };
+
+  const handleDeleteAssignment = async (asg: Assignment) => {
+    const ok = await confirm({
+      title: 'Xóa phân công?',
+      message: `${asg.teacherName} – lớp ${asg.className} (${asg.subject}).`,
+      confirmText: 'Xóa',
+      danger: true,
+    });
+    if (ok) await deleteAssignment(asg.id);
+  };
+
+  const handleSaveMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMember) return;
+    if (!editingMember.displayName.trim()) return;
+    if (await saveMember({ ...editingMember, displayName: editingMember.displayName.trim() })) setEditingMember(null);
+  };
+
+  const handleRemoveMember = async (m: Member) => {
+    const ok = await confirm({
+      title: `Xóa ${m.displayName} khỏi tổ?`,
+      message: 'Tài khoản này sẽ mất quyền truy cập dữ liệu của tổ. Hồ sơ chuyên môn đã lưu (giáo án, biên bản...) vẫn được giữ. Nếu giáo viên chỉ chuyển công tác, nên đổi trạng thái thay vì xóa.',
+      confirmText: 'Xóa thành viên',
+      danger: true,
+    });
+    if (ok) await removeMember(m.id);
   };
 
   const handleExportExcel = () => {
@@ -189,24 +261,37 @@ export const MembersModule: React.FC = () => {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ''; // cho phép chọn lại cùng một tệp
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setNotification({ message: 'Tệp Excel quá lớn (tối đa 5 MB).', type: 'error' });
+      return;
+    }
 
     try {
       const parsedData = await parseExcelFile(file);
       const rows: any[] = [];
       const errors: string[] = [];
       parsedData.forEach((row: any, idx: number) => {
-        const teacherName = row['Họ và tên giáo viên'] || row['Giáo viên'] || row['teacherName'];
-        const className = row['Lớp'] || row['className'];
-        const grade = Number(row['Khối'] || row['grade'] || 10);
-        const subject = row['Môn/Chuyên đề'] || row['Môn'] || row['subject'] || 'Toán';
+        const teacherName = String(row['Họ và tên giáo viên'] || row['Giáo viên'] || row['teacherName'] || '').trim();
+        const className = String(row['Lớp'] || row['className'] || '').trim().toUpperCase();
+        const cls = classes.find(c => c.name.toUpperCase() === className);
+        const grade = Number(row['Khối'] || row['grade'] || cls?.grade || parseInt(className, 10) || 10);
+        const subject = String(row['Môn/Chuyên đề'] || row['Môn'] || row['subject'] || 'Toán').trim();
         const periods = Number(row['Số tiết/tuần'] || row['periods'] || 4);
-        const duties = row['Nhiệm vụ kiêm nhiệm'] || row['Nhiệm vụ'] || row['duties'] || '';
+        const duties = String(row['Nhiệm vụ kiêm nhiệm'] || row['Nhiệm vụ'] || row['duties'] || '').trim();
+        const teacher = allMembers.find(m => m.displayName.trim().toLowerCase() === teacherName.toLowerCase());
 
         if (!teacherName || !className) {
           errors.push(`Dòng ${idx + 2}: Thiếu tên giáo viên hoặc lớp`);
+        } else if (![10, 11, 12].includes(grade)) {
+          errors.push(`Dòng ${idx + 2}: Khối "${grade}" không hợp lệ (chỉ 10, 11, 12)`);
+        } else if (!(periods > 0 && periods <= 30)) {
+          errors.push(`Dòng ${idx + 2}: Số tiết/tuần "${periods}" không hợp lệ`);
+        } else if (!teacher) {
+          errors.push(`Dòng ${idx + 2}: Không tìm thấy giáo viên "${teacherName}" trong danh sách thành viên (tên phải trùng khớp)`);
         } else {
-          rows.push({ teacherName, className, grade, subject, periods, duties });
+          rows.push({ teacherName: teacher.displayName, teacherId: teacher.id, className, classId: cls?.id, grade, subject, periods, duties });
         }
       });
       setImportRows(rows);
@@ -220,20 +305,19 @@ export const MembersModule: React.FC = () => {
   const confirmImport = async () => {
     const newAsgs = [...assignments];
 
-    importRows.forEach((row, idx) => {
-      let teacher = allMembers.find(m => m.displayName.toLowerCase() === row.teacherName.toLowerCase());
-      const teacherId = teacher ? teacher.id : `gv-imp-${idx}`;
-      const teacherName = teacher ? teacher.displayName : row.teacherName;
+    importRows.forEach(row => {
+      const teacherId: string = row.teacherId;
+      const teacherName: string = row.teacherName;
 
       const existingIdx = newAsgs.findIndex(
-        a => a.teacherName.toLowerCase() === teacherName.toLowerCase() && a.className === row.className
+        a => a.teacherId === teacherId && a.className === row.className && a.subject === row.subject
       );
 
       const asgItem: Assignment = {
-        id: `asg-${Date.now()}-${idx}`,
+        id: existingIdx >= 0 ? newAsgs[existingIdx].id : newId('asg'),
         teacherId,
         teacherName,
-        classId: `cls-${row.className}`,
+        classId: row.classId || `cls-${row.className}`,
         className: row.className,
         grade: row.grade,
         subject: row.subject,
@@ -341,11 +425,13 @@ export const MembersModule: React.FC = () => {
                 <span>Tải mẫu Excel</span>
               </button>
 
+              {isLeader && (
               <label className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5 cursor-pointer">
                 <Upload className="w-3.5 h-3.5 text-blue-600" />
                 <span>Nhập Excel</span>
-                <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} className="hidden" />
+                <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} className="hidden" />
               </label>
+              )}
 
               <button
                 onClick={handleExportExcel}
@@ -357,7 +443,7 @@ export const MembersModule: React.FC = () => {
 
               {isLeader && (
                 <button
-                  onClick={() => setShowAddModal(true)}
+                  onClick={openAddAssignment}
                   id="btn-add-assignment"
                   className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                 >
@@ -419,7 +505,7 @@ export const MembersModule: React.FC = () => {
                         {isLeader && (
                           <td className="p-3 text-right">
                             <button
-                              onClick={() => deleteAssignment(asg.id)}
+                              onClick={() => handleDeleteAssignment(asg)}
                               className="p-1 text-slate-400 hover:text-rose-600 rounded"
                               title="Xóa phân công"
                             >
@@ -468,10 +554,27 @@ export const MembersModule: React.FC = () => {
                       <h3 className="text-sm font-bold text-slate-900">{m.displayName}</h3>
                       <p className="text-[11px] text-slate-500">{m.email}</p>
                     </div>
-                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-100 text-blue-800">
-                      {m.role.toUpperCase()}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-100 text-blue-800">
+                        {ROLE_LABEL[m.role] || m.role}
+                      </span>
+                      {isLeader && (
+                        <button onClick={() => setEditingMember({ ...m })} className="p-1 text-slate-400 hover:text-blue-600" aria-label={`Sửa ${m.displayName}`}>
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {permissions.isAdminOrHead && m.id !== activeMember.id && (
+                        <button onClick={() => handleRemoveMember(m)} className="p-1 text-slate-400 hover:text-rose-600" aria-label={`Xóa ${m.displayName}`}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  {m.status !== 'active' && (
+                    <div className="text-[11px] font-semibold text-slate-500 bg-slate-100 rounded px-2 py-0.5 inline-block">
+                      {m.status === 'transferred' ? 'Đã chuyển công tác' : 'Đã nghỉ hưu'} – không còn quyền truy cập
+                    </div>
+                  )}
 
                   <div className="text-xs space-y-1 text-slate-600 border-t border-slate-100 pt-2">
                     <div className="flex justify-between">
@@ -568,7 +671,7 @@ export const MembersModule: React.FC = () => {
                   </div>
                   {isLeader && (
                     <button
-                      onClick={() => deleteClass(c.id)}
+                      onClick={() => handleDeleteClass(c)}
                       className="absolute top-2 right-2 text-slate-300 hover:text-rose-600 p-1"
                       title="Xóa lớp"
                     >
@@ -644,12 +747,23 @@ export const MembersModule: React.FC = () => {
 
                     {isLeader && (
                       <div className="flex items-center gap-2 shrink-0">
+                        <select
+                          value={requestRoles[req.id] || 'teacher'}
+                          onChange={e => setRequestRoles(p => ({ ...p, [req.id]: e.target.value as UserRole }))}
+                          className="px-2 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                          aria-label="Vai trò được cấp"
+                        >
+                          <option value="teacher">Giáo viên</option>
+                          <option value="deputy">Tổ phó</option>
+                          <option value="principal">Ban Giám hiệu</option>
+                          {permissions.isAdminOrHead && <option value="head">Tổ trưởng</option>}
+                        </select>
                         <button
-                          onClick={() => respondToAccessRequest(req.id, 'approved', 'teacher')}
+                          onClick={() => respondToAccessRequest(req.id, 'approved', requestRoles[req.id] || 'teacher')}
                           className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1 shadow-xs"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Duyệt làm Giáo viên</span>
+                          <span>Duyệt</span>
                         </button>
                         <button
                           onClick={() => respondToAccessRequest(req.id, 'rejected')}
@@ -704,7 +818,7 @@ export const MembersModule: React.FC = () => {
                         <td className="p-3 font-mono text-slate-600">{inv.email}</td>
                         <td className="p-3">
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
-                            {inv.role.toUpperCase()}
+                            {ROLE_LABEL[inv.role] || inv.role}
                           </span>
                         </td>
                         <td className="p-3 text-slate-600">{inv.invitedBy}</td>
@@ -732,7 +846,7 @@ export const MembersModule: React.FC = () => {
                                   title="Sao chép link mời"
                                 >
                                   {copiedTokenId === inv.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                                  <span>{copiedTokenId === inv.id ? 'Đã chép' : 'Chép link'}</span>
+                                  <span>{copiedTokenId === inv.id ? 'Đã chép' : 'Chép lời mời'}</span>
                                 </button>
                                 {isLeader && (
                                   <button
@@ -807,10 +921,11 @@ export const MembersModule: React.FC = () => {
                     onChange={e => setInviteRole(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
                   >
-                    <option value="teacher">Giáo viên (Teacher)</option>
-                    <option value="deputy">Tổ phó (Deputy)</option>
-                    <option value="head">Tổ trưởng (Head)</option>
-                    <option value="guest">Khách / Giám hiệu</option>
+                    <option value="teacher">Giáo viên</option>
+                    <option value="deputy">Tổ phó</option>
+                    {permissions.isAdminOrHead && <option value="head">Tổ trưởng</option>}
+                    <option value="principal">Ban Giám hiệu (chỉ xem & duyệt)</option>
+                    {permissions.isAdmin && <option value="admin">Quản trị hệ thống</option>}
                   </select>
                 </div>
 
@@ -830,7 +945,7 @@ export const MembersModule: React.FC = () => {
                   <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                   Cơ chế kích hoạt lời mời:
                 </span>
-                <p>Hệ thống sẽ tạo mã liên kết tham gia. Bạn có thể gửi link này cho giáo viên để truy cập ngay lập tức.</p>
+                <p>Giáo viên chỉ cần mở ứng dụng, chọn Dữ liệu thật và đăng nhập Google bằng đúng email này — hệ thống tự kích hoạt tài khoản với vai trò đã chọn. Bấm "Chép lời mời" để gửi hướng dẫn qua Zalo/email.</p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
@@ -867,7 +982,7 @@ export const MembersModule: React.FC = () => {
                   onChange={e => setSelectedTeacherId(e.target.value)}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white"
                 >
-                  {allMembers.map(m => (
+                  {teachingMembers.map(m => (
                     <option key={m.id} value={m.id}>
                       {m.displayName} ({workloadByTeacher[m.id]?.totalPeriods || 0} tiết)
                     </option>
@@ -1008,6 +1123,56 @@ export const MembersModule: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {editingMember && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <form onSubmit={handleSaveMember} className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-3 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900">Hồ sơ thành viên</h3>
+              <button type="button" onClick={() => setEditingMember(null)} className="text-slate-400 hover:text-slate-600" aria-label="Đóng"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="text-slate-500 font-mono">{editingMember.email}</div>
+            <label className="block font-semibold text-slate-700">Họ và tên
+              <input value={editingMember.displayName} onChange={e => setEditingMember({ ...editingMember, displayName: e.target.value })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" required />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="font-semibold text-slate-700">Vai trò
+                <select
+                  value={editingMember.role}
+                  disabled={editingMember.role === 'admin' && !permissions.isAdmin}
+                  onChange={e => setEditingMember({ ...editingMember, role: e.target.value as UserRole })}
+                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-normal"
+                >
+                  <option value="teacher">Giáo viên</option>
+                  <option value="deputy">Tổ phó</option>
+                  {(permissions.isAdminOrHead || editingMember.role === 'head') && <option value="head">Tổ trưởng</option>}
+                  <option value="principal">Ban Giám hiệu</option>
+                  {(permissions.isAdmin || editingMember.role === 'admin') && <option value="admin">Quản trị hệ thống</option>}
+                </select>
+              </label>
+              <label className="font-semibold text-slate-700">Trạng thái
+                <select value={editingMember.status} onChange={e => setEditingMember({ ...editingMember, status: e.target.value as Member['status'] })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-normal">
+                  <option value="active">Đang công tác</option>
+                  <option value="transferred">Chuyển công tác</option>
+                  <option value="retired">Nghỉ hưu</option>
+                </select>
+              </label>
+              <label className="font-semibold text-slate-700">Môn dạy
+                <input value={editingMember.subject || ''} onChange={e => setEditingMember({ ...editingMember, subject: e.target.value })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">Số điện thoại
+                <input value={editingMember.phone || ''} onChange={e => setEditingMember({ ...editingMember, phone: e.target.value })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+            </div>
+            <label className="block font-semibold text-slate-700">Trình độ
+              <input value={editingMember.qualifications || ''} onChange={e => setEditingMember({ ...editingMember, qualifications: e.target.value })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+            </label>
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button type="button" onClick={() => setEditingMember(null)} className="px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
+              <button type="submit" className="px-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Lưu hồ sơ</button>
+            </div>
+          </form>
         </div>
       )}
     </div>
