@@ -24,7 +24,19 @@ npm start                      # phục vụ thư mục dist/ + API AI trên c�
 
 Kiểm tra trước khi triển khai: `npm run lint`, `npm test`, `npm run build`.
 
-## 2. Triển khai quy tắc bảo mật Firestore (BẮT BUỘC)
+## 2. Triển khai trên Vercel (kèm Trợ lý AI)
+
+Trên Vercel, giao diện được phục vụ từ `dist/`, còn Trợ lý AI chạy bằng hàm `api/ai.ts` (Vercel tự nhận thư mục `api/`; cấu hình trong `vercel.json`). `server.ts` chỉ dùng khi chạy trên máy/VPS.
+
+1. Lấy khóa Gemini tại https://aistudio.google.com/apikey.
+2. Vercel → chọn dự án → **Settings → Environment Variables** → thêm `GEMINI_API_KEY` = khóa vừa lấy (chọn cả Production và Preview) → Save.
+3. Đưa mã nguồn mới lên (push lên GitHub nếu dự án Vercel nối với GitHub, hoặc chạy `npx vercel --prod` trong thư mục dự án).
+4. Nếu đã deploy trước khi thêm khóa: **Deployments → … → Redeploy**.
+5. Kiểm tra: mở `https://<tên-miền>/api/ai` phải thấy `{"ok":true,"ai":true}`.
+
+Tùy chọn: `GEMINI_MODEL` (mặc định `gemini-2.5-flash`), `AI_RATE_LIMIT` (mặc định 30 lượt/10 phút/người).
+
+## 3. Triển khai quy tắc bảo mật Firestore (BẮT BUỘC)
 
 Quy tắc cũ cho **mọi tài khoản Google** đọc/ghi/xóa toàn bộ dữ liệu. Hãy triển khai quy tắc mới:
 
@@ -52,7 +64,7 @@ firebase deploy --only firestore:rules
 | Giáo viên (teacher) | Soạn giáo án (của mình), dự giờ, câu hỏi (chờ duyệt), đề, tài liệu, bảng điểm |
 | Ban Giám hiệu (principal) | Xem toàn bộ, phê duyệt Kế hoạch dạy học của tổ |
 
-## 3. Những gì đã sửa và nâng cấp ở bản 2.0
+## 4. Những gì đã sửa và nâng cấp ở bản 2.0
 
 ### Lỗi bảo mật nghiêm trọng
 - **Ai đăng nhập Google cũng ghi/xóa được toàn bộ dữ liệu**, kể cả tự thêm mình làm admin → viết lại `firestore.rules` phân quyền theo vai trò.
@@ -100,10 +112,22 @@ firebase deploy --only firestore:rules
 - Chuyên đề & SKKN: thêm/sửa/xóa, liên kết học liệu, đăng ký SKKN.
 - Hộp thoại xác nhận cho mọi thao tác xóa; chặn lỗi theo từng phân hệ (không trắng cả trang); tải phân hệ theo nhu cầu (JS tải lúc mở trang giảm từ ~1,8 MB xuống ~0,9 MB); báo "Ngoại tuyến" khi mất mạng; in ấn gọn (ẩn thanh điều hướng).
 
-## 4. Cấu trúc thư mục chính
+### Bản 2.0.1 – Nhập phân công từ Excel
+- Trước đây nhập file bị báo "Không tìm thấy giáo viên … (tên phải trùng khớp)" và "Hợp lệ: 0 dòng" nếu giáo viên chưa có trong danh sách thành viên. Nay hệ thống **tự tạo hồ sơ giáo viên và lớp còn thiếu** (có đánh dấu "MỚI" trong bản xem trước). Tên được so khớp không phân biệt hoa/thường, khoảng trắng thừa và danh xưng (ThS., Thầy, Cô…).
+- Cột "Học kỳ" trong file được dùng; dòng trùng bị bỏ qua; nhập lại cùng file sẽ cập nhật chứ không nhân đôi.
+- Kiêm nhiệm "Tổ trưởng chuyên môn"/"Tổ phó chuyên môn" được gán vai trò tương ứng (không nhầm với "Tổ trưởng Công đoàn").
+- Hồ sơ tạo từ file chưa có email: vào **Hồ sơ giáo viên → bút chì** để điền email Google, hoặc gửi thư mời đúng họ tên – hệ thống sẽ gắn email vào hồ sơ có sẵn thay vì tạo trùng.
+
+### Bản 2.0.2 – Trợ lý AI chạy trên Vercel
+- Thêm hàm serverless `api/ai.ts` + `vercel.json`; `server.ts` dùng lại đúng hàm này nên chạy trên máy hay Vercel đều giống nhau.
+- Trang Trợ lý AI tự kiểm tra máy chủ đã có khóa Gemini chưa và hướng dẫn cách thêm nếu thiếu.
+
+## 5. Cấu trúc thư mục chính
 
 ```
-server.ts                 Máy chủ Express: giao diện + API /api/ai
+api/ai.ts                 API Trợ lý AI (hàm Vercel, dùng chung với server.ts)
+vercel.json               Cấu hình triển khai Vercel
+server.ts                 Máy chủ Express khi chạy trên máy/VPS
 firestore.rules           Quy tắc bảo mật Firestore (triển khai bằng firebase deploy)
 src/context/AppContext.tsx  Trạng thái, đồng bộ Firestore, phân quyền
 src/components/modules/   Các phân hệ (Kế hoạch, Giáo án, Dự giờ, Đề, Phân tích, ...)

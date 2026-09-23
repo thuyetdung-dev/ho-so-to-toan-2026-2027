@@ -31,6 +31,30 @@ import {
   parseExcelFile,
 } from '../../utils/excel';
 
+interface ImportRow {
+  teacherName: string;
+  teacherId: string;
+  className: string;
+  classId: string;
+  grade: 10 | 11 | 12;
+  subject: string;
+  periods: number;
+  duties: string;
+  term: 'HK1' | 'HK2';
+  isNewTeacher: boolean;
+  isNewClass: boolean;
+  line: number;
+}
+
+const cleanText = (v: unknown) => String(v ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+
+/** Khóa so khớp tên: chuẩn hóa Unicode, bỏ danh xưng (ThS., TS., Thầy, Cô...), không phân biệt hoa/thường. */
+const nameKey = (name: string) =>
+  cleanText(name)
+    .toLowerCase()
+    .replace(/^((ths|ts|pgs\.?\s*ts|cn|gv)\.?\s+|(thầy|cô)\s+)+/u, '')
+    .trim();
+
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Quản trị',
   head: 'Tổ trưởng',
@@ -59,7 +83,11 @@ export const MembersModule: React.FC = () => {
     setNotification,
     permissions,
     saveMember,
+    saveMembersBulk,
+    addClassesBulk,
     removeMember,
+    currentUser,
+    isDemoMode,
   } = useApp();
   const confirm = useConfirm();
 
@@ -72,6 +100,9 @@ export const MembersModule: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importRows, setImportRows] = useState<any[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importNewTeachers, setImportNewTeachers] = useState<Member[]>([]);
+  const [importNewClasses, setImportNewClasses] = useState<SchoolClass[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
 
   // Invitation Modal State (Lỗi 23)
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -110,7 +141,7 @@ export const MembersModule: React.FC = () => {
   assignments.forEach(asg => {
     if (workloadByTeacher[asg.teacherId]) {
       workloadByTeacher[asg.teacherId].totalPeriods += asg.periodsPerWeek;
-      workloadByTeacher[asg.teacherId].classes.push(asg.className);
+      if (!workloadByTeacher[asg.teacherId].classes.includes(asg.className)) workloadByTeacher[asg.teacherId].classes.push(asg.className);
     }
   });
 
@@ -232,6 +263,15 @@ export const MembersModule: React.FC = () => {
     e.preventDefault();
     if (!editingMember) return;
     if (!editingMember.displayName.trim()) return;
+    const email = editingMember.email.trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setNotification({ message: 'Email không hợp lệ', type: 'error' });
+      return;
+    }
+    if (email && allMembers.some(m => m.id !== editingMember.id && m.email.toLowerCase() === email)) {
+      setNotification({ message: 'Email này đã được dùng cho thành viên khác', type: 'error' });
+      return;
+    }
     if (await saveMember({ ...editingMember, displayName: editingMember.displayName.trim() })) setEditingMember(null);
   };
 
@@ -270,32 +310,102 @@ export const MembersModule: React.FC = () => {
 
     try {
       const parsedData = await parseExcelFile(file);
-      const rows: any[] = [];
+      const rows: ImportRow[] = [];
       const errors: string[] = [];
-      parsedData.forEach((row: any, idx: number) => {
-        const teacherName = String(row['Họ và tên giáo viên'] || row['Giáo viên'] || row['teacherName'] || '').trim();
-        const className = String(row['Lớp'] || row['className'] || '').trim().toUpperCase();
-        const cls = classes.find(c => c.name.toUpperCase() === className);
-        const grade = Number(row['Khối'] || row['grade'] || cls?.grade || parseInt(className, 10) || 10);
-        const subject = String(row['Môn/Chuyên đề'] || row['Môn'] || row['subject'] || 'Toán').trim();
-        const periods = Number(row['Số tiết/tuần'] || row['periods'] || 4);
-        const duties = String(row['Nhiệm vụ kiêm nhiệm'] || row['Nhiệm vụ'] || row['duties'] || '').trim();
-        const teacher = allMembers.find(m => m.displayName.trim().toLowerCase() === teacherName.toLowerCase());
+      const plannedTeachers = new Map<string, Member>();
+      const plannedClasses = new Map<string, SchoolClass>();
+      const myEmail = (currentUser?.email || '').toLowerCase();
+      const iAmMember = allMembers.some(m => m.email.toLowerCase() === myEmail);
 
+      parsedData.forEach((row: any, idx: number) => {
+        const line = idx + 2;
+        const teacherName = cleanText(row['Họ và tên giáo viên'] ?? row['Giáo viên'] ?? row['teacherName']);
+        const className = cleanText(row['Lớp'] ?? row['className']).toUpperCase().replace(/\s+/g, '');
+        const subject = cleanText(row['Môn/Chuyên đề'] ?? row['Môn'] ?? row['subject']) || 'Toán';
+        const duties = cleanText(row['Nhiệm vụ kiêm nhiệm'] ?? row['Nhiệm vụ'] ?? row['duties']);
+        const termRaw = cleanText(row['Học kỳ'] ?? row['term']).toUpperCase().replace(/\s+/g, '');
+        const term: 'HK1' | 'HK2' = termRaw === 'HK2' || termRaw === 'HKII' || termRaw === '2' ? 'HK2' : termRaw === 'HK1' || termRaw === 'HKI' || termRaw === '1' ? 'HK1' : config.currentTerm;
+        const periods = Number(String(row['Số tiết/tuần'] ?? row['periods'] ?? '').replace(',', '.'));
+        if (!teacherName && !className) return; // dòng trống
         if (!teacherName || !className) {
-          errors.push(`Dòng ${idx + 2}: Thiếu tên giáo viên hoặc lớp`);
-        } else if (![10, 11, 12].includes(grade)) {
-          errors.push(`Dòng ${idx + 2}: Khối "${grade}" không hợp lệ (chỉ 10, 11, 12)`);
-        } else if (!(periods > 0 && periods <= 30)) {
-          errors.push(`Dòng ${idx + 2}: Số tiết/tuần "${periods}" không hợp lệ`);
-        } else if (!teacher) {
-          errors.push(`Dòng ${idx + 2}: Không tìm thấy giáo viên "${teacherName}" trong danh sách thành viên (tên phải trùng khớp)`);
+          errors.push(`Dòng ${line}: Thiếu tên giáo viên hoặc lớp`);
+          return;
+        }
+        const existingClass = classes.find(c => c.name.toUpperCase() === className);
+        const grade = Number(row['Khối'] || existingClass?.grade || parseInt(className, 10));
+        if (![10, 11, 12].includes(grade)) {
+          errors.push(`Dòng ${line}: Khối "${row['Khối'] ?? ''}" không hợp lệ (chỉ 10, 11, 12)`);
+          return;
+        }
+        if (!(periods > 0 && periods <= 30)) {
+          errors.push(`Dòng ${line}: Số tiết/tuần "${row['Số tiết/tuần'] ?? ''}" không hợp lệ`);
+          return;
+        }
+
+        // Ghép giáo viên theo tên (bỏ qua hoa/thường, khoảng trắng thừa, danh xưng ThS./Thầy/Cô...)
+        const key = nameKey(teacherName);
+        let teacherId: string;
+        let displayName: string;
+        let isNewTeacher = false;
+        const member = allMembers.find(m => nameKey(m.displayName) === key);
+        if (member) {
+          teacherId = member.id;
+          displayName = member.displayName;
         } else {
-          rows.push({ teacherName: teacher.displayName, teacherId: teacher.id, className, classId: cls?.id, grade, subject, periods, duties });
+          let planned = plannedTeachers.get(key);
+          if (!planned) {
+            // Tên trùng với tài khoản đang đăng nhập (ví dụ Tổ trưởng/Quản trị chưa có hồ sơ) → gắn luôn email
+            const isMe = !isDemoMode && !iAmMember && !!currentUser?.displayName && nameKey(currentUser.displayName) === key;
+            planned = {
+              id: newId('mem'),
+              email: isMe ? myEmail : '',
+              displayName: teacherName,
+              role: isMe ? activeMember.role : /\btổ trưởng (chuyên môn|cm)\b|^tổ trưởng$/i.test(duties) ? 'head' : /\btổ phó (chuyên môn|cm)\b|^tổ phó$/i.test(duties) ? 'deputy' : 'teacher',
+              subject: 'Toán',
+              status: 'active',
+              joinedAt: new Date().toISOString(),
+            };
+            // Chỉ Quản trị/Tổ trưởng mới gán được vai trò Tổ trưởng
+            if (planned.role === 'head' && !permissions.isAdminOrHead) planned.role = 'teacher';
+            plannedTeachers.set(key, planned);
+          }
+          teacherId = planned.id;
+          displayName = planned.displayName;
+          isNewTeacher = true;
+        }
+
+        let classId = existingClass?.id;
+        let isNewClass = false;
+        if (!classId) {
+          let plannedCls = plannedClasses.get(className);
+          if (!plannedCls) {
+            plannedCls = { id: newId('cls'), name: className, grade: grade as 10 | 11 | 12, studentCount: 0 };
+            plannedClasses.set(className, plannedCls);
+          }
+          classId = plannedCls.id;
+          isNewClass = true;
+        }
+
+        rows.push({ teacherName: displayName, teacherId, className, classId, grade: grade as 10 | 11 | 12, subject, periods, duties, term, isNewTeacher, isNewClass, line });
+      });
+
+      // Cảnh báo dòng trùng (cùng giáo viên, lớp, môn, học kỳ)
+      const seen = new Map<string, number>();
+      const deduped: ImportRow[] = [];
+      rows.forEach(r => {
+        const k = `${r.teacherId}|${r.className}|${r.subject.toLowerCase()}|${r.term}`;
+        if (seen.has(k)) {
+          errors.push(`Dòng ${r.line}: Trùng với dòng ${seen.get(k)} (cùng giáo viên, lớp, môn) – bỏ qua`);
+        } else {
+          seen.set(k, r.line);
+          deduped.push(r);
         }
       });
-      setImportRows(rows);
+
+      setImportRows(deduped);
       setImportErrors(errors);
+      setImportNewTeachers([...plannedTeachers.values()]);
+      setImportNewClasses([...plannedClasses.values()]);
       setShowImportModal(true);
     } catch (err: any) {
       setNotification({ message: `Lỗi đọc tệp Excel: ${err.message}`, type: 'error' });
@@ -303,40 +413,47 @@ export const MembersModule: React.FC = () => {
   };
 
   const confirmImport = async () => {
-    const newAsgs = [...assignments];
+    setIsImporting(true);
+    try {
+      // 1) Tạo hồ sơ giáo viên & lớp còn thiếu (bản trước từ chối cả dòng → "Hợp lệ: 0 dòng")
+      if (!(await saveMembersBulk(importNewTeachers))) return;
+      if (!(await addClassesBulk(importNewClasses))) return;
 
-    importRows.forEach(row => {
-      const teacherId: string = row.teacherId;
-      const teacherName: string = row.teacherName;
+      // 2) Ghép vào bảng phân công hiện có
+      const newAsgs = [...assignments];
+      importRows.forEach(row => {
+        const existingIdx = newAsgs.findIndex(
+          a =>
+            a.teacherId === row.teacherId &&
+            a.className === row.className &&
+            a.subject.toLowerCase() === row.subject.toLowerCase() &&
+            a.term === row.term,
+        );
+        const asgItem: Assignment = {
+          id: existingIdx >= 0 ? newAsgs[existingIdx].id : newId('asg'),
+          teacherId: row.teacherId,
+          teacherName: row.teacherName,
+          classId: row.classId,
+          className: row.className,
+          grade: row.grade,
+          subject: row.subject,
+          periodsPerWeek: row.periods,
+          duties: row.duties,
+          term: row.term,
+          academicYear: config.academicYear,
+        };
+        if (existingIdx >= 0) newAsgs[existingIdx] = asgItem;
+        else newAsgs.push(asgItem);
+      });
 
-      const existingIdx = newAsgs.findIndex(
-        a => a.teacherId === teacherId && a.className === row.className && a.subject === row.subject
-      );
-
-      const asgItem: Assignment = {
-        id: existingIdx >= 0 ? newAsgs[existingIdx].id : newId('asg'),
-        teacherId,
-        teacherName,
-        classId: row.classId || `cls-${row.className}`,
-        className: row.className,
-        grade: row.grade,
-        subject: row.subject,
-        periodsPerWeek: row.periods,
-        duties: row.duties,
-        term: config.currentTerm,
-        academicYear: config.academicYear,
-      };
-
-      if (existingIdx >= 0) {
-        newAsgs[existingIdx] = asgItem;
-      } else {
-        newAsgs.push(asgItem);
-      }
-    });
-
-    await setAssignments(newAsgs);
-    setShowImportModal(false);
-    setImportRows([]);
+      await setAssignments(newAsgs);
+      setShowImportModal(false);
+      setImportRows([]);
+      setImportNewTeachers([]);
+      setImportNewClasses([]);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -552,7 +669,7 @@ export const MembersModule: React.FC = () => {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h3 className="text-sm font-bold text-slate-900">{m.displayName}</h3>
-                      <p className="text-[11px] text-slate-500">{m.email}</p>
+                      <p className="text-[11px] text-slate-500">{m.email || <span className="text-amber-600 italic">Chưa có email đăng nhập</span>}</p>
                     </div>
                     <div className="flex items-center gap-1">
                       <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-100 text-blue-800">
@@ -1065,12 +1182,32 @@ export const MembersModule: React.FC = () => {
           <div className="bg-white rounded-xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col">
             <h2 className="text-base font-bold text-slate-900 mb-2">Xem trước dữ liệu phân công nhập từ Excel</h2>
             <p className="text-xs text-slate-500 mb-3">
-              Dữ liệu sẽ được kiểm tra trước khi ghi vào hệ thống; các phân công trùng lớp sẽ được cập nhật lại.
+              Dữ liệu được kiểm tra trước khi ghi vào hệ thống; phân công trùng (cùng giáo viên, lớp, môn, học kỳ) sẽ được cập nhật lại.
             </p>
 
+            {(importNewTeachers.length > 0 || importNewClasses.length > 0) && (
+              <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 space-y-1.5 max-h-40 overflow-y-auto shrink-0">
+                {importNewTeachers.length > 0 && (
+                  <div>
+                    <span className="font-bold">Sẽ tạo mới {importNewTeachers.length} hồ sơ giáo viên chưa có trong danh sách thành viên: </span>
+                    {importNewTeachers.map(t => `${t.displayName}${t.email ? ' (tài khoản của bạn)' : ''}${t.role !== 'teacher' ? ` – ${ROLE_LABEL[t.role]}` : ''}`).join(', ')}.
+                    <div className="text-blue-700 mt-0.5">
+                      Các hồ sơ này chưa có email nên chưa đăng nhập được. Sau khi nhập, vào tab "Hồ sơ giáo viên" → biểu tượng bút chì để điền email Google của từng thầy/cô.
+                    </div>
+                  </div>
+                )}
+                {importNewClasses.length > 0 && (
+                  <div>
+                    <span className="font-bold">Sẽ tạo mới {importNewClasses.length} lớp: </span>
+                    {importNewClasses.map(c => c.name).join(', ')} <span className="text-blue-700">(sĩ số để 0, sửa sau trong Cài đặt).</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {importErrors.length > 0 && (
-              <div className="mb-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-1 max-h-32 overflow-y-auto">
-                <div className="font-bold">Các cảnh báo lỗi theo dòng:</div>
+              <div className="mb-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-1 max-h-32 overflow-y-auto shrink-0">
+                <div className="font-bold">Các dòng bị bỏ qua ({importErrors.length}):</div>
                 {importErrors.map((err, i) => (
                   <div key={i}>• {err}</div>
                 ))}
@@ -1087,17 +1224,25 @@ export const MembersModule: React.FC = () => {
                     <th className="p-2.5">Môn</th>
                     <th className="p-2.5">Số tiết</th>
                     <th className="p-2.5">Kiêm nhiệm</th>
+                    <th className="p-2.5">HK</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {importRows.map((r, i) => (
                     <tr key={i} className="hover:bg-slate-50">
-                      <td className="p-2.5 font-medium">{r.teacherName}</td>
-                      <td className="p-2.5 font-bold text-blue-700">{r.className}</td>
+                      <td className="p-2.5 font-medium">
+                        {r.teacherName}
+                        {r.isNewTeacher && <span className="ml-1 px-1 rounded bg-blue-100 text-blue-700 text-[9px] font-bold">MỚI</span>}
+                      </td>
+                      <td className="p-2.5 font-bold text-blue-700">
+                        {r.className}
+                        {r.isNewClass && <span className="ml-1 px-1 rounded bg-blue-100 text-blue-700 text-[9px] font-bold">MỚI</span>}
+                      </td>
                       <td className="p-2.5">Khối {r.grade}</td>
                       <td className="p-2.5">{r.subject}</td>
                       <td className="p-2.5">{r.periods} tiết</td>
                       <td className="p-2.5 text-slate-500">{r.duties || '—'}</td>
+                      <td className="p-2.5">{r.term}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1105,7 +1250,9 @@ export const MembersModule: React.FC = () => {
             </div>
 
             <div className="flex justify-between items-center pt-3 border-t border-slate-200">
-              <span className="text-xs text-slate-500 font-medium">Hợp lệ: {importRows.length} dòng</span>
+              <span className="text-xs text-slate-500 font-medium">
+                Hợp lệ: {importRows.length} dòng • {importRows.reduce((s, r) => s + r.periods, 0)} tiết/tuần
+              </span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowImportModal(false)}
@@ -1115,10 +1262,10 @@ export const MembersModule: React.FC = () => {
                 </button>
                 <button
                   onClick={confirmImport}
-                  disabled={importRows.length === 0}
+                  disabled={importRows.length === 0 || isImporting}
                   className="px-4 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50"
                 >
-                  Xác nhận lưu {importRows.length} phân công
+                  {isImporting ? 'Đang lưu...' : `Xác nhận lưu ${importRows.length} phân công`}
                 </button>
               </div>
             </div>
@@ -1132,7 +1279,16 @@ export const MembersModule: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900">Hồ sơ thành viên</h3>
               <button type="button" onClick={() => setEditingMember(null)} className="text-slate-400 hover:text-slate-600" aria-label="Đóng"><X className="w-4 h-4" /></button>
             </div>
-            <div className="text-slate-500 font-mono">{editingMember.email}</div>
+            <label className="block font-semibold text-slate-700">Email Google (dùng để đăng nhập)
+              <input
+                type="email"
+                value={editingMember.email}
+                onChange={e => setEditingMember({ ...editingMember, email: e.target.value })}
+                className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal font-mono"
+                placeholder="giaovien@gmail.com"
+              />
+              {!editingMember.email && <span className="block mt-1 font-normal text-amber-700">Chưa có email: giáo viên này chưa đăng nhập được vào hệ thống.</span>}
+            </label>
             <label className="block font-semibold text-slate-700">Họ và tên
               <input value={editingMember.displayName} onChange={e => setEditingMember({ ...editingMember, displayName: e.target.value })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" required />
             </label>

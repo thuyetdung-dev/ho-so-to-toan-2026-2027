@@ -105,6 +105,10 @@ interface AppContextType {
   canSimulateRoles: boolean;
   isUserAuthorized: boolean;
   saveMember: (member: Member) => Promise<boolean>;
+  /** Tạo/cập nhật nhiều hồ sơ thành viên một lần (dùng khi nhập phân công từ Excel) */
+  saveMembersBulk: (members: Member[]) => Promise<boolean>;
+  /** Thêm nhiều lớp một lần (bỏ qua lớp đã tồn tại) */
+  addClassesBulk: (classes: SchoolClass[]) => Promise<boolean>;
   removeMember: (memberId: string) => Promise<boolean>;
 
   invitations: MemberInvitation[];
@@ -553,10 +557,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         changes++;
       }
     });
-    // Xóa chỉ mục mồ côi (thành viên đã bị xóa)
-    const memberIds = new Set(realMembers.map(m => m.id));
+    // Xóa chỉ mục mồ côi (thành viên đã bị xóa hoặc đã đổi sang email khác)
+    const memberById = new Map(realMembers.map(m => [m.id, m]));
     realAccessIndex.forEach(entry => {
-      if (!memberIds.has(entry.memberId) && entry.id !== OWNER_EMAIL && canAssign(entry.role)) {
+      const owner = memberById.get(entry.memberId);
+      const stale = !owner || normalizeEmail(owner.email) !== entry.id;
+      if (stale && entry.id !== OWNER_EMAIL && canAssign(entry.role)) {
         batch.delete(doc(db, 'accessIndex', entry.id));
         changes++;
       }
@@ -814,6 +820,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (ok) {
       setNotification({ message: `Đã lưu hồ sơ ${normalized.displayName}`, type: 'success' });
       await logAction('Cập nhật thành viên', 'Member', normalized.id, `${normalized.displayName} – vai trò ${normalized.role}, trạng thái ${normalized.status}`);
+    }
+    return ok;
+  };
+
+  const saveMembersBulk = async (members: Member[]) => {
+    if (!members.length) return true;
+    if (!permissions.isLeader) {
+      setNotification({ message: 'Chỉ Tổ trưởng/Tổ phó/Quản trị được thêm hồ sơ thành viên.', type: 'error' });
+      return false;
+    }
+    const normalized = members.map(m => ({ ...m, email: normalizeEmail(m.email) }));
+    if (isDemoMode) {
+      setDemoMembers(prev => normalized.reduce((acc, m) => upsertById(acc, m), prev));
+      return true;
+    }
+    const ok = await persist(async () => {
+      for (let i = 0; i < normalized.length; i += 400) {
+        const batch = writeBatch(db);
+        normalized.slice(i, i + 400).forEach(m => batch.set(doc(db, 'members', m.id), m));
+        await batch.commit();
+      }
+    });
+    if (ok) {
+      setRealMembers(prev => normalized.reduce((acc, m) => upsertById(acc, m), prev));
+      await logAction('Thêm hồ sơ thành viên', 'Member', 'bulk', normalized.map(m => m.displayName).join(', '));
+    }
+    return ok;
+  };
+
+  const addClassesBulk = async (list: SchoolClass[]) => {
+    const existing = new Set(currentClasses.map(c => c.name.toUpperCase()));
+    const fresh = list.filter(c => !existing.has(c.name.toUpperCase()));
+    if (!fresh.length) return true;
+    if (isDemoMode) {
+      setDemoClasses(prev => [...prev, ...fresh]);
+      return true;
+    }
+    const ok = await persist(async () => {
+      const batch = writeBatch(db);
+      fresh.forEach(c => batch.set(doc(db, 'classes', c.id), c));
+      await batch.commit();
+    });
+    if (ok) {
+      setRealClasses(prev => [...prev, ...fresh]);
+      await logAction('Thêm lớp học', 'SchoolClass', 'bulk', fresh.map(c => c.name).join(', '));
     }
     return ok;
   };
@@ -1243,6 +1294,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (invData.role === 'admin' && !permissions.isAdmin) {
       setNotification({ message: 'Chỉ Quản trị viên mới được mời với vai trò Quản trị.', type: 'error' });
+      return;
+    }
+    // Đã có hồ sơ cùng tên nhưng chưa có email (ví dụ tạo từ file phân công) → gắn email vào hồ sơ đó,
+    // tránh tạo hồ sơ trùng khi giáo viên nhận lời mời.
+    const sameName = (a: string, b: string) => a.normalize('NFC').trim().toLowerCase() === b.normalize('NFC').trim().toLowerCase();
+    const profile = currentMembers.find(m => !m.email && sameName(m.displayName, invData.displayName));
+    if (profile) {
+      if (await saveMember({ ...profile, email, role: invData.role, subject: invData.subject || profile.subject })) {
+        setNotification({ message: `Đã gắn email ${email} vào hồ sơ có sẵn của ${profile.displayName}. Thầy/cô đăng nhập Google bằng email này là vào được tổ.`, type: 'success' });
+      }
       return;
     }
     const newInv: MemberInvitation = {
@@ -1681,6 +1742,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         canSimulateRoles: isDemoMode,
         isUserAuthorized,
         saveMember,
+        saveMembersBulk,
+        addClassesBulk,
         removeMember,
         invitations: currentInvitations,
         inviteMemberByEmail,

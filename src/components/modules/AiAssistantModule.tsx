@@ -29,6 +29,15 @@ export const AiAssistantModule: React.FC = () => {
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
+  // Kiểm tra máy chủ đã cấu hình khóa Gemini chưa (không lộ khóa)
+  const [aiReady, setAiReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch('/api/ai')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setAiReady(d ? Boolean(d.ai) : false))
+      .catch(() => setAiReady(false));
+  }, []);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, loading]);
@@ -50,13 +59,14 @@ export const AiAssistantModule: React.FC = () => {
         body: JSON.stringify({ task, prompt, history }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 404) throw new Error('Máy chủ chưa có API Trợ lý AI. Hãy triển khai bản mới (có thư mục api/) lên Vercel.');
       if (!res.ok) throw new Error(data.error || `Lỗi máy chủ (${res.status})`);
       setMessages(prev => [...prev, { role: 'model', text: String(data.text || ''), task }]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(
         msg.includes('Failed to fetch') || msg.includes('Unexpected token')
-          ? 'Không kết nối được máy chủ AI. Hãy chạy ứng dụng bằng "npm run dev" hoặc "npm start" (không dùng "vite" thuần).'
+          ? 'Không kết nối được máy chủ AI. Trên Vercel: kiểm tra đã triển khai bản có thư mục api/. Trên máy: chạy "npm run dev" hoặc "npm start".'
           : msg,
       );
       setMessages(prev => prev.slice(0, -1));
@@ -90,6 +100,16 @@ export const AiAssistantModule: React.FC = () => {
           </button>
         )}
       </div>
+
+      {aiReady === false && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+          <div>
+            Trợ lý AI chưa sẵn sàng: máy chủ chưa có khóa <code className="font-mono">GEMINI_API_KEY</code> hoặc chưa triển khai API.
+            Quản trị viên vào Vercel → Project → Settings → Environment Variables để thêm khóa, rồi triển khai lại (Redeploy).
+          </div>
+        </div>
+      )}
 
       {!currentUser ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-3">
