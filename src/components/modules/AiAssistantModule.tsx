@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bot, Send, Copy, Trash2, Loader2, LogIn, User as UserIcon, AlertTriangle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { MathText } from '../../utils/katex-renderer';
+import { GeminiKeyPanel } from '../common/GeminiKeyPanel';
+import { askAI, getStoredKey, serverAiAvailable } from '../../services/gemini';
 
 type Task = 'chat' | 'solve' | 'questions' | 'lesson' | 'observation';
 
@@ -17,9 +19,13 @@ interface Msg {
   role: 'user' | 'model';
   text: string;
   task: Task;
+  model?: string;
 }
 
-/** Trợ lý AI Toán học (bản cũ chỉ là trang trống). Gọi Gemini qua máy chủ, khóa API không lộ ra trình duyệt. */
+/**
+ * Trợ lý AI Toán học. Mỗi giáo viên dán khóa Gemini của mình (lưu trong trình duyệt) → gọi thẳng Google Gemini.
+ * Nếu không có khóa riêng mà máy chủ của tổ đã cài GEMINI_API_KEY thì dùng máy chủ (cần đăng nhập).
+ */
 export const AiAssistantModule: React.FC = () => {
   const { currentUser, loginWithGoogle, setNotification, isDemoMode } = useApp();
   const [task, setTask] = useState<Task>('chat');
@@ -29,14 +35,13 @@ export const AiAssistantModule: React.FC = () => {
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Kiểm tra máy chủ đã cấu hình khóa Gemini chưa (không lộ khóa)
-  const [aiReady, setAiReady] = useState<boolean | null>(null);
+  const [hasKey, setHasKey] = useState(() => !!getStoredKey());
+  // Máy chủ của tổ có khóa chung không (dự phòng khi giáo viên chưa dán khóa riêng)
+  const [serverReady, setServerReady] = useState<boolean | null>(null);
   useEffect(() => {
-    fetch('/api/ai')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => setAiReady(d ? Boolean(d.ai) : false))
-      .catch(() => setAiReady(false));
+    serverAiAvailable().then(setServerReady);
   }, []);
+  const canUseServer = !hasKey && serverReady === true;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -45,28 +50,24 @@ export const AiAssistantModule: React.FC = () => {
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     const prompt = input.trim();
-    if (!prompt || loading || !currentUser) return;
+    if (!prompt || loading) return;
+    if (!hasKey && !(canUseServer && currentUser)) {
+      setError(canUseServer ? 'Đăng nhập Google để dùng khóa chung của tổ, hoặc dán khóa Gemini của bạn ở trên.' : 'Hãy dán khóa API Gemini ở ô phía trên rồi bấm "Dò".');
+      return;
+    }
     setError('');
     const history = messages.slice(-8).map(m => ({ role: m.role, text: m.text }));
     setMessages(prev => [...prev, { role: 'user', text: prompt, task }]);
     setInput('');
     setLoading(true);
     try {
-      const token = await currentUser.getIdToken();
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ task, prompt, history }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 404) throw new Error('Máy chủ chưa có API Trợ lý AI. Hãy triển khai bản mới (có thư mục api/) lên Vercel.');
-      if (!res.ok) throw new Error(data.error || `Lỗi máy chủ (${res.status})`);
-      setMessages(prev => [...prev, { role: 'model', text: String(data.text || ''), task }]);
+      const r = await askAI({ task, prompt, history }, currentUser ? () => currentUser.getIdToken() : undefined);
+      setMessages(prev => [...prev, { role: 'model', text: r.text, task, model: r.model }]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(
-        msg.includes('Failed to fetch') || msg.includes('Unexpected token')
-          ? 'Không kết nối được máy chủ AI. Trên Vercel: kiểm tra đã triển khai bản có thư mục api/. Trên máy: chạy "npm run dev" hoặc "npm start".'
+        msg.includes('Failed to fetch')
+          ? 'Không kết nối được Google Gemini. Kiểm tra kết nối mạng rồi thử lại.'
           : msg,
       );
       setMessages(prev => prev.slice(0, -1));
@@ -101,20 +102,23 @@ export const AiAssistantModule: React.FC = () => {
         )}
       </div>
 
-      {aiReady === false && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+      <GeminiKeyPanel onChange={setHasKey} />
+
+      {!hasKey && serverReady === false && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2" data-testid="ai-need-key">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
           <div>
-            Trợ lý AI chưa sẵn sàng: máy chủ chưa có khóa <code className="font-mono">GEMINI_API_KEY</code> hoặc chưa triển khai API.
-            Quản trị viên vào Vercel → Project → Settings → Environment Variables để thêm khóa, rồi triển khai lại (Redeploy).
+            Dán <strong>khóa API Google Gemini</strong> của thầy/cô vào ô phía trên rồi bấm <strong>Dò</strong> để bắt đầu. Khóa miễn phí, tạo trong 1 phút tại{' '}
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-semibold">aistudio.google.com</a>{' '}
+            (đăng nhập Gmail → Get API key → Create API key → sao chép).
           </div>
         </div>
       )}
 
-      {!currentUser ? (
+      {canUseServer && !currentUser ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-3">
           <LogIn className="w-8 h-8 text-blue-600 mx-auto" />
-          <p className="text-sm text-slate-700">Cần đăng nhập Google để dùng Trợ lý AI (để chống lạm dụng khóa API của tổ).</p>
+          <p className="text-sm text-slate-700">Chưa có khóa riêng: đăng nhập Google để dùng khóa chung của tổ, hoặc dán khóa Gemini của bạn ở trên.</p>
           {isDemoMode && <p className="text-xs text-slate-500">Bạn có thể đăng nhập mà vẫn ở chế độ dữ liệu mẫu.</p>}
           <button onClick={() => loginWithGoogle({ keepDemo: isDemoMode })} className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
             Đăng nhập Google
@@ -150,7 +154,8 @@ export const AiAssistantModule: React.FC = () => {
                   ) : (
                     <>
                       <MathText content={m.text} />
-                      <div className="flex justify-end mt-2">
+                      <div className="flex justify-between items-center mt-2 gap-2">
+                        <span className="text-[10px] text-slate-400">{m.model ? `Gemini: ${m.model}` : ''}</span>
                         <button onClick={() => copy(m.text)} className="text-[11px] text-slate-500 hover:text-blue-700 flex items-center gap-1">
                           <Copy className="w-3 h-3" /> Sao chép
                         </button>

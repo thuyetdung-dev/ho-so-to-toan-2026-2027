@@ -4,6 +4,7 @@ import type { LessonPlan } from '../../types';
 import { MathText } from '../../utils/katex-renderer';
 import { FormulaIssue, applyIssue, latexError, scanText } from '../../utils/latexDoctor';
 import { useApp } from '../../context/AppContext';
+import { askAI as askGemini } from '../../services/gemini';
 
 type FieldRef =
   | { kind: 'plan'; key: 'objectivesKnowledge' | 'objectivesCompetence' | 'objectivesQualities' | 'equipment'; label: string }
@@ -135,23 +136,15 @@ export const FormulaDoctor: React.FC<Props> = ({ plan, onClose, onApply, applyLa
   };
 
   const askAI = async (x: Found) => {
-    if (!currentUser) {
-      setAiError('Cần đăng nhập Google để dùng AI.');
-      return;
-    }
     setAiBusy(x.id);
     setAiError('');
     try {
       const text = getText(work, x.field);
       const context = text.slice(Math.max(0, x.issue.start - 150), Math.min(text.length, x.issue.end + 150)).replace(x.issue.raw, '[CÔNG THỨC]');
-      const token = await currentUser.getIdToken();
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ task: 'latex', prompt: `Công thức lỗi:\n${x.issue.latex}\n\nCâu văn xung quanh:\n${context}` }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Lỗi máy chủ (${res.status})`);
+      const data = await askGemini(
+        { task: 'latex', prompt: `Công thức lỗi:\n${x.issue.latex}\n\nCâu văn xung quanh:\n${context}` },
+        currentUser ? () => currentUser.getIdToken() : undefined,
+      );
       const latex = String(data.text || '')
         .replace(/^```(?:latex)?\s*|\s*```$/g, '')
         .replace(/^\$+|\$+$/g, '')

@@ -7,7 +7,7 @@
  *
  * Biến môi trường (Vercel → Project → Settings → Environment Variables):
  *   GEMINI_API_KEY   (bắt buộc)  khóa Google AI Studio
- *   GEMINI_MODEL     (tùy chọn)  mặc định gemini-2.5-flash
+ *   GEMINI_MODEL     (tùy chọn)  mặc định gemini-3.5-flash
  *   AI_RATE_LIMIT    (tùy chọn)  số lượt / 10 phút / người, mặc định 30
  *   FIREBASE_PROJECT_ID (tùy chọn) mặc định ho-so-to-toan-2026-2027
  *
@@ -150,7 +150,8 @@ export default async function handler(req: Req, res: Res) {
     : [];
 
   // 3) Gọi Gemini
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  // Gemini 2.0 đã ngừng, 2.5 bị giới hạn truy cập → mặc định dòng 3.x Flash ổn định (đặt GEMINI_MODEL để đổi)
+  const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
   try {
     const response = await ai.models.generateContent({
       model,

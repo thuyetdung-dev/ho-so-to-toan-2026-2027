@@ -36,6 +36,15 @@ if (import.meta.env.VITE_USE_EMULATOR === '1') {
 
 /** Xóa dữ liệu Firestore lưu tạm trên máy (gọi khi đăng xuất – máy tính dùng chung) rồi tải lại trang. */
 export async function clearLocalCache() {
+  // Khóa Gemini riêng của giáo viên (trang Trợ lý AI) cũng xóa khi đăng xuất
+  try {
+    ['gemini_api_key', 'gemini_models'].forEach(k => {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    });
+  } catch {
+    /* bỏ qua */
+  }
   try {
     await terminate(db);
     await clearIndexedDbPersistence(db);

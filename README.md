@@ -195,6 +195,12 @@ firebase deploy --only firestore:rules
 - Mục ký **"Ban giám hiệu phê duyệt"** của Kế hoạch dạy học ghi đúng người ký duyệt (mặc định PHT phụ trách chuyên môn) theo thể thức "KT. HIỆU TRƯỞNG – PHÓ HIỆU TRƯỞNG" (trước đây ghi tên người bấm duyệt trên phần mềm).
 - Sửa lỗi nhập kế hoạch từ Word/PDF: bảng phân phối có cột "Kiểm tra, đánh giá" bị hiểu nhầm là bảng kiểm tra định kỳ (tạo ra các "bài kiểm tra" ảo, cùng Tuần 9 – 90 phút).
 
+### Bản 2.5 – Trợ lý AI dùng khóa Gemini riêng của từng giáo viên
+- Trang **Trợ lý AI** có ô **"Khóa API Google Gemini"**: dán khóa, **Hiện/Ẩn**, **Xóa**, chọn mô hình (**Tự động chọn mô hình** hoặc một mô hình cụ thể) và nút **Dò** để kiểm tra khóa, đọc danh sách mô hình khóa được dùng. Không cần cài `GEMINI_API_KEY` trên Vercel nữa.
+- Khóa **chỉ lưu trong trình duyệt** (tùy chọn "Ghi nhớ trên máy này"; bỏ chọn thì tự xóa khi đóng trình duyệt), không lưu vào dữ liệu của tổ, không gửi về máy chủ phần mềm; **tự xóa khi đăng xuất**. Khóa gửi tới Google qua header, không nằm trong đường dẫn.
+- "Tự động": ưu tiên Gemini Flash ổn định mới nhất; mô hình hết lượt miễn phí/ngừng hoạt động → tự chuyển mô hình kế tiếp. (Gemini 2.0 đã ngừng, 2.5 bị giới hạn truy cập – mặc định máy chủ đổi sang gemini-3.5-flash.)
+- "Nhờ AI sửa" công thức (FormulaDoctor) cũng dùng khóa riêng này. Nếu giáo viên chưa dán khóa mà máy chủ tổ có khóa chung → vẫn dùng máy chủ như trước (cần đăng nhập).
+
 ## 5. Cấu trúc thư mục chính
 
 ```
