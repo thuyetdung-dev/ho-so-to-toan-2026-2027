@@ -13,6 +13,8 @@ export interface Member {
   joinedAt: string;
   assignedClasses?: string[];
   periodsPerWeek?: number;
+  /** Thứ tự hiển thị trong bảng phân công (theo thứ tự trong file Excel đã nhập) */
+  sortOrder?: number;
 }
 
 export interface AcademicCalendarMilestone {
@@ -215,6 +217,10 @@ export interface Assignment {
   duties?: string; // Chủ nhiệm, Bồi dưỡng HSG, Ôn tốt nghiệp
   term: 'HK1' | 'HK2';
   academicYear: string;
+  /** 'duty' = tiết quy đổi nhiệm vụ / chủ nhiệm (không phải tiết theo TKB). Mặc định: tiết dạy theo TKB */
+  kind?: 'teaching' | 'duty';
+  /** Thứ tự dòng trong file Excel đã nhập (để hiển thị giống file) */
+  sortOrder?: number;
 }
 
 export interface PlanDistributionItem {

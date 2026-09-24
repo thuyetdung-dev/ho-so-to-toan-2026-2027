@@ -177,6 +177,19 @@ firebase deploy --only firestore:rules
 - Quy tắc bảo mật: giáo viên chỉ sửa nội dung khi giáo án đang soạn/bị trả lại; tổ trưởng/tổ phó được tạo lại giáo án ở mọi trạng thái khi phục hồi.
 - Kiểm thử: `tests/lessonPlanStore.test.ts`, `tests/lessonPlanStore.flow.test.ts` (Firestore giả lập có mô phỏng quy tắc bảo mật). Chạy thử với Firebase Emulator: `VITE_USE_EMULATOR=1 npm run dev:vite`.
 
+### Bản 2.4.1 – Bảng phân công sắp xếp theo giáo viên, dọn phân công trùng
+- **Bảng phân công xếp theo giáo viên giống file Excel nhập**: mỗi giáo viên một khối (tên, kiêm nhiệm, tổng tiết/định mức, số lớp), bên trong xếp theo lớp rồi môn, có dòng "Cộng". Thứ tự giáo viên theo đúng thứ tự trong file Excel đã nhập (chưa nhập thì Tổ trưởng, Tổ phó trước, còn lại theo tên).
+- Thêm cách xem **Theo lớp** (lớp nào – môn nào – ai dạy), lọc theo **học kỳ HK1/HK2**, **khối**, ô tìm kiếm. Xuất Excel cũng theo thứ tự này.
+- **Sửa lỗi cộng trùng số tiết**: cùng một môn nhưng tên viết khác ("Toán (T2)" = "Toán buổi 2", "Chuyên đề Toán (Tc)" = "Chuyên đề học tập Toán") trước đây bị tính 2 lần → định mức sai (vd 22/17 thay vì 17/17). Nay phần mềm nhận ra, đánh dấu TRÙNG, có nút **Dọn trùng lặp**; nhập Excel không tạo thêm dòng trùng.
+- Định mức tính theo từng học kỳ (trước đây cộng cả HK1 và HK2).
+- Nhập Excel có tùy chọn **"Dùng file này làm bảng phân công chính thức của học kỳ"**: xóa phân công cũ của học kỳ đó không có trong file.
+
+### Bản 2.4.2 – Tính tiết theo TKB + tiết quy đổi, chức vụ nhiệm vụ đúng như file của tổ
+- Nhập đúng file mẫu mới của tổ (2 sheet **TongHop** + **PhanCong**): phần mềm tự chọn sheet PhanCong; nhận các dòng **"Quy đổi nhiệm vụ"** (không có lớp: TTCM, TPCM, CT-CĐCS, UVBCH-CĐ, TTCĐ) và **"Quy đổi chủ nhiệm"** (GVCN).
+- Mỗi giáo viên hiển thị **Tiết TKB + Quy đổi = Tổng / định mức 17**, chức vụ ghi đầy đủ (Tổ trưởng chuyên môn; Ủy viên BCH Công đoàn; Chủ nhiệm lớp 12A06...), lớp chủ nhiệm. Đã đối chiếu với sheet TongHop: đúng cả 13 giáo viên.
+- Nhận ra tên môn mới/cũ là một: "Toán 2" = "Toán buổi 2" = "Toán (T2)"; "Chuyên đề Toán" = "Chuyên đề học tập Toán".
+- Xuất Excel ra đúng 2 sheet TongHop + PhanCong như file của tổ (PhanCong giữ nguyên thứ tự dòng của file đã nhập). File mẫu cũng theo định dạng mới.
+
 ## 5. Cấu trúc thư mục chính
 
 ```

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { exportToExcel } from '../../utils/excel';
 import { newId } from '../../utils/ids';
+import { findDuplicateAssignments, summarizeTeacher, teacherComparator } from '../../utils/assignments';
 
 export const ReportsModule: React.FC = () => {
   const {
@@ -191,9 +192,11 @@ export const ReportsModule: React.FC = () => {
   };
 
   // Member stats aggregation
-  const teacherStats = allMembers.map(member => {
-    const asgs = assignments.filter(a => a.teacherId === member.id);
-    const periods = asgs.reduce((acc, a) => acc + a.periodsPerWeek, 0);
+  // Số tiết: học kỳ hiện tại, không cộng dòng phân công trùng (tên môn viết khác)
+  const effectiveAssignments = findDuplicateAssignments(assignments).keep.filter(a => a.term === config.currentTerm);
+  const teacherStats = [...allMembers].sort((x, y) => teacherComparator(allMembers)(x.id, x.displayName, y.id, y.displayName)).map(member => {
+    const asgs = effectiveAssignments.filter(a => a.teacherId === member.id);
+    const periods = summarizeTeacher(asgs).total; // tiết theo TKB + tiết quy đổi nhiệm vụ, chủ nhiệm
     const obsDone = observations.filter(o => o.observerId === member.id).length;
     const obsReceived = observations.filter(o => o.teacherId === member.id).length;
     const questionsContributed = questions.filter(q => q.authorId === member.id).length;
@@ -203,7 +206,7 @@ export const ReportsModule: React.FC = () => {
       name: member.displayName,
       role: member.role,
       periods,
-      classes: asgs.map(a => a.className).join(', ') || 'Chưa phân công',
+      classes: summarizeTeacher(asgs).classes.join(', ') || 'Chưa phân công',
       obsDone,
       obsReceived,
       questionsContributed,

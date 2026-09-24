@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Member, Assignment, SchoolClass, UserRole } from '../../types';
 import {
@@ -30,6 +30,9 @@ import {
   exportToExcel,
   parseExcelFile,
 } from '../../utils/excel';
+import { assignmentKey, compareClassName, dutyName, exportOrder, findDuplicateAssignments, groupByTeacher, isDuty, isDutyRow, sortAssignments, summarizeTeacher, summaryRows } from '../../utils/assignments';
+
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
 
 interface ImportRow {
   teacherName: string;
@@ -44,6 +47,10 @@ interface ImportRow {
   isNewTeacher: boolean;
   isNewClass: boolean;
   line: number;
+  /** Thứ tự giáo viên trong file (để hiển thị đúng thứ tự như file) */
+  teacherOrder: number;
+  /** Dòng tiết quy đổi (nhiệm vụ / chủ nhiệm) */
+  isDuty: boolean;
 }
 
 const cleanText = (v: unknown) => String(v ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
@@ -98,7 +105,12 @@ export const MembersModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'assignments' | 'members' | 'classes' | 'invitations'>('assignments');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [replaceTerms, setReplaceTerms] = useState(true);
+  const [termFilter, setTermFilter] = useState<'HK1' | 'HK2'>(config.currentTerm);
+  const [asgView, setAsgView] = useState<'teacher' | 'class'>('teacher');
+  const [asgSearch, setAsgSearch] = useState('');
+  const [asgGrade, setAsgGrade] = useState<0 | 10 | 11 | 12>(0);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [importNewTeachers, setImportNewTeachers] = useState<Member[]>([]);
   const [importNewClasses, setImportNewClasses] = useState<SchoolClass[]>([]);
@@ -132,21 +144,20 @@ export const MembersModule: React.FC = () => {
   const [newClassGrade, setNewClassGrade] = useState<10 | 11 | 12>(10);
   const [newClassStudents, setNewClassStudents] = useState(40);
 
-  // Check workload & warnings
-  const workloadByTeacher: Record<string, { totalPeriods: number; classes: string[] }> = {};
-  allMembers.forEach(m => {
-    workloadByTeacher[m.id] = { totalPeriods: 0, classes: [] };
-  });
+  // Phân công trùng (cùng GV, lớp, môn – kể cả khi tên môn viết khác: "Toán (T2)" = "Toán buổi 2")
+  const duplicates = useMemo(() => findDuplicateAssignments(assignments), [assignments]);
+  const duplicateIds = useMemo(() => new Set(duplicates.remove.map(a => a.id)), [duplicates]);
 
-  assignments.forEach(asg => {
-    if (workloadByTeacher[asg.teacherId]) {
-      workloadByTeacher[asg.teacherId].totalPeriods += asg.periodsPerWeek;
-      if (!workloadByTeacher[asg.teacherId].classes.includes(asg.className)) workloadByTeacher[asg.teacherId].classes.push(asg.className);
-    }
+  // Định mức: tính theo học kỳ đang xem, bỏ các dòng trùng (trước đây cộng cả dòng trùng và cả 2 học kỳ)
+  // Tổng tiết/tuần = tiết theo TKB + tiết quy đổi nhiệm vụ, chủ nhiệm (giống sheet TongHop của file tổ)
+  const workloadByTeacher: Record<string, { totalPeriods: number; tkb: number; quyDoi: number; classes: string[]; dutyText: string; homeroom: string[] }> = {};
+  allMembers.forEach(m => {
+    const sum = summarizeTeacher(duplicates.keep.filter(a => a.term === termFilter && a.teacherId === m.id));
+    workloadByTeacher[m.id] = { totalPeriods: sum.total, tkb: sum.tkb, quyDoi: sum.quyDoi, classes: sum.classes, dutyText: sum.dutyText, homeroom: sum.homeroom };
   });
 
   // Classes without teacher assignment
-  const assignedClassNames = new Set(assignments.map(a => a.className));
+  const assignedClassNames = new Set(assignments.filter(a => a.term === termFilter && !isDuty(a)).map(a => a.className));
   const unassignedClasses = classes.filter(c => !assignedClassNames.has(c.name));
 
   const pendingInvitations = invitations.filter(i => i.status === 'pending');
@@ -163,7 +174,9 @@ export const MembersModule: React.FC = () => {
 
     // Check duplicate assignment
     const exists = assignments.find(
-      a => a.teacherId === teacher.id && a.classId === cls.id && a.subject === subjectName
+      a =>
+        assignmentKey({ ...a, academicYear: a.academicYear || config.academicYear }) ===
+        assignmentKey({ teacherId: teacher.id, className: cls.name, term: config.currentTerm, academicYear: config.academicYear, subject: subjectName }),
     );
     if (exists) {
       setNotification({ message: 'Phân công này đã tồn tại trong danh sách!', type: 'error' });
@@ -286,17 +299,29 @@ export const MembersModule: React.FC = () => {
   };
 
   const handleExportExcel = () => {
-    const data = assignments.map(a => ({
-      'Họ và tên giáo viên': a.teacherName,
-      'Lớp': a.className,
-      'Khối': a.grade,
-      'Môn/Chuyên đề': a.subject,
-      'Số tiết/tuần': a.periodsPerWeek,
-      'Nhiệm vụ kiêm nhiệm': a.duties || '',
-      'Học kỳ': a.term,
-      'Năm học': a.academicYear,
-    }));
-    exportToExcel([{ name: 'PhanCongChuyenMon', data }], `Phan_Cong_Chuyen_Mon_${config.academicYear}`);
+    // Giống file của tổ: sheet TongHop (tổng hợp từng giáo viên) + sheet PhanCong (sắp xếp như file)
+    const sorted = exportOrder(duplicates.keep, allMembers);
+    const terms = [...new Set(sorted.map(a => a.term))];
+    const sheets = terms.flatMap(t => {
+      const rows = sorted.filter(a => a.term === t);
+      const suffix = terms.length > 1 ? `_${t}` : '';
+      return [
+        { name: `TongHop${suffix}`, data: summaryRows(rows) },
+        {
+          name: `PhanCong${suffix}`,
+          data: rows.map(a => ({
+            'Họ và tên giáo viên': a.teacherName,
+            'Lớp': a.className || '',
+            'Khối': a.className ? a.grade : '',
+            'Môn/Chuyên đề': a.subject,
+            'Số tiết/tuần': a.periodsPerWeek,
+            'Nhiệm vụ kiêm nhiệm': a.duties || '',
+            'Học kỳ': a.term,
+          })),
+        },
+      ];
+    });
+    exportToExcel(sheets, `Phan_Cong_Chuyen_Mon_${config.academicYear}`);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -314,6 +339,7 @@ export const MembersModule: React.FC = () => {
       const errors: string[] = [];
       const plannedTeachers = new Map<string, Member>();
       const plannedClasses = new Map<string, SchoolClass>();
+      const teacherOrderMap = new Map<string, number>();
       const myEmail = (currentUser?.email || '').toLowerCase();
       const iAmMember = allMembers.some(m => m.email.toLowerCase() === myEmail);
 
@@ -327,23 +353,27 @@ export const MembersModule: React.FC = () => {
         const term: 'HK1' | 'HK2' = termRaw === 'HK2' || termRaw === 'HKII' || termRaw === '2' ? 'HK2' : termRaw === 'HK1' || termRaw === 'HKI' || termRaw === '1' ? 'HK1' : config.currentTerm;
         const periods = Number(String(row['Số tiết/tuần'] ?? row['periods'] ?? '').replace(',', '.'));
         if (!teacherName && !className) return; // dòng trống
-        if (!teacherName || !className) {
+        // Dòng "Quy đổi nhiệm vụ" (TTCM, TPCM, CT-CĐCS...) không có lớp; "Quy đổi chủ nhiệm" có lớp
+        const dutyRow = isDutyRow(subject, className);
+        if (!teacherName || (!className && !dutyRow)) {
           errors.push(`Dòng ${line}: Thiếu tên giáo viên hoặc lớp`);
           return;
         }
-        const existingClass = classes.find(c => c.name.toUpperCase() === className);
-        const grade = Number(row['Khối'] || existingClass?.grade || parseInt(className, 10));
-        if (![10, 11, 12].includes(grade)) {
+        if (/^(tong|cong)\b/.test(teacherName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())) return; // dòng tổng cộng
+        const existingClass = className ? classes.find(c => c.name.toUpperCase() === className) : undefined;
+        const grade = className ? Number(row['Khối'] || existingClass?.grade || parseInt(className, 10)) : 0;
+        if (className && ![10, 11, 12].includes(grade)) {
           errors.push(`Dòng ${line}: Khối "${row['Khối'] ?? ''}" không hợp lệ (chỉ 10, 11, 12)`);
           return;
         }
-        if (!(periods > 0 && periods <= 30)) {
+        if (!(periods >= 0 && periods <= 30) || (!dutyRow && !(periods > 0))) {
           errors.push(`Dòng ${line}: Số tiết/tuần "${row['Số tiết/tuần'] ?? ''}" không hợp lệ`);
           return;
         }
 
         // Ghép giáo viên theo tên (bỏ qua hoa/thường, khoảng trắng thừa, danh xưng ThS./Thầy/Cô...)
         const key = nameKey(teacherName);
+        if (!teacherOrderMap.has(key)) teacherOrderMap.set(key, teacherOrderMap.size);
         let teacherId: string;
         let displayName: string;
         let isNewTeacher = false;
@@ -360,7 +390,7 @@ export const MembersModule: React.FC = () => {
               id: newId('mem'),
               email: isMe ? myEmail : '',
               displayName: teacherName,
-              role: isMe ? activeMember.role : /\btổ trưởng (chuyên môn|cm)\b|^tổ trưởng$/i.test(duties) ? 'head' : /\btổ phó (chuyên môn|cm)\b|^tổ phó$/i.test(duties) ? 'deputy' : 'teacher',
+              role: isMe ? activeMember.role : /\btổ trưởng (chuyên môn|cm)\b|^tổ trưởng$|^ttcm\b/i.test(duties) ? 'head' : /\btổ phó (chuyên môn|cm)\b|^tổ phó$|^tpcm\b/i.test(duties) ? 'deputy' : 'teacher',
               subject: 'Toán',
               status: 'active',
               joinedAt: new Date().toISOString(),
@@ -374,9 +404,9 @@ export const MembersModule: React.FC = () => {
           isNewTeacher = true;
         }
 
-        let classId = existingClass?.id;
+        let classId = existingClass?.id || '';
         let isNewClass = false;
-        if (!classId) {
+        if (!classId && className) {
           let plannedCls = plannedClasses.get(className);
           if (!plannedCls) {
             plannedCls = { id: newId('cls'), name: className, grade: grade as 10 | 11 | 12, studentCount: 0 };
@@ -386,14 +416,14 @@ export const MembersModule: React.FC = () => {
           isNewClass = true;
         }
 
-        rows.push({ teacherName: displayName, teacherId, className, classId, grade: grade as 10 | 11 | 12, subject, periods, duties, term, isNewTeacher, isNewClass, line });
+        rows.push({ teacherName: displayName, teacherId, className, classId, grade: grade as 10 | 11 | 12, subject, periods, duties, term, isNewTeacher, isNewClass, line, teacherOrder: teacherOrderMap.get(key)!, isDuty: dutyRow });
       });
 
       // Cảnh báo dòng trùng (cùng giáo viên, lớp, môn, học kỳ)
       const seen = new Map<string, number>();
       const deduped: ImportRow[] = [];
       rows.forEach(r => {
-        const k = `${r.teacherId}|${r.className}|${r.subject.toLowerCase()}|${r.term}`;
+        const k = assignmentKey({ teacherId: r.teacherId, className: r.className, term: r.term, academicYear: config.academicYear, subject: r.subject, duties: r.duties });
         if (seen.has(k)) {
           errors.push(`Dòng ${r.line}: Trùng với dòng ${seen.get(k)} (cùng giáo viên, lớp, môn) – bỏ qua`);
         } else {
@@ -412,25 +442,36 @@ export const MembersModule: React.FC = () => {
     }
   };
 
+  /** Phân công cũ sẽ bị thay (cùng học kỳ, năm học có trong file nhưng không còn trong file) */
+  const importReplaced = useMemo(() => {
+    if (!replaceTerms || !importRows.length) return [] as Assignment[];
+    const terms = new Set(importRows.map(r => r.term));
+    const inFile = new Set(importRows.map(r => assignmentKey({ teacherId: r.teacherId, className: r.className, term: r.term, academicYear: config.academicYear, subject: r.subject, duties: r.duties })));
+    return assignments.filter(a => terms.has(a.term) && (a.academicYear || config.academicYear) === config.academicYear && !inFile.has(assignmentKey({ ...a, academicYear: a.academicYear || config.academicYear })));
+  }, [replaceTerms, importRows, assignments, config.academicYear]);
+
   const confirmImport = async () => {
     setIsImporting(true);
     try {
-      // 1) Tạo hồ sơ giáo viên & lớp còn thiếu (bản trước từ chối cả dòng → "Hợp lệ: 0 dòng")
-      if (!(await saveMembersBulk(importNewTeachers))) return;
+      // 1) Hồ sơ giáo viên: tạo mới người chưa có + ghi thứ tự giáo viên theo file (để bảng hiển thị đúng thứ tự)
+      const orderById = new Map<string, number>();
+      importRows.forEach(r => !orderById.has(r.teacherId) && orderById.set(r.teacherId, r.teacherOrder));
+      const newTeachers = importNewTeachers.map(t => ({ ...t, sortOrder: orderById.get(t.id) }));
+      const reordered = allMembers
+        .filter(m => orderById.has(m.id) && m.sortOrder !== orderById.get(m.id))
+        .map(m => ({ ...m, sortOrder: orderById.get(m.id) }));
+      if (!(await saveMembersBulk([...newTeachers, ...reordered]))) return;
       if (!(await addClassesBulk(importNewClasses))) return;
 
-      // 2) Ghép vào bảng phân công hiện có
-      const newAsgs = [...assignments];
+      // 2) Ghép vào bảng phân công: cùng GV + lớp + môn (kể cả tên môn viết khác) + học kỳ → cập nhật, không thêm dòng trùng
+      const removeIds = new Set(importReplaced.map(a => a.id));
+      const newAsgs = findDuplicateAssignments(assignments.filter(a => !removeIds.has(a.id))).keep;
+      const indexByKey = new Map(newAsgs.map((a, i) => [assignmentKey({ ...a, academicYear: a.academicYear || config.academicYear }), i]));
       importRows.forEach(row => {
-        const existingIdx = newAsgs.findIndex(
-          a =>
-            a.teacherId === row.teacherId &&
-            a.className === row.className &&
-            a.subject.toLowerCase() === row.subject.toLowerCase() &&
-            a.term === row.term,
-        );
+        const k = assignmentKey({ teacherId: row.teacherId, className: row.className, term: row.term, academicYear: config.academicYear, subject: row.subject, duties: row.duties });
+        const existingIdx = indexByKey.get(k);
         const asgItem: Assignment = {
-          id: existingIdx >= 0 ? newAsgs[existingIdx].id : newId('asg'),
+          id: existingIdx !== undefined ? newAsgs[existingIdx].id : newId('asg'),
           teacherId: row.teacherId,
           teacherName: row.teacherName,
           classId: row.classId,
@@ -441,12 +482,18 @@ export const MembersModule: React.FC = () => {
           duties: row.duties,
           term: row.term,
           academicYear: config.academicYear,
+          kind: row.isDuty ? 'duty' : 'teaching',
+          sortOrder: row.line,
         };
-        if (existingIdx >= 0) newAsgs[existingIdx] = asgItem;
-        else newAsgs.push(asgItem);
+        if (existingIdx !== undefined) newAsgs[existingIdx] = asgItem;
+        else {
+          indexByKey.set(k, newAsgs.length);
+          newAsgs.push(asgItem);
+        }
       });
 
       await setAssignments(newAsgs);
+      setTermFilter(importRows[0]?.term || termFilter);
       setShowImportModal(false);
       setImportRows([]);
       setImportNewTeachers([]);
@@ -455,6 +502,49 @@ export const MembersModule: React.FC = () => {
       setIsImporting(false);
     }
   };
+
+  const handleCleanDuplicates = async () => {
+    const ok = await confirm({
+      title: `Dọn ${duplicates.remove.length} phân công trùng?`,
+      message: (
+        <div className="space-y-2">
+          <p>Các dòng dưới đây trùng với một phân công khác (cùng giáo viên, lớp, học kỳ và cùng môn nhưng tên môn viết khác), làm số tiết bị cộng hai lần. Phần mềm giữ bản có tên môn đầy đủ và xóa bản trùng:</p>
+          <ul className="max-h-40 overflow-y-auto text-[11px] list-disc pl-4">
+            {duplicates.remove.slice(0, 60).map(a => (
+              <li key={a.id}>{a.teacherName} – {a.className} – {a.subject} ({a.periodsPerWeek} tiết)</li>
+            ))}
+          </ul>
+        </div>
+      ),
+      confirmText: 'Dọn trùng lặp',
+    });
+    if (ok) await setAssignments(duplicates.keep);
+  };
+
+  // ---------- Bảng phân công: lọc + sắp xếp giống file Excel ----------
+  const viewAssignments = useMemo(() => {
+    const q = fold(asgSearch.trim());
+    return sortAssignments(
+      assignments.filter(
+        a =>
+          a.term === termFilter &&
+          (!asgGrade || a.grade === asgGrade) &&
+          (!q || fold(a.teacherName).includes(q) || fold(a.className).includes(q) || fold(a.subject).includes(q)),
+      ),
+      allMembers,
+    );
+  }, [assignments, termFilter, asgGrade, asgSearch, allMembers]);
+  const teacherGroups = useMemo(() => groupByTeacher(viewAssignments), [viewAssignments]);
+  const classGroups = useMemo(() => {
+    const map = new Map<string, { className: string; grade: number; items: Assignment[] }>();
+    viewAssignments.forEach(a => {
+      if (!a.className) return; // quy đổi nhiệm vụ không gắn lớp
+      if (!map.has(a.className)) map.set(a.className, { className: a.className, grade: a.grade, items: [] });
+      map.get(a.className)!.items.push(a);
+    });
+    return [...map.values()].sort((x, y) => compareClassName(x.className, y.className));
+  }, [viewAssignments]);
+  const termCount = (t: 'HK1' | 'HK2') => assignments.filter(a => a.term === t).length;
 
   return (
     <div className="space-y-6">
@@ -529,8 +619,25 @@ export const MembersModule: React.FC = () => {
         <div className="space-y-4">
           {/* Action Toolbar */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div className="text-xs text-slate-600">
-              Tổng số phân công: <span className="font-bold text-slate-900">{assignments.length}</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="flex bg-slate-100 p-0.5 rounded-lg" role="tablist" aria-label="Học kỳ">
+                {(['HK1', 'HK2'] as const).map(t => (
+                  <button key={t} onClick={() => setTermFilter(t)} className={`px-2.5 py-1 rounded-md font-semibold ${termFilter === t ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>
+                    {t} ({termCount(t)})
+                  </button>
+                ))}
+              </div>
+              <div className="flex bg-slate-100 p-0.5 rounded-lg" role="tablist" aria-label="Cách xem">
+                <button onClick={() => setAsgView('teacher')} className={`px-2.5 py-1 rounded-md font-semibold ${asgView === 'teacher' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>Theo giáo viên</button>
+                <button onClick={() => setAsgView('class')} className={`px-2.5 py-1 rounded-md font-semibold ${asgView === 'class' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>Theo lớp</button>
+              </div>
+              <select value={asgGrade} onChange={e => setAsgGrade(Number(e.target.value) as 0 | 10 | 11 | 12)} className="px-2 py-1.5 border border-slate-200 rounded-lg bg-white" aria-label="Lọc khối">
+                <option value={0}>Tất cả khối</option>
+                <option value={10}>Khối 10</option>
+                <option value={11}>Khối 11</option>
+                <option value={12}>Khối 12</option>
+              </select>
+              <input value={asgSearch} onChange={e => setAsgSearch(e.target.value)} placeholder="Tìm giáo viên, lớp..." className="px-2.5 py-1.5 border border-slate-200 rounded-lg w-40" aria-label="Tìm phân công" />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -571,72 +678,173 @@ export const MembersModule: React.FC = () => {
             </div>
           </div>
 
-          {/* Assignments Table */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="p-3">Giáo viên</th>
-                    <th className="p-3">Lớp</th>
-                    <th className="p-3">Khối</th>
-                    <th className="p-3">Môn / Chuyên đề</th>
-                    <th className="p-3">Số tiết/tuần</th>
-                    <th className="p-3">Kiêm nhiệm</th>
-                    <th className="p-3">Định mức GV</th>
-                    {isLeader && <th className="p-3 text-right">Thao tác</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {assignments.map(asg => {
-                    const teacherWorkload = workloadByTeacher[asg.teacherId]?.totalPeriods || 0;
-                    const standard = config.standardPeriods || 17;
-                    const isOverload = teacherWorkload > standard;
-                    const isUnderload = teacherWorkload < standard - 4;
+          {/* Cảnh báo phân công trùng */}
+          {duplicates.remove.length > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex flex-wrap items-center gap-3 text-xs text-rose-900" data-testid="dup-warning">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+              <div className="flex-1 min-w-[240px]">
+                <strong>Phát hiện {duplicates.remove.length} phân công bị trùng</strong> – cùng giáo viên, cùng lớp, cùng môn nhưng tên môn viết khác
+                (ví dụ "{duplicates.remove[0].subject}" và "{duplicates.keep.find(k => assignmentKey(k) === assignmentKey(duplicates.remove[0]))?.subject}"), nên số tiết bị cộng hai lần.
+                Định mức bên dưới đã tính đúng (không cộng dòng trùng); các dòng trùng được đánh dấu <span className="px-1 rounded bg-rose-200 font-bold">TRÙNG</span>.
+              </div>
+              {isLeader && (
+                <button onClick={handleCleanDuplicates} className="px-3 py-1.5 font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg">
+                  Dọn trùng lặp
+                </button>
+              )}
+            </div>
+          )}
 
+          {/* Bảng phân công – theo giáo viên (giống file Excel của tổ: PhanCong + TongHop) */}
+          {asgView === 'teacher' && (
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse" data-testid="assignment-table">
+                  <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3 w-10 text-center">STT</th>
+                      <th className="p-3 w-64">Giáo viên – Chức vụ, nhiệm vụ</th>
+                      <th className="p-3 w-24">Lớp</th>
+                      <th className="p-3 w-20">Khối</th>
+                      <th className="p-3">Môn / Chuyên đề</th>
+                      <th className="p-3 w-24">Số tiết/tuần</th>
+                      {isLeader && <th className="p-3 w-14 text-right">Xóa</th>}
+                    </tr>
+                  </thead>
+                  {teacherGroups.map((g, gi) => {
+                    const standard = config.standardPeriods || 17;
+                    const badge = g.total > standard ? 'bg-amber-100 text-amber-800' : g.total < standard ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800';
+                    const rowCount = g.classGroups.reduce((n, c) => n + c.items.length, 0) + 1;
                     return (
-                      <tr key={asg.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-semibold text-slate-900">{asg.teacherName}</td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold border border-blue-200">
-                            {asg.className}
-                          </span>
-                        </td>
-                        <td className="p-3">Khối {asg.grade}</td>
-                        <td className="p-3 font-medium text-slate-700">{asg.subject}</td>
-                        <td className="p-3 font-bold text-slate-900">{asg.periodsPerWeek} tiết</td>
-                        <td className="p-3 text-slate-500">{asg.duties || '—'}</td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                              isOverload
-                                ? 'bg-amber-100 text-amber-800'
-                                : isUnderload
-                                ? 'bg-slate-100 text-slate-700'
-                                : 'bg-emerald-100 text-emerald-800'
-                            }`}
-                          >
-                            {teacherWorkload} / {standard} tiết
-                          </span>
-                        </td>
-                        {isLeader && (
-                          <td className="p-3 text-right">
-                            <button
-                              onClick={() => handleDeleteAssignment(asg)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                              title="Xóa phân công"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
+                      <tbody key={g.teacherId} className={`border-t-2 border-slate-300 ${gi % 2 ? 'bg-slate-50/60' : 'bg-white'}`} data-testid="teacher-group">
+                        {g.classGroups.flatMap((c, ci) =>
+                          c.items.map((asg, ii) => {
+                            const duty = isDuty(asg);
+                            return (
+                              <tr key={asg.id} className={`${ii === 0 ? 'border-t border-slate-200' : ''} ${duplicateIds.has(asg.id) ? 'bg-rose-50' : duty ? 'bg-amber-50/60' : ''}`}>
+                                {ci === 0 && ii === 0 && (
+                                  <>
+                                    <td rowSpan={rowCount} className="p-3 align-top text-center font-bold text-slate-500">{gi + 1}</td>
+                                    <td rowSpan={rowCount} className="p-3 align-top border-r border-slate-200">
+                                      <div className="font-bold text-slate-900 text-[13px]" data-testid="teacher-name">{g.teacherName}</div>
+                                      {g.dutyText && (
+                                        <div className="text-[11px] text-slate-600 mt-0.5" data-testid="teacher-duties" title={g.dutyCodes.join('; ')}>
+                                          {g.dutyText}
+                                        </div>
+                                      )}
+                                      <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px] text-slate-500 max-w-[210px]">
+                                        <div className="rounded bg-white border border-slate-200 py-1">
+                                          <div className="text-sm font-bold text-slate-900">{g.tkb}</div>Tiết TKB
+                                        </div>
+                                        <div className="rounded bg-white border border-slate-200 py-1">
+                                          <div className="text-sm font-bold text-amber-700">{g.quyDoi}</div>Quy đổi
+                                        </div>
+                                        <div className={`rounded py-1 ${badge}`} title={`Định mức ${standard} tiết/tuần`}>
+                                          <div className="text-sm font-bold" data-testid="teacher-load">{g.total}</div>Tổng/{standard}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </>
+                                )}
+                                {ii === 0 && (
+                                  <>
+                                    <td rowSpan={c.items.length} className="p-3 align-top">
+                                      {c.className ? (
+                                        <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold border border-blue-200">{c.className}</span>
+                                      ) : (
+                                        <span className="text-[11px] font-semibold text-amber-700">Nhiệm vụ</span>
+                                      )}
+                                    </td>
+                                    <td rowSpan={c.items.length} className="p-3 align-top text-slate-600">{c.className ? `Khối ${c.grade}` : ''}</td>
+                                  </>
+                                )}
+                                <td className="p-2 font-medium text-slate-700">
+                                  {asg.subject}
+                                  {duty && asg.duties && <span className="ml-1.5 text-[11px] text-amber-800">– {dutyName(asg.duties)}</span>}
+                                  {duplicateIds.has(asg.id) && <span className="ml-1.5 px-1 rounded bg-rose-200 text-rose-800 text-[9px] font-bold">TRÙNG</span>}
+                                </td>
+                                <td className={`p-2 font-semibold ${duty ? 'text-amber-700' : 'text-slate-900'}`}>{asg.periodsPerWeek}</td>
+                                {isLeader && (
+                                  <td className="p-2 text-right">
+                                    <button onClick={() => handleDeleteAssignment(asg)} className="p-1 text-slate-400 hover:text-rose-600 rounded" title="Xóa phân công" aria-label={`Xóa ${asg.subject} ${asg.className}`}>
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          }),
                         )}
-                      </tr>
+                        <tr className="border-t border-slate-200 text-slate-600">
+                          <td colSpan={3} className="px-3 py-1.5 text-right italic">
+                            Tiết theo TKB {g.tkb} + quy đổi {g.quyDoi} =
+                          </td>
+                          <td className="px-2 py-1.5 font-bold text-slate-900" data-testid="teacher-total">{g.total} tiết</td>
+                          {isLeader && <td />}
+                        </tr>
+                      </tbody>
                     );
                   })}
-                </tbody>
-              </table>
+                  {teacherGroups.length > 0 && (
+                    <tbody className="border-t-2 border-slate-400 bg-slate-100 font-bold text-slate-800">
+                      <tr>
+                        <td colSpan={5} className="px-3 py-2 text-right">
+                          TỔNG CỘNG: tiết TKB {teacherGroups.reduce((n, g) => n + g.tkb, 0)} + quy đổi {teacherGroups.reduce((n, g) => n + g.quyDoi, 0)} =
+                        </td>
+                        <td className="px-2 py-2">{teacherGroups.reduce((n, g) => n + g.total, 0)} tiết</td>
+                        {isLeader && <td />}
+                      </tr>
+                    </tbody>
+                  )}
+                </table>
+                {teacherGroups.length === 0 && (
+                  <div className="p-8 text-center text-xs text-slate-500">Chưa có phân công {termFilter}{asgSearch || asgGrade ? ' phù hợp bộ lọc' : ''}.</div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Bảng phân công – theo lớp: lớp nào, môn nào, ai dạy */}
+          {asgView === 'class' && (
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs" data-testid="class-table">
+                  <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3 w-24">Lớp</th>
+                      <th className="p-3 w-20">Khối</th>
+                      <th className="p-3">Môn / Chuyên đề – Giáo viên dạy</th>
+                      <th className="p-3 w-28">Tiết TKB/tuần</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {classGroups.map(c => (
+                      <tr key={c.className} className="align-top hover:bg-slate-50">
+                        <td className="p-3"><span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold border border-blue-200">{c.className}</span></td>
+                        <td className="p-3 text-slate-600">Khối {c.grade}</td>
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {c.items.filter(a => isDuty(a)).map(a => (
+                              <span key={a.id} className="px-2 py-1 rounded-lg border bg-amber-50 border-amber-200">
+                                <span className="text-amber-700">Chủ nhiệm:</span> <strong className="text-slate-900">{a.teacherName}</strong>
+                              </span>
+                            ))}
+                            {c.items.filter(a => !isDuty(a)).map(a => (
+                              <span key={a.id} className={`px-2 py-1 rounded-lg border ${duplicateIds.has(a.id) ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+                                <span className="text-slate-500">{a.subject} ({a.periodsPerWeek}):</span> <strong className="text-slate-900">{a.teacherName}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="p-3 font-semibold">{c.items.filter(a => !duplicateIds.has(a.id) && !isDuty(a)).reduce((n, a) => n + a.periodsPerWeek, 0)} tiết</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {classGroups.length === 0 && <div className="p-8 text-center text-xs text-slate-500">Chưa có phân công {termFilter}.</div>}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -661,7 +869,7 @@ export const MembersModule: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {allMembers.map(m => {
-              const stats = workloadByTeacher[m.id] || { totalPeriods: 0, classes: [] };
+              const stats = workloadByTeacher[m.id] || { totalPeriods: 0, tkb: 0, quyDoi: 0, classes: [], dutyText: '', homeroom: [] };
               const standard = config.standardPeriods || 17;
 
               return (
@@ -707,9 +915,17 @@ export const MembersModule: React.FC = () => {
                       <span className="font-medium text-slate-800">{m.phone || 'Chưa cập nhật'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Tổng tiết hiện tại:</span>
-                      <span className="font-bold text-blue-700">{stats.totalPeriods} tiết / tuần</span>
+                      <span>Tổng tiết/tuần ({termFilter}):</span>
+                      <span className="font-bold text-blue-700" title="Tiết theo TKB + tiết quy đổi">
+                        {stats.tkb} + {stats.quyDoi} = {stats.totalPeriods} tiết
+                      </span>
                     </div>
+                    {stats.dutyText && (
+                      <div className="flex justify-between gap-2">
+                        <span className="shrink-0">Chức vụ, nhiệm vụ:</span>
+                        <span className="font-medium text-slate-800 text-right">{stats.dutyText}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="text-xs border-t border-slate-100 pt-2">
@@ -1248,6 +1464,15 @@ export const MembersModule: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            <label className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2 shrink-0 cursor-pointer">
+              <input type="checkbox" checked={replaceTerms} onChange={e => setReplaceTerms(e.target.checked)} className="mt-0.5" />
+              <span>
+                <strong>Dùng file này làm bảng phân công chính thức của {[...new Set(importRows.map(r => r.term))].join(', ')}</strong> – xóa các phân công cũ của học kỳ này không có trong file
+                {replaceTerms && importReplaced.length > 0 ? <> (<strong>{importReplaced.length} dòng</strong>, gồm cả các dòng trùng có tên môn viết khác)</> : ''}.
+                Bỏ chọn nếu file chỉ bổ sung thêm một vài phân công.
+              </span>
+            </label>
 
             <div className="flex justify-between items-center pt-3 border-t border-slate-200">
               <span className="text-xs text-slate-500 font-medium">
