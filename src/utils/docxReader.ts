@@ -128,8 +128,17 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
             const rId = img ? img.getAttributeNS(R, 'id') || img.getAttribute('r:id') || '' : '';
             if (rId) out += await imageFor(rId);
           }
+        } else if (name === 'r') {
+          // Chỉ số trên/dưới định dạng bằng Word (x², S₀) ngoài ô công thức → giữ lại bằng LaTeX
+          const va = Array.from(c.getElementsByTagNameNS(W, 'vertAlign'))[0];
+          const mode = va ? va.getAttributeNS(W, 'val') || va.getAttribute('w:val') : '';
+          const inner = await inline(c);
+          if ((mode === 'superscript' || mode === 'subscript') && inner.trim() && !inner.includes('$') && inner.length < 30) {
+            const esc = inner.trim().replace(/([{}%#&_^\\])/g, '\\$1');
+            out += `\\(${mode === 'superscript' ? '^' : '_'}{${esc}}\\)`; // dùng \( \) để không dính với $ bên cạnh
+          } else out += inner;
         } else {
-          // r, hyperlink, ins, smartTag, sdt, sdtContent, fldSimple...
+          // hyperlink, ins, smartTag, sdt, sdtContent, fldSimple...
           out += await inline(c);
         }
         continue;

@@ -1,4 +1,4 @@
-# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.0)
+# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.2)
 
 Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.
 Ứng dụng dùng React + Vite, dữ liệu lưu trên Firebase (Firestore), đăng nhập bằng Google, Trợ lý AI dùng Gemini.
@@ -141,6 +141,14 @@ firebase deploy --only firestore:rules
 - **Bộ hiển thị** (`katex-renderer.tsx`): LaTeX `$...$`, `$$...$$`, môi trường `\begin{cases}`…, ảnh `![chú thích](img:...)`, đồ thị, GeoGebra `[[geogebra: https://www.geogebra.org/m/...]]`.
 - **Công cụ trong khung soạn giáo án**: bảng chèn nhanh công thức (đại số, giải tích, hình học, tập hợp, Hy Lạp), hệ phương trình, bảng xét dấu, vẽ đồ thị có xem trước, chèn ảnh (tự nén), nhúng GeoGebra; ô đang soạn hiển thị "Xem nhanh" công thức ngay bên dưới; nút phóng to khung soạn.
 - Ảnh được lưu cùng giáo án (giới hạn ~900 KB/giáo án do Firestore); ảnh không còn dùng tự được dọn khi lưu.
+
+### Bản 2.2 – Tự tìm & sửa lỗi công thức (không cần biết LaTeX)
+- **Tự sửa khi hiển thị**: công thức lỗi (thường do chép từ Word: `\left` thiếu `\right`, `\text{\Big}`, ngoặc `{}` lệch, mũ kép `x^2^3`, lệnh lạ…) không còn hiện chữ đỏ – phần mềm tự sửa để hiển thị (gạch chân chấm vàng); nếu không sửa được thì hiện nhãn "⚠ công thức" thay vì mã lỗi.
+- **Nút "Sửa lỗi công thức"** (`FormulaDoctor.tsx`, `utils/latexDoctor.ts`): trong khung soạn và ở màn hình xem giáo án (khi có lỗi). Quét toàn bộ giáo án, mỗi lỗi hiện **Trước (mã gốc)** / **Sau khi sửa (hình thật)** kèm lời giải thích tiếng Việt. Có "Tự sửa tất cả lỗi", sửa từng cái, "Sửa tay" có xem trước ngay, và "Nhờ AI sửa" (cần đăng nhập + `GEMINI_API_KEY`).
+- **Gợi ý khôi phục số mũ/chỉ số bị mất** khi chép từ Word: `b3 − a3` → b³ − a³, `S0, S1` → S₀, S₁, `∫13` → ∫₁³, `|0h =` → thế cận |₀ʰ. Đây là gợi ý nên giáo viên xem lại trước khi áp dụng.
+- Khung soạn hiện thông báo "Phát hiện N công thức lỗi" ngay sau khi nhập file Word/PDF hoặc khi gõ sai.
+- Bộ đọc Word giữ chữ số mũ/chỉ số dưới định dạng thường (không phải Equation) và lệnh LaTeX gõ tay trong Equation.
+- Tổ trưởng/tổ phó có thể sửa lỗi công thức cả khi giáo án đang chờ duyệt.
 
 ## 5. Cấu trúc thư mục chính
 

@@ -87,7 +87,8 @@ function node(el: Element): string {
     // w:r bên trong công thức (chữ thường) → \text{}
     if (el.localName === 'r') {
       const t = Array.from(el.getElementsByTagNameNS('*', 't')).map(x => x.textContent || '').join('');
-      return t ? `\\text{${t}}` : '';
+      if (!t) return '';
+      return /\\[A-Za-z]+/.test(t) ? t : `\\text{${t}}`;
     }
     return '';
   }
@@ -109,6 +110,8 @@ function node(el: Element): string {
         .join('');
       const isNormal = Array.from(el.getElementsByTagNameNS(M_NS, 'nor')).length > 0 ||
         Array.from(el.getElementsByTagNameNS(M_NS, 'sty')).some(s => (s.getAttributeNS(M_NS, 'val') || s.getAttribute('m:val')) === 'p' && /[A-Za-zÀ-ỹ]{2,}/.test(t) && !FUNC_NAMES.has(t.trim()) && !/^\d/.test(t));
+      // Người dùng gõ lệnh LaTeX trực tiếp trong ô công thức (vd \Big|) → giữ nguyên, không bọc \text
+      if (/\\[A-Za-z]+/.test(t)) return t;
       if (isNormal && /[A-Za-zÀ-ỹ]/.test(t)) return `\\text{${t}}`;
       if (FUNC_NAMES.has(t.trim())) return `\\${t.trim()} `;
       // Chữ tiếng Việt có dấu trong công thức → \text

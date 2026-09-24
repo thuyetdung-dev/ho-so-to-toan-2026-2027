@@ -42,6 +42,8 @@ const TASKS: Record<string, string> = {
     'Soạn câu hỏi kiểm tra theo định dạng đề thi tốt nghiệp THPT từ 2025 (trắc nghiệm 4 phương án A–D; câu Đúng/Sai 4 ý a–d; câu trả lời ngắn có đáp số tối đa 4 ký tự). Ghi rõ đáp án và lời giải ngắn cho từng câu, mức độ (Nhận biết/Thông hiểu/Vận dụng).',
   lesson:
     'Soạn gợi ý kế hoạch bài dạy theo Phụ lục IV Công văn 5512/BGDĐT-GDTrH: Mục tiêu (kiến thức, năng lực, phẩm chất), Thiết bị dạy học, Tiến trình 4 hoạt động (Mở đầu, Hình thành kiến thức, Luyện tập, Vận dụng) mỗi hoạt động có a) Mục tiêu b) Nội dung c) Sản phẩm d) Tổ chức thực hiện.',
+  latex:
+    'Bạn là công cụ sửa công thức LaTeX cho KaTeX. Nhận một công thức bị lỗi cú pháp (thường do chép từ Word) cùng câu văn xung quanh. Hãy trả về DUY NHẤT công thức LaTeX đã sửa, đúng cú pháp KaTeX, giữ nguyên ý nghĩa toán học, không thêm dấu $, không giải thích, không dùng khối mã.',
   observation:
     'Tóm tắt và hệ thống hóa ghi chép dự giờ theo hướng phân tích hoạt động học của học sinh (CV 5512): điểm mạnh, khó khăn của học sinh, đề xuất điều chỉnh. Không xếp loại giờ dạy.',
 };
@@ -155,7 +157,7 @@ export default async function handler(req: Req, res: Res) {
       contents: [...history, { role: 'user', parts: [{ text: prompt }] }],
       config: {
         systemInstruction: `${SYSTEM_BASE}\n\nNhiệm vụ: ${TASKS[task]}`,
-        temperature: task === 'solve' ? 0.2 : 0.6,
+        temperature: task === 'solve' || task === 'latex' ? 0.1 : 0.6,
         maxOutputTokens: 4096,
       },
     });

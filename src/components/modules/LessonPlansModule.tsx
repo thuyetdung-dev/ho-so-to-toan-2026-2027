@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, lessonSnapshot } from '../../context/AppContext';
 import { VersionDiffModal } from '../common/VersionDiffModal';
 import { LessonPlanEditorModal } from './LessonPlanEditorModal';
@@ -31,7 +31,9 @@ import {
   Minimize2,
   Trash2,
   Printer as PrinterIcon,
+  Stethoscope,
 } from 'lucide-react';
+import { FormulaDoctor, countFormulaIssues } from '../common/FormulaDoctor';
 
 export const LessonPlansModule: React.FC = () => {
   const {
@@ -133,6 +135,13 @@ export const LessonPlansModule: React.FC = () => {
   const isOwner = !!selectedPlan && selectedPlan.teacherId === activeMember.id;
   const canEdit = !!selectedPlan && permissions.canContribute && (isOwner || isLeader) && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   const canSubmit = !!selectedPlan && isOwner && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
+  // Tổ trưởng/tổ phó được sửa lỗi công thức cả khi giáo án đang chờ duyệt / đã duyệt
+  const canFixFormula = canEdit || (!!selectedPlan && isLeader && permissions.canContribute);
+  const formulaIssues = useMemo(
+    () => (selectedPlan ? countFormulaIssues(selectedPlan) : { errors: 0, suggestions: 0 }),
+    [selectedPlan],
+  );
+  const [doctorOpen, setDoctorOpen] = useState(false);
   const canDelete = !!selectedPlan && ((isOwner && selectedPlan.status === 'draft') || permissions.isAdminOrHead);
 
   const handleDelete = async () => {
@@ -628,6 +637,16 @@ export const LessonPlansModule: React.FC = () => {
                       <span>Soạn / Sửa</span>
                     </button>
                   )}
+                  {canFixFormula && formulaIssues.errors + formulaIssues.suggestions > 0 && (
+                    <button
+                      onClick={() => setDoctorOpen(true)}
+                      className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1 border print:hidden ${formulaIssues.errors ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300' : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'}`}
+                      title="Phần mềm tự tìm công thức bị lỗi và đề xuất cách sửa"
+                    >
+                      <Stethoscope className="w-3.5 h-3.5" />
+                      <span>Sửa lỗi công thức ({formulaIssues.errors + formulaIssues.suggestions})</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => window.print()}
                     className="px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center gap-1 border border-slate-200"
@@ -1095,6 +1114,14 @@ export const LessonPlansModule: React.FC = () => {
           history={selectedPlan.versionHistory || []}
           current={lessonSnapshot(selectedPlan)}
           onClose={() => setShowDiffModal(false)}
+        />
+      )}
+
+      {doctorOpen && selectedPlan && (
+        <FormulaDoctor
+          plan={selectedPlan}
+          onClose={() => setDoctorOpen(false)}
+          onApply={p => saveLessonPlan(p)}
         />
       )}
 

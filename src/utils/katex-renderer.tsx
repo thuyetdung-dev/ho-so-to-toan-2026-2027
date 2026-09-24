@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import katex from 'katex';
 import { MathGraph } from '../components/common/MathGraph';
+import { autoFixLatex, explainError } from './latexDoctor';
 
 interface MathRendererProps {
   content: string;
@@ -28,25 +29,33 @@ const RICH_RE = new RegExp(`(${IMAGE_RE.source}|${GRAPH_RE.source}|${GEOGEBRA_RE
 const ENV_RE = /(\\begin\{(align\*?|aligned|cases|array|matrix|pmatrix|bmatrix|vmatrix|gather\*?|equation\*?|split)\}[\s\S]+?\\end\{\2\})/g;
 
 function renderKatex(formula: string, display: boolean, key: string) {
+  const opts = { displayMode: display, strict: false as const, trust: false, maxExpand: 1000 };
+  const cls = `katex-rendered inline-block ${display ? 'my-2 block text-center overflow-x-auto max-w-full' : 'mx-0.5 align-middle'}`;
   try {
-    const html = katex.renderToString(formula, {
-      displayMode: display,
-      throwOnError: false,
-      strict: false,
-      trust: false,
-      maxExpand: 1000,
-    });
+    const html = katex.renderToString(formula, { ...opts, throwOnError: true });
+    return <span key={key} className={cls} dangerouslySetInnerHTML={{ __html: html }} />;
+  } catch (err) {
+    // Công thức lỗi (thường do chép từ Word): thử tự sửa để vẫn hiển thị được
+    const fix = autoFixLatex(formula, display);
+    if (fix) {
+      const html = katex.renderToString(fix.fixed, { ...opts, throwOnError: false });
+      return (
+        <span
+          key={key}
+          className={`${cls} border-b border-dotted border-amber-500`}
+          title={`Công thức có lỗi đã được tự sửa khi hiển thị (${fix.steps.join('; ')}). Mở "Sửa lỗi công thức" để lưu bản sửa.`}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      );
+    }
+    const msg = err instanceof Error ? err.message.replace(/^KaTeX parse error:\s*/, '') : '';
     return (
       <span
         key={key}
-        className={`katex-rendered inline-block ${display ? 'my-2 block text-center overflow-x-auto max-w-full' : 'mx-0.5 align-middle'}`}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  } catch {
-    return (
-      <span key={key} className="font-mono text-slate-700 mx-0.5 text-xs bg-slate-100 px-1 rounded">
-        {formula}
+        title={`Công thức lỗi: ${explainError(msg)}. Mở "Sửa lỗi công thức" để sửa.`}
+        className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-900 text-xs font-mono align-middle"
+      >
+        ⚠ {formula.length > 60 ? `${formula.slice(0, 60)}…` : formula}
       </span>
     );
   }
