@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, Plus, Trash2, ArrowUp, ArrowDown, Save } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { X, Plus, Trash2, ArrowUp, ArrowDown, Save, FileUp, Loader2, Download, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { DepartmentPlan, PlanDistributionItem } from '../../types';
 import { newId } from '../../utils/ids';
+import type { PlanImportResult } from '../../utils/planImport';
 
 interface Props {
   initial: DepartmentPlan;
@@ -33,6 +34,55 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<(PlanImportResult & { source: string; fileName: string }) | null>(null);
+  const [importMsg, setImportMsg] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const hasItems = items.some(i => i.topicTitle.trim());
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) return setError('Tệp quá lớn (tối đa 15 MB).');
+    setImporting(true);
+    setError('');
+    setImportMsg('');
+    try {
+      const { importPlanFile } = await import('../../utils/planImport');
+      const r = await importPlanFile(file, { grade: initial.grade, weeksCount });
+      if (!r.distribution.length && !r.evaluations.length && !r.generalSituation) {
+        setError(
+          `Không tìm thấy bảng phân phối chương trình trong "${file.name}". Tệp cần có bảng với các cột như "Bài học", "Số tiết" (hoặc "Tuần", "Tiết", "Tên bài"). ` +
+            (file.name.toLowerCase().endsWith('.pdf') ? 'Nếu là PDF scan (ảnh chụp) thì không đọc được – hãy dùng bản Word/Excel.' : 'Bạn có thể tải "File mẫu Excel" để điền theo.'),
+        );
+        return;
+      }
+      setImported({ ...r, fileName: file.name });
+    } catch (err) {
+      setError(`Không đọc được tệp: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const applyImport = (mode: 'replace' | 'append') => {
+    if (!imported) return;
+    const base = mode === 'append' ? items.filter(i => i.topicTitle.trim()) : [];
+    const added = imported.distribution.map((d, i) => ({ ...d, id: newId('dist'), order: base.length + i + 1 }));
+    if (added.length) setItems([...base, ...added]);
+    if (imported.evaluations.length) setEvals(prev => (mode === 'append' ? [...prev.filter(e => e.name.trim()), ...imported.evaluations] : imported.evaluations));
+    if (imported.generalSituation && (mode === 'replace' || !generalSituation.trim())) setGeneralSituation(imported.generalSituation);
+    const parts = [
+      added.length && `${added.length} bài (${added.reduce((a, b) => a + b.periods, 0)} tiết)`,
+      imported.evaluations.length && `${imported.evaluations.length} bài kiểm tra`,
+      imported.generalSituation && 'đặc điểm tình hình',
+    ].filter(Boolean);
+    setImportMsg(`Đã nhập từ "${imported.fileName}": ${parts.join(', ')}. Hãy rà lại rồi bấm Lưu.`);
+    if (!isNew && !reason) setReason(`Cập nhật từ tệp ${imported.fileName}`);
+    setImported(null);
+  };
 
   const updateItem = (id: string, patch: Partial<PlanDistributionItem>) =>
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patch } : it)));
@@ -76,14 +126,43 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
       <form onSubmit={handleSave} className="bg-white rounded-2xl max-w-6xl w-full p-5 shadow-2xl border border-slate-200 max-h-[94vh] flex flex-col gap-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <h3 className="text-base font-bold text-slate-900">
             {isNew ? `Tạo kế hoạch dạy học Khối ${initial.grade}` : `Chỉnh sửa kế hoạch – Khối ${initial.grade}`}
           </h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700" aria-label="Đóng">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <input ref={fileRef} type="file" accept=".docx,.pdf,.xlsx,.xls,.xlsm,.ods,.csv" className="hidden" onChange={handleFile} />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={importing}
+              className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-60"
+              title="Đọc bảng phân phối chương trình, kiểm tra định kỳ và đặc điểm tình hình từ tệp"
+            >
+              {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
+              {importing ? 'Đang đọc tệp...' : 'Nhập từ Word/PDF/Excel'}
+            </button>
+            <button
+              type="button"
+              onClick={async () => (await import('../../utils/planImport')).downloadPlanTemplate(initial.grade)}
+              className="px-2.5 py-1.5 text-xs font-semibold border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg flex items-center gap-1"
+              title="Tải file Excel mẫu để điền kế hoạch rồi nhập lại"
+            >
+              <Download className="w-3.5 h-3.5" /> File mẫu Excel
+            </button>
+            <button type="button" onClick={onCancel} className="ml-1 text-slate-400 hover:text-slate-700" aria-label="Đóng">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {importMsg && (
+          <div className="p-2.5 rounded-lg border text-xs flex items-start gap-2 bg-emerald-50 border-emerald-200 text-emerald-900">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            <span className="flex-1">{importMsg}</span>
+            <button type="button" onClick={() => setImportMsg('')} className="text-slate-400 hover:text-slate-700" aria-label="Đóng thông báo"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto space-y-4 text-xs pr-1">
           <label className="block font-semibold text-slate-700">
@@ -193,6 +272,74 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
           </button>
         </div>
       </form>
+
+      {imported && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/50 flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl max-w-5xl w-full p-5 shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col gap-3 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h4 className="text-sm font-bold text-slate-900">Xem trước dữ liệu đọc từ {imported.source}: “{imported.fileName}”</h4>
+              <button type="button" onClick={() => setImported(null)} className="text-slate-400 hover:text-slate-700" aria-label="Đóng"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-800 font-semibold">{imported.distribution.length} bài • {imported.distribution.reduce((a, b) => a + b.periods, 0)} tiết</span>
+              <span className="px-2 py-1 rounded-full bg-violet-50 text-violet-800 font-semibold">{imported.evaluations.length} bài kiểm tra định kỳ</span>
+              <span className={`px-2 py-1 rounded-full font-semibold ${imported.generalSituation ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
+                {imported.generalSituation ? 'Có đặc điểm tình hình' : 'Không có đặc điểm tình hình'}
+              </span>
+            </div>
+            {imported.notes.length > 0 && <p className="text-slate-600">Ghi chú: {imported.notes.join('; ')}.</p>}
+            {imported.warnings.map(w => (
+              <div key={w} className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />{w}</div>
+            ))}
+            <div className="flex-1 overflow-auto border border-slate-200 rounded-lg">
+              <table className="w-full min-w-[720px] text-left">
+                <thead className="bg-slate-100 text-slate-700 sticky top-0">
+                  <tr>
+                    <th className="p-2 w-10">STT</th>
+                    <th className="p-2 w-14">Tuần</th>
+                    <th className="p-2">Bài học / Chủ đề</th>
+                    <th className="p-2 w-14">Số tiết</th>
+                    <th className="p-2">Yêu cầu cần đạt</th>
+                    <th className="p-2 w-40">Thiết bị</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {imported.distribution.map((d, i) => (
+                    <tr key={i} className="align-top">
+                      <td className="p-2 text-center">{i + 1}</td>
+                      <td className="p-2 text-center">{d.week}</td>
+                      <td className="p-2 font-medium">{d.topicTitle}</td>
+                      <td className="p-2 text-center">{d.periods}</td>
+                      <td className="p-2 whitespace-pre-line text-slate-600 max-w-md">{d.objectives.length > 220 ? d.objectives.slice(0, 220) + '…' : d.objectives || '—'}</td>
+                      <td className="p-2 text-slate-600">{d.equipment || '—'}</td>
+                    </tr>
+                  ))}
+                  {imported.evaluations.map((ev, i) => (
+                    <tr key={`ev${i}`} className="bg-violet-50/50">
+                      <td className="p-2 text-center">KT</td>
+                      <td className="p-2 text-center">{ev.week}</td>
+                      <td className="p-2 font-medium">{ev.name}</td>
+                      <td className="p-2 text-center">{ev.duration}′</td>
+                      <td className="p-2 text-slate-600" colSpan={2}>{ev.format}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setImported(null)} className="px-3.5 py-1.5 font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
+              {hasItems && (
+                <button type="button" onClick={() => applyImport('append')} className="px-3.5 py-1.5 font-semibold border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg">
+                  Thêm vào cuối danh sách hiện có
+                </button>
+              )}
+              <button type="button" onClick={() => applyImport('replace')} className="px-4 py-1.5 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+                {hasItems ? 'Thay thế nội dung hiện có' : 'Đưa vào kế hoạch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

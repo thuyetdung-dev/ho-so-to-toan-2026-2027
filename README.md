@@ -1,4 +1,4 @@
-# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.2)
+# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.3)
 
 Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.
 Ứng dụng dùng React + Vite, dữ liệu lưu trên Firebase (Firestore), đăng nhập bằng Google, Trợ lý AI dùng Gemini.
@@ -149,6 +149,15 @@ firebase deploy --only firestore:rules
 - Khung soạn hiện thông báo "Phát hiện N công thức lỗi" ngay sau khi nhập file Word/PDF hoặc khi gõ sai.
 - Bộ đọc Word giữ chữ số mũ/chỉ số dưới định dạng thường (không phải Equation) và lệnh LaTeX gõ tay trong Equation.
 - Tổ trưởng/tổ phó có thể sửa lỗi công thức cả khi giáo án đang chờ duyệt.
+
+### Bản 2.3 – Nhập Kế hoạch dạy học từ Word / PDF / Excel
+- Trong "Chỉnh sửa kế hoạch" (mục 3) có nút **Nhập từ Word/PDF/Excel** và **File mẫu Excel** (`src/utils/planImport.ts`).
+- Tự đọc: **bảng phân phối chương trình** (bài học, số tiết, tuần/thời điểm, yêu cầu cần đạt, thiết bị, địa điểm), **bảng kiểm tra đánh giá định kỳ** và mục **"Đặc điểm tình hình"**.
+- Nhận được các mẫu hay gặp: Phụ lục I, Phụ lục III (CV 5512), PPCT dạng "Tuần | Tiết | Tên bài" (mỗi tiết một hàng → tự gộp thành bài và cộng số tiết), ô gộp dọc trong Word/Excel, hàng đánh số (1)(2)(3), hàng tiêu đề chương, hàng "Tổng".
+- Tệp không có cột tuần → tự ước tính theo 3 tiết/tuần. Bài kiểm tra không ghi tuần → tự xếp theo giữa/cuối kỳ.
+- Tệp Excel nhiều sheet hoặc Word nhiều khối → chỉ lấy bảng của khối đang soạn; nhập nhầm tệp khối khác sẽ có cảnh báo.
+- PDF: dựng lại bảng theo tọa độ chữ, ghép lại chữ có dấu bị vẽ đè (lỗi thường gặp ở PDF tiếng Việt). PDF scan (ảnh chụp) không đọc được.
+- Luôn có màn hình **xem trước** trước khi đưa vào: chọn "Thay thế" hoặc "Thêm vào cuối" danh sách hiện có.
 
 ## 5. Cấu trúc thư mục chính
 

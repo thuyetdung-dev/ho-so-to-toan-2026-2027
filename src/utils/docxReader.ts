@@ -23,6 +23,13 @@ export interface DocxReadResult {
   imageCount: number;
   skippedImages: number;
   mathTypeObjects: number;
+  /** Bảng giữ nguyên cấu trúc hàng/cột (ô gộp dọc được chép giá trị ô trên xuống). lineIndex = vị trí trong text */
+  tables: DocxTable[];
+}
+
+export interface DocxTable {
+  rows: string[][];
+  lineIndex: number;
 }
 
 export interface DocxReadOptions {
@@ -39,6 +46,8 @@ const SYMBOL_FONT: Record<string, string> = {
   F067: 'γ', F064: 'δ', F044: 'Δ', F06A: 'φ', F077: 'ω', F0B0: '°', F0D0: '∠', F05E: '⊥', F0BB: '≈',
   F0A7: '•', F0B7: '•', F0D8: '¬',
 };
+
+const attrW = (el: Element, name: string) => el.getAttributeNS(W, name) || el.getAttribute(`w:${name}`) || '';
 
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp' };
 
@@ -155,6 +164,7 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
   };
 
   const lines: string[] = [];
+  const tables: DocxTable[] = [];
   const block = async (node: Element) => {
     for (const c of elementChildren(node)) {
       if (c.namespaceURI !== W) {
@@ -169,9 +179,34 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
           if (t) lines.push(i === 0 && isList && !/^[-+•]|^[a-zđ]\)|^\d+[.)]|^[IVX]+\./i.test(t) ? `- ${t}` : t);
         });
       } else if (c.localName === 'tbl') {
+        const table: DocxTable = { rows: [], lineIndex: lines.length };
+        const above: string[] = []; // giá trị theo cột lưới của hàng trên (cho ô gộp dọc)
         for (const tr of elementChildren(c).filter(x => x.localName === 'tr')) {
-          for (const tc of elementChildren(tr).filter(x => x.localName === 'tc')) await block(tc);
+          const row: string[] = [];
+          const trPr = elementChildren(tr).find(x => x.localName === 'trPr');
+          const before = trPr && elementChildren(trPr).find(x => x.localName === 'gridBefore');
+          let col = before ? Number(attrW(before, 'val')) || 0 : 0;
+          for (let k = 0; k < col; k++) row.push('');
+          for (const tc of elementChildren(tr).filter(x => x.localName === 'tc')) {
+            const tcPr = elementChildren(tc).find(x => x.localName === 'tcPr');
+            const spanEl = tcPr && elementChildren(tcPr).find(x => x.localName === 'gridSpan');
+            const span = Math.max(1, spanEl ? Number(attrW(spanEl, 'val')) || 1 : 1);
+            const vMerge = tcPr && elementChildren(tcPr).find(x => x.localName === 'vMerge');
+            const start = lines.length;
+            await block(tc);
+            let text = lines.slice(start).join('\n');
+            if (vMerge && attrW(vMerge, 'val') !== 'restart') text = above[col] ?? '';
+            row[col] = text;
+            above[col] = text;
+            for (let k = 1; k < span; k++) {
+              row[col + k] = '';
+              above[col + k] = '';
+            }
+            col += span;
+          }
+          table.rows.push(row.map(v => v ?? ''));
         }
+        tables.push(table);
       } else if (c.localName === 'sdt' || c.localName === 'sdtContent' || c.localName === 'body' || c.localName === 'customXml') {
         await block(c);
       }
@@ -180,7 +215,7 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
   const body = doc.getElementsByTagNameNS(W, 'body')[0];
   if (body) await block(body);
 
-  return { text: lines.join('\n'), images: imageMap, ...stats };
+  return { text: lines.join('\n'), images: imageMap, tables, ...stats };
 }
 
 /** Nén ảnh trên trình duyệt: tối đa 900px chiều rộng, JPEG chất lượng 0,8 (nền trắng). */
