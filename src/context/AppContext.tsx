@@ -121,6 +121,8 @@ interface AppContextType {
   setActiveMember: (member: Member) => void;
   /** Đổi vai chỉ được phép trong chế độ demo */
   canSimulateRoles: boolean;
+  /** Mã hồ sơ này có phải của người đang dùng không (gộp mọi hồ sơ cùng email, mã tài khoản, mã hồ sơ cũ) */
+  isMe: (memberId?: string | null) => boolean;
   isUserAuthorized: boolean;
   saveMember: (member: Member) => Promise<boolean>;
   /** Tạo/cập nhật nhiều hồ sơ thành viên một lần (dùng khi nhập phân công từ Excel) */
@@ -691,20 +693,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       );
     }
-    // Chế độ thật: danh tính luôn lấy từ tài khoản Google đang đăng nhập
-    const byEmail = realMembers.find(m => normalizeEmail(m.email) === userEmail);
-    if (byEmail) return byEmail;
+    // Chế độ thật: danh tính luôn lấy từ tài khoản Google đang đăng nhập.
+    // Có thể có nhiều hồ sơ cùng email (vd hồ sơ tạo từ file Excel rồi gắn email) → lấy hồ sơ vai trò cao nhất.
+    // Chủ sở hữu hệ thống luôn là Quản trị (giống quy tắc isOwner() trên máy chủ).
+    const RANK: Record<string, number> = { admin: 0, head: 1, deputy: 2, teacher: 3, principal: 4 };
+    const mine = realMembers.filter(m => normalizeEmail(m.email) === userEmail).sort((a, b) => (RANK[a.role] ?? 9) - (RANK[b.role] ?? 9));
+    const byEmail = mine[0];
+    if (byEmail) return isOwner ? { ...byEmail, role: 'admin' as UserRole } : byEmail;
     return {
       id: myAccess?.memberId || currentUser?.uid || 'guest',
       uid: currentUser?.uid,
       email: userEmail || 'guest@toan.edu.vn',
       displayName: currentUser?.displayName || (isOwner ? 'Quản trị viên Tổ Toán' : 'Khách'),
-      role: myAccess?.role || 'teacher',
+      role: isOwner ? 'admin' : myAccess?.role || 'teacher',
       subject: 'Toán',
       status: 'active',
       joinedAt: new Date().toISOString(),
     };
   }, [isDemoMode, demoMembers, demoActiveMemberId, realMembers, userEmail, myAccess, currentUser, isOwner]);
+
+  const myIds = useMemo(() => {
+    const ids = new Set<string>([activeMember.id]);
+    if (!isDemoMode) {
+      realMembers.filter(m => normalizeEmail(m.email) === userEmail && userEmail).forEach(m => ids.add(m.id));
+      if (currentUser?.uid) ids.add(currentUser.uid);
+      if (myAccess?.memberId) ids.add(myAccess.memberId);
+    }
+    return ids;
+  }, [activeMember.id, isDemoMode, realMembers, userEmail, currentUser, myAccess]);
+  const isMe = useCallback((memberId?: string | null) => !!memberId && myIds.has(memberId), [myIds]);
 
   const permissions: Permissions = useMemo(() => {
     const role = activeMember.role;
@@ -873,6 +890,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Thành viên ----------
   const saveMember = async (member: Member) => {
+    // Không tự hạ vai trò của chính mình (vd gắn email vào hồ sơ tạo từ Excel với vai trò "Giáo viên")
+    const RANK: Record<string, number> = { admin: 0, head: 1, deputy: 2, teacher: 3, principal: 4 };
+    if (!isDemoMode && normalizeEmail(member.email) === userEmail && (RANK[member.role] ?? 9) > (RANK[activeMember.role] ?? 9)) {
+      member = { ...member, role: activeMember.role };
+    }
     if (!permissions.isLeader) {
       setNotification({ message: 'Chỉ Tổ trưởng/Tổ phó/Quản trị được sửa hồ sơ thành viên.', type: 'error' });
       return false;
@@ -1956,6 +1978,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectActiveMember,
         setActiveMember,
         canSimulateRoles: isDemoMode,
+        isMe,
         isUserAuthorized,
         saveMember,
         saveMembersBulk,

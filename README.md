@@ -211,6 +211,12 @@ firebase deploy --only firestore:rules
 - Bỏ phần **Mục lục** tự động của Word khi nhập (số trang không có ý nghĩa trên phần mềm).
 - Sửa lỗi: dòng thông báo công thức không đọc được chứa "$...$" bị hiển thị thành công thức.
 
+### Bản 2.6.1 – Đổi tên mục 5, sửa lỗi mất nút Xóa giáo án
+- Mục 5 đổi tên thành **"Sinh hoạt chuyên môn và Nghiên cứu bài học"**.
+- Chủ sở hữu phần mềm (tài khoản tạo tổ) luôn được nhận là **Quản trị viên**, kể cả khi hồ sơ gắn email của mình đang ghi vai trò "Giáo viên".
+- Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
+- Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
+
 ## 5. Cấu trúc thư mục chính
 
 ```

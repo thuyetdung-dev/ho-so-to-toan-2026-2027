@@ -71,7 +71,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export const MembersModule: React.FC = () => {
-  const {
+  const { isMe,
     activeMember,
     allMembers,
     classes,
@@ -888,7 +888,7 @@ export const MembersModule: React.FC = () => {
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      {permissions.isAdminOrHead && m.id !== activeMember.id && (
+                      {permissions.isAdminOrHead && !isMe(m.id) && (
                         <button onClick={() => handleRemoveMember(m)} className="p-1 text-slate-400 hover:text-rose-600" aria-label={`Xóa ${m.displayName}`}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

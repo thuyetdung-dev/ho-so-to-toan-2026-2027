@@ -38,7 +38,7 @@ import { useLessonPlanDetail } from '../../hooks/useLessonPlanDetail';
 import type { PlanVersionRecord } from '../../types';
 
 export const LessonPlansModule: React.FC = () => {
-  const {
+  const { isMe,
     activeMember,
     lessonPlans,
     saveLessonPlan,
@@ -124,7 +124,7 @@ export const LessonPlansModule: React.FC = () => {
   const filteredPlans = lessonPlans
     .filter(p => {
     if (filterGrade !== 'all' && p.grade !== filterGrade) return false;
-    if (onlyMine && p.teacherId !== activeMember.id) return false;
+    if (onlyMine && !isMe(p.teacherId)) return false;
     if (searchText.trim()) {
       const kw = searchText.trim().toLowerCase();
       if (!`${p.title} ${p.topicTitle} ${p.teacherName}`.toLowerCase().includes(kw)) return false;
@@ -148,7 +148,7 @@ export const LessonPlansModule: React.FC = () => {
       setNotification({ message: 'Không tải được lịch sử phiên bản. Kiểm tra kết nối mạng.', type: 'error' });
     }
   };
-  const isOwner = !!selectedPlan && selectedPlan.teacherId === activeMember.id;
+  const isOwner = !!selectedPlan && isMe(selectedPlan.teacherId);
   const canEdit = !!selectedPlan && permissions.canContribute && (isOwner || isLeader) && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   const canSubmit = !!selectedPlan && isOwner && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   // Tổ trưởng/tổ phó được sửa lỗi công thức cả khi giáo án đang chờ duyệt / đã duyệt

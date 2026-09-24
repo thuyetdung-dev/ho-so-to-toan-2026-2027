@@ -18,7 +18,7 @@ const empty = (): SharedDocument => ({ id: '', title: '', url: '', category: 'ho
 
 /** Kho tài liệu dùng chung của tổ (bản cũ chỉ là trang trống hiển thị số lượng). */
 export const DocumentsModule: React.FC = () => {
-  const { documents, saveDocument, deleteDocument, activeMember, permissions, config } = useApp();
+  const { isMe, documents, saveDocument, deleteDocument, activeMember, permissions, config } = useApp();
   const confirm = useConfirm();
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState<'all' | DocumentCategory>('all');
@@ -120,7 +120,7 @@ export const DocumentsModule: React.FC = () => {
           {filtered.map(d => {
             const cat = CATEGORIES[(d.category as DocumentCategory) || 'khac'] || CATEGORIES.khac;
             const link = safeUrl(d.url);
-            const canEdit = permissions.isLeader || d.uploaderId === activeMember.id;
+            const canEdit = permissions.isLeader || isMe(d.uploaderId);
             return (
               <div key={d.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col gap-2">
                 <div className="flex items-center gap-2 flex-wrap">

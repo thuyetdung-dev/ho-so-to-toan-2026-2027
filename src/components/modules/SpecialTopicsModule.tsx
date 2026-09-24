@@ -43,7 +43,7 @@ const emptySkkn = (year: string): SkknTopic => ({
 });
 
 export const SpecialTopicsModule: React.FC = () => {
-  const {
+  const { isMe,
     activeMember,
     specialTopics,
     saveSpecialTopic,
@@ -75,7 +75,7 @@ export const SpecialTopicsModule: React.FC = () => {
     .filter(s => !kw || `${s.title} ${s.authorName} ${s.abstract}`.toLowerCase().includes(kw))
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
-  const canModify = (authorId?: string) => permissions.isLeader || (!!authorId && authorId === activeMember.id);
+  const canModify = (authorId?: string) => permissions.isLeader || (!!authorId && isMe(authorId));
 
   const submitTopic = async (e: React.FormEvent) => {
     e.preventDefault();

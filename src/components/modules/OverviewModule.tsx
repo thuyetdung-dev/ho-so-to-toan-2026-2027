@@ -28,7 +28,7 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 };
 
 export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) => {
-  const {
+  const { isMe,
     activeMember,
     isDemoMode,
     config,
@@ -42,9 +42,9 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
   } = useApp();
 
   // Metrics
-  const myLessonPlans = lessonPlans.filter(p => p.teacherId === activeMember.id);
+  const myLessonPlans = lessonPlans.filter(p => isMe(p.teacherId));
   const pendingLessonPlans = lessonPlans.filter(p => p.status === 'submitted');
-  const myObservations = observations.filter(o => o.observerId === activeMember.id || o.teacherId === activeMember.id);
+  const myObservations = observations.filter(o => isMe(o.observerId) || isMe(o.teacherId));
 
   // Bản cũ lấy 2 phần tử đầu mảng (không phải cuộc họp sắp tới). Nay: sắp tới trước, nếu không có thì gần nhất.
   const today = new Date().toISOString().slice(0, 10);

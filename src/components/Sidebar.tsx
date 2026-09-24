@@ -91,7 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'lesson-study' as ActiveModule,
-      label: '5. Nghiên cứu bài học',
+      label: '5. Sinh hoạt chuyên môn và Nghiên cứu bài học',
       desc: 'Chu trình 4 bước & biên bản họp',
       icon: Presentation,
       badge: null,

@@ -15,7 +15,7 @@ const emptyActivity = (i: number): ActivityObs => ({
 });
 
 export const ObservationModule: React.FC = () => {
-  const {
+  const { isMe,
     activeMember,
     allMembers,
     classes,
@@ -49,14 +49,14 @@ export const ObservationModule: React.FC = () => {
     () =>
       [...observations]
         .filter(o =>
-          filter === 'mine' ? o.observerId === activeMember.id : filter === 'about_me' ? o.teacherId === activeMember.id : true,
+          filter === 'mine' ? isMe(o.observerId) : filter === 'about_me' ? isMe(o.teacherId) : true,
         )
         .sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.period - a.period),
     [observations, filter, activeMember.id],
   );
   const selectedObs = observations.find(o => o.id === selectedObsId) || sorted[0];
 
-  const teachers = allMembers.filter(m => m.status === 'active' && m.id !== activeMember.id && m.role !== 'principal');
+  const teachers = allMembers.filter(m => m.status === 'active' && !isMe(m.id) && m.role !== 'principal');
   const teacherPlans = lessonPlans.filter(p => p.teacherId === teacherId);
 
   const openForm = () => {
@@ -245,7 +245,7 @@ export const ObservationModule: React.FC = () => {
                   <button onClick={() => window.print()} className="px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1 border border-slate-200">
                     <Printer className="w-3.5 h-3.5" /> In phiếu
                   </button>
-                  {(permissions.isLeader || selectedObs.observerId === activeMember.id) && (
+                  {(permissions.isLeader || isMe(selectedObs.observerId)) && (
                     <button onClick={handleDelete} className="px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-1 border border-rose-200" aria-label="Xóa phiếu">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -287,7 +287,7 @@ export const ObservationModule: React.FC = () => {
                     <div className="text-emerald-800 whitespace-pre-wrap">{selectedObs.teacherFeedback}</div>
                   </div>
                 )}
-                {selectedObs.teacherId === activeMember.id && (
+                {isMe(selectedObs.teacherId) && (
                   <form onSubmit={handleFeedback} className="flex gap-2 print:hidden">
                     <input
                       value={feedbackText}

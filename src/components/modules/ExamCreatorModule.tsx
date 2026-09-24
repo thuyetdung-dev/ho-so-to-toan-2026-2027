@@ -89,7 +89,7 @@ const QuestionBody: React.FC<{ q: Question; showAnswer: boolean; index?: number 
 );
 
 export const ExamCreatorModule: React.FC = () => {
-  const { questions, saveQuestion, deleteQuestion, exams, saveExam, deleteExam, config, activeMember, permissions, currentUser } = useApp();
+  const { isMe, questions, saveQuestion, deleteQuestion, exams, saveExam, deleteExam, config, activeMember, permissions, currentUser } = useApp();
   const confirm = useConfirm();
 
   const [tab, setTab] = useState<'bank' | 'exams'>('bank');
@@ -264,7 +264,7 @@ export const ExamCreatorModule: React.FC = () => {
 
   const selectedExam = exams.find(x => x.id === selectedExamId) || exams[0];
   const examQuestions = (selectedExam?.questionIds || []).map(id => questions.find(q => q.id === id)).filter(Boolean) as Question[];
-  const canManageExam = (x?: Exam) => !!x && (permissions.isLeader || x.authorId === activeMember.id);
+  const canManageExam = (x?: Exam) => !!x && (permissions.isLeader || isMe(x.authorId));
 
   const reshuffle = async () => {
     if (!selectedExam) return;
@@ -345,7 +345,7 @@ export const ExamCreatorModule: React.FC = () => {
             {filtered.length === 0 && <div className="bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center text-xs text-slate-500">Không có câu hỏi phù hợp.</div>}
             {filtered.map(q => {
               const st = q.status || 'approved';
-              const canEdit = permissions.isLeader || (q.authorId === activeMember.id && st !== 'approved');
+              const canEdit = permissions.isLeader || (isMe(q.authorId) && st !== 'approved');
               return (
                 <div key={q.id} className="bg-white border border-slate-200 rounded-xl p-4 text-xs space-y-2">
                   <div className="flex flex-wrap items-center gap-1.5">
