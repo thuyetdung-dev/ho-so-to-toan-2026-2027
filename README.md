@@ -58,8 +58,8 @@ firebase deploy --only firestore:rules
 
 | Vai trò | Được làm |
 |---|---|
-| Quản trị (admin) | Mọi việc, kể cả xóa trắng dữ liệu, cấp quyền Quản trị |
-| Tổ trưởng (head) | Cấu hình tổ, chuyển năm học, phục hồi sao lưu, quản lý thành viên, duyệt kế hoạch/giáo án/câu hỏi |
+| Quản trị (admin) | Mọi việc, kể cả chuyển năm học, xóa trắng dữ liệu, cấp quyền Quản trị |
+| Tổ trưởng (head) | Cấu hình tổ, phục hồi sao lưu, quản lý thành viên, duyệt kế hoạch/giáo án/câu hỏi |
 | Tổ phó (deputy) | Quản lý lớp, phân công, thư mời; duyệt giáo án, câu hỏi; soạn/trình kế hoạch tổ |
 | Giáo viên (teacher) | Soạn giáo án (của mình), dự giờ, câu hỏi (chờ duyệt), đề, tài liệu, bảng điểm |
 | Ban Giám hiệu (principal) | Xem toàn bộ, phê duyệt Kế hoạch dạy học của tổ |
@@ -200,6 +200,10 @@ firebase deploy --only firestore:rules
 - Khóa **chỉ lưu trong trình duyệt** (tùy chọn "Ghi nhớ trên máy này"; bỏ chọn thì tự xóa khi đóng trình duyệt), không lưu vào dữ liệu của tổ, không gửi về máy chủ phần mềm; **tự xóa khi đăng xuất**. Khóa gửi tới Google qua header, không nằm trong đường dẫn.
 - "Tự động": ưu tiên Gemini Flash ổn định mới nhất; mô hình hết lượt miễn phí/ngừng hoạt động → tự chuyển mô hình kế tiếp. (Gemini 2.0 đã ngừng, 2.5 bị giới hạn truy cập – mặc định máy chủ đổi sang gemini-3.5-flash.)
 - "Nhờ AI sửa" công thức (FormulaDoctor) cũng dùng khóa riêng này. Nếu giáo viên chưa dán khóa mà máy chủ tổ có khóa chung → vẫn dùng máy chủ như trước (cần đăng nhập).
+
+### Bản 2.5.1 – Chỉ Quản trị viên được chuyển năm học
+- Nút "Chuyển năm học mới", "Bắt đầu quy trình chuyển năm học" và ô "Năm học hiện tại" chỉ Quản trị viên dùng được; Tổ trưởng thấy thông báo "Chỉ Quản trị viên hệ thống được chuyển năm học".
+- Chặn cả ở máy chủ (firestore.rules): Tổ trưởng vẫn sửa được cấu hình tổ nhưng không đổi được năm học. **Cần dán lại firestore.rules lên Firebase.**
 
 ## 5. Cấu trúc thư mục chính
 

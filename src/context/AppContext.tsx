@@ -1004,8 +1004,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     newYear: string,
     options: { copyConfig?: boolean; copyPlans?: boolean; keepQuestions?: boolean } = {},
   ) => {
-    if (!permissions.isAdminOrHead) {
-      setNotification({ message: 'Chỉ Tổ trưởng/Quản trị được chuyển năm học.', type: 'error' });
+    // Chuyển năm học làm mới phân công, đổi năm học của cả hệ thống → chỉ Quản trị viên
+    if (!permissions.isAdmin) {
+      setNotification({ message: 'Chỉ Quản trị viên hệ thống được chuyển năm học.', type: 'error' });
       return;
     }
     if (!/^\d{4}\s*-\s*\d{4}$/.test(newYear.trim())) {

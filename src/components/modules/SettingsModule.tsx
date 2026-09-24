@@ -68,6 +68,8 @@ export const SettingsModule: React.FC = () => {
   const confirm = useConfirm();
 
   const isLeader = permissions.isAdminOrHead;
+  /** Chuyển năm học / đổi năm học hiện tại: chỉ Quản trị viên */
+  const canChangeYear = permissions.isAdmin;
 
   // Navigation tab in Settings
   const [activeTab, setActiveTab] = useState<
@@ -185,6 +187,10 @@ export const SettingsModule: React.FC = () => {
   };
 
   const handleExecuteYearTransition = async () => {
+    if (!canChangeYear) {
+      setNotification({ message: 'Chỉ Quản trị viên hệ thống được chuyển năm học.', type: 'error' });
+      return;
+    }
     if (!/^\d{4}-\d{4}$/.test(nextYearInput.trim())) {
       setNotification({ message: 'Năm học mới phải có dạng YYYY-YYYY (ví dụ 2027-2028)', type: 'error' });
       return;
@@ -446,8 +452,8 @@ export const SettingsModule: React.FC = () => {
           </p>
         </div>
 
-        {/* Quick Transition Button for Leaders */}
-        {isLeader && (
+        {/* Nút chuyển năm học: chỉ Quản trị viên */}
+        {canChangeYear && (
           <button
             onClick={() => setShowYearModal(true)}
             className="px-3.5 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
@@ -533,8 +539,10 @@ export const SettingsModule: React.FC = () => {
                   <input
                     type="text"
                     value={academicYear}
+                    readOnly={!canChangeYear}
+                    title={canChangeYear ? undefined : 'Chỉ Quản trị viên được đổi năm học (dùng chức năng Chuyển năm học mới)'}
                     onChange={e => setAcademicYear(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    className={`w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${canChangeYear ? '' : 'bg-slate-50 text-slate-500 cursor-not-allowed'}`}
                     required
                   />
                 </div>
@@ -678,13 +686,20 @@ export const SettingsModule: React.FC = () => {
             </ul>
 
             <div className="pt-3 border-t border-indigo-200">
-              <button
-                onClick={() => setShowYearModal(true)}
-                className="w-full py-2 px-3 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs flex items-center justify-center gap-2 transition-colors"
-              >
-                <span>Bắt đầu quy trình chuyển năm học</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              {canChangeYear ? (
+                <button
+                  onClick={() => setShowYearModal(true)}
+                  className="w-full py-2 px-3 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs flex items-center justify-center gap-2 transition-colors"
+                >
+                  <span>Bắt đầu quy trình chuyển năm học</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <div className="p-2.5 rounded-lg bg-white/70 border border-indigo-200 text-xs text-indigo-900 flex items-start gap-2" data-testid="year-admin-only">
+                  <Shield className="w-4 h-4 shrink-0 text-indigo-600" />
+                  <span>Chỉ <strong>Quản trị viên hệ thống</strong> được chuyển năm học. Thầy/cô liên hệ Quản trị viên khi cần.</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1328,7 +1343,7 @@ export const SettingsModule: React.FC = () => {
       )}
 
       {/* MODAL: Transition to New Academic Year (Lỗi 20) */}
-      {showYearModal && (
+      {showYearModal && canChangeYear && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-start justify-between border-b border-slate-100 pb-3">

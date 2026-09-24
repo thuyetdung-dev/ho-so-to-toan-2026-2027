@@ -127,7 +127,11 @@ service cloud.firestore {
     // ---------- Cấu hình ----------
     match /departments/{deptId} {
       allow read: if isMember();
-      allow write: if isAdminOrHead();
+      allow create: if isAdminOrHead();
+      // Tổ trưởng sửa cấu hình được, nhưng ĐỔI NĂM HỌC (chuyển năm học) chỉ Quản trị viên
+      allow update: if isAdmin()
+        || (isAdminOrHead() && request.resource.data.get('academicYear', '') == resource.data.get('academicYear', ''));
+      allow delete: if isAdmin();
     }
 
     // ---------- Danh mục do tổ trưởng quản lý ----------
