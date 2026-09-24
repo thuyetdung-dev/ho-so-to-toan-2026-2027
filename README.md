@@ -1,4 +1,4 @@
-# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.3)
+# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.4)
 
 Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.
 Ứng dụng dùng React + Vite, dữ liệu lưu trên Firebase (Firestore), đăng nhập bằng Google, Trợ lý AI dùng Gemini.
@@ -158,6 +158,24 @@ firebase deploy --only firestore:rules
 - Tệp Excel nhiều sheet hoặc Word nhiều khối → chỉ lấy bảng của khối đang soạn; nhập nhầm tệp khối khác sẽ có cảnh báo.
 - PDF: dựng lại bảng theo tọa độ chữ, ghép lại chữ có dấu bị vẽ đè (lỗi thường gặp ở PDF tiếng Việt). PDF scan (ảnh chụp) không đọc được.
 - Luôn có màn hình **xem trước** trước khi đưa vào: chọn "Thay thế" hoặc "Thêm vào cuối" danh sách hiện có.
+
+### Bản 2.4 – Lưu trữ giáo án cho cả 3 khối (tiết kiệm dung lượng, mở nhanh)
+**Việc cần làm khi nâng cấp (theo đúng thứ tự):**
+1. Triển khai quy tắc bảo mật mới: `firebase deploy --only firestore:rules` (hoặc dán nội dung `firestore.rules` vào Firebase Console → Firestore → Rules → Publish). **Bắt buộc** – thiếu bước này giáo viên sẽ không lưu được giáo án.
+2. Triển khai phần mềm lên Vercel như bình thường.
+3. Tổ trưởng vào **Cài đặt → Dữ liệu & Sao lưu**: bấm *Tải tệp sao lưu JSON*, rồi bấm **Tối ưu lưu trữ giáo án** để chuyển các giáo án cũ sang cách lưu mới (chạy một lần, không làm thay đổi nội dung).
+
+**Thay đổi:**
+- Giáo án được lưu tách làm 4 phần (`src/services/lessonPlanStore.ts`): *tóm tắt* (`lessonPlans`), *nội dung* (`lessonPlanContent`), *mỗi hình một bản ghi* (`lessonPlanImages`), *nội dung các phiên bản* (`lessonPlanVersions`).
+- Mở phần mềm chỉ tải phần tóm tắt: với 400 giáo án (chữ ~60 KB + 4 hình), lượng tải mỗi lần mở giảm từ **~257 MB xuống ~0,2 MB**. Nội dung + hình chỉ tải khi mở đúng giáo án đó; hình đã tải được giữ trên máy, lần sau không tải lại.
+- Bỏ giới hạn 900 KB/giáo án: mỗi giáo án tới 60 hình (mỗi hình < ~950 KB), phần chữ tới ~1 MB.
+- Sửa lỗi: nộp/duyệt nhiều lần làm giáo án vượt 1 MB → không lưu được. Nay lịch sử phiên bản lưu riêng; Kế hoạch tổ tự bỏ nội dung phiên bản cũ nhất khi gần giới hạn.
+- Bộ nhớ đệm trên máy (IndexedDB) giúp mở lại nhanh; **đăng xuất sẽ xóa bộ nhớ này** (an toàn cho máy dùng chung ở trường), có chờ gửi xong dữ liệu chưa đồng bộ.
+- **Đồng hồ dung lượng** trong Cài đặt → Dữ liệu & Sao lưu (ước tính dung lượng đã dùng / 1 GB miễn phí).
+- An toàn dữ liệu khi mạng chập chờn: nội dung chưa tải được thì không cho sửa (không lưu đè rỗng); hình chưa tải được vẫn được giữ khi lưu.
+- Sao lưu JSON gồm đầy đủ nội dung, hình và phiên bản; phục hồi tự ghi theo cách lưu mới, bỏ qua (và báo) giáo án vượt giới hạn.
+- Quy tắc bảo mật: giáo viên chỉ sửa nội dung khi giáo án đang soạn/bị trả lại; tổ trưởng/tổ phó được tạo lại giáo án ở mọi trạng thái khi phục hồi.
+- Kiểm thử: `tests/lessonPlanStore.test.ts`, `tests/lessonPlanStore.flow.test.ts` (Firestore giả lập có mô phỏng quy tắc bảo mật). Chạy thử với Firebase Emulator: `VITE_USE_EMULATOR=1 npm run dev:vite`.
 
 ## 5. Cấu trúc thư mục chính
 

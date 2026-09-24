@@ -307,7 +307,8 @@ export async function extractTextFromFile(file: File): Promise<ExtractResult> {
   if (name.endsWith('.docx')) {
     const { readDocx, compressImageInBrowser } = await import('./docxReader');
     try {
-      const r = await readDocx(buffer, { processImage: compressImageInBrowser });
+      // Bản 2.4: hình lưu riêng từng bản ghi → cho phép tổng dung lượng hình lớn (tối đa 60 hình)
+      const r = await readDocx(buffer, { processImage: compressImageInBrowser, imageBudget: 40_000_000, maxImages: 60 });
       const notes: string[] = [];
       if (r.equations) notes.push(`${r.equations} công thức Word đã chuyển sang LaTeX`);
       if (r.imageCount) notes.push(`${r.imageCount} hình vẽ đã nhập`);

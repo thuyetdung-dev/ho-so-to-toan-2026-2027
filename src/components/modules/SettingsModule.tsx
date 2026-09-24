@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId } from '../../utils/ids';
 import { useApp } from '../../context/AppContext';
+import { StoragePanel } from '../common/StoragePanel';
 import {
   Settings,
   Shield,
@@ -1151,6 +1152,7 @@ export const SettingsModule: React.FC = () => {
       {/* TAB 9: Data & Backups */}
       {activeTab === 'data' && (
         <div className="space-y-6">
+          <StoragePanel />
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <div>

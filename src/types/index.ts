@@ -238,6 +238,8 @@ export interface PlanVersionRecord<T = any> {
   changeSummary: string;
   summary?: string;
   dataSnapshot?: T;
+  /** Nội dung phiên bản được lưu riêng (lessonPlanVersions) – tải khi so sánh */
+  hasSnapshot?: boolean;
   status: 'draft' | 'submitted' | 'approved' | 'returned';
   comment?: string;
 }
@@ -343,6 +345,20 @@ export interface LessonPlan {
   sourceFileUrl?: string;
   /** Ảnh nhúng trong giáo án: mã → data URL (nội dung dùng ![chú thích](img:mã)) */
   images?: Record<string, string>;
+
+  // ----- Lưu trữ tách (bản 2.4) -----
+  /** 'split' = nội dung, hình, phiên bản nằm ở các bảng lessonPlanContent / lessonPlanImages / lessonPlanVersions */
+  storage?: 'split';
+  /** Chỉ dùng trên máy: 'light' = mới có phần tóm tắt, cần tải nội dung khi mở */
+  contentState?: 'light' | 'full';
+  /** Tên các hoạt động (để chọn khi dự giờ mà không phải tải cả giáo án) */
+  activityNames?: string[];
+  /** Mã các hình của giáo án */
+  imageIds?: string[];
+  /** Ước tính dung lượng (byte) để hiển thị đồng hồ dung lượng */
+  contentBytes?: number;
+  imageBytes?: number;
+  versionBytes?: number;
 }
 
 export interface MeetingTask {

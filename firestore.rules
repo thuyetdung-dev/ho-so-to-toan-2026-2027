@@ -165,13 +165,60 @@ service cloud.firestore {
     }
     match /lessonPlans/{id} {
       allow read: if isMember();
-      allow create: if canContribute() && validId(id) && request.resource.data.status == 'draft';
+      // Tổ trưởng/tổ phó được tạo lại giáo án ở mọi trạng thái (phục hồi từ file sao lưu)
+      allow create: if validId(id) && (isLeader() || (canContribute() && request.resource.data.status == 'draft'));
       // Giáo viên không tự chuyển giáo án sang "đã duyệt"/"trả lại"
       allow update: if isLeader() || (canContribute() && (
         request.resource.data.status in ['draft', 'submitted'] ||
         request.resource.data.status == resource.data.status
       ));
       allow delete: if isLeader() || (canContribute() && resource.data.status == 'draft');
+    }
+    // ----- Giáo án lưu tách (bản 2.4): nội dung, hình, phiên bản -----
+    function lessonPlanPath(planId) {
+      return /databases/$(database)/documents/lessonPlans/$(planId);
+    }
+    // Giáo viên chỉ sửa nội dung khi giáo án đang soạn / bị trả lại; tổ trưởng, tổ phó sửa được mọi lúc
+    function canEditLessonContent(planId) {
+      return isLeader() || (canContribute() && exists(lessonPlanPath(planId))
+        && get(lessonPlanPath(planId)).data.status in ['draft', 'returned']);
+    }
+    function canCleanLessonPart(planId) {
+      return isLeader() || (canContribute() && (!exists(lessonPlanPath(planId))
+        || get(lessonPlanPath(planId)).data.status in ['draft', 'returned']));
+    }
+    match /lessonPlanContent/{planId} {
+      allow read: if isMember();
+      allow create, update: if validId(planId)
+        && request.resource.data.planId == planId
+        && canEditLessonContent(planId);
+      allow delete: if canCleanLessonPart(planId);
+    }
+    match /lessonPlanImages/{id} {
+      allow read: if isMember();
+      // mã = {mã giáo án}__{mã hình}; mỗi hình dưới ~1 MB
+      allow create, update: if validId(id)
+        && request.resource.data.planId is string
+        && id == request.resource.data.planId + '__' + request.resource.data.imageId
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 1000000
+        && canEditLessonContent(request.resource.data.planId);
+      allow delete: if canCleanLessonPart(resource.data.planId);
+    }
+    match /lessonPlanVersions/{id} {
+      allow read: if isMember();
+      // Phiên bản chụp khi nộp / duyệt / trả lại → mọi thành viên đóng góp được tạo khi giáo án tồn tại
+      function validVersion() {
+        return validId(id)
+          && request.resource.data.planId is string
+          && request.resource.data.index is int
+          && id == request.resource.data.planId + '__v' + string(request.resource.data.index);
+      }
+      allow create: if validVersion() && canContribute() && exists(lessonPlanPath(request.resource.data.planId));
+      // Ghi đè phiên bản đã có: chỉ tổ trưởng/tổ phó, hoặc khi giáo án còn đang soạn (thử nộp lại sau khi mất mạng)
+      allow update: if validVersion() && request.resource.data.planId == resource.data.planId
+        && canEditLessonContent(request.resource.data.planId);
+      allow delete: if canCleanLessonPart(resource.data.planId);
     }
     match /meetings/{id} {
       allow read: if isMember();

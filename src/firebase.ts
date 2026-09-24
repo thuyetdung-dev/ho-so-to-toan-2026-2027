@@ -1,6 +1,13 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, connectAuthEmulator } from 'firebase/auth';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  connectFirestoreEmulator,
+  terminate,
+  clearIndexedDbPersistence,
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -8,12 +15,41 @@ const app = initializeApp(firebaseConfig);
 // ignoreUndefinedProperties: Firestore từ chối mọi tài liệu có trường `undefined`
 // (ví dụ approvedBy, lockedAt, dateTaught...). Trước đây các thao tác duyệt/khóa
 // biên bản bị lỗi âm thầm vì lý do này.
+//
+// persistentLocalCache (bản 2.4): dữ liệu đã tải được giữ trên máy (IndexedDB) → mở lại phần mềm hiển thị ngay,
+// hình của giáo án không phải tải lại. Khi đăng xuất bộ nhớ này được xóa (xem clearLocalCache).
 export const db = initializeFirestore(
   app,
-  { ignoreUndefinedProperties: true },
+  {
+    ignoreUndefinedProperties: true,
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  },
   firebaseConfig.firestoreDatabaseId,
 );
 export const auth = getAuth(app);
+
+// Chạy thử với Firebase Emulator: VITE_USE_EMULATOR=1 npm run dev
+if (import.meta.env.VITE_USE_EMULATOR === '1') {
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+}
+
+/** Xóa dữ liệu Firestore lưu tạm trên máy (gọi khi đăng xuất – máy tính dùng chung) rồi tải lại trang. */
+export async function clearLocalCache() {
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+  } catch (err) {
+    console.warn('clearLocalCache', err);
+    try {
+      sessionStorage.setItem('cacheClearFailed', '1');
+    } catch {
+      /* bỏ qua */
+    }
+  } finally {
+    window.location.reload();
+  }
+}
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 

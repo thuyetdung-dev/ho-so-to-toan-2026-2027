@@ -45,7 +45,7 @@ import {
   SAMPLE_SKKN_TOPICS,
   SAMPLE_SPECIAL_TOPICS_ENRICHED,
 } from '../services/sample-data';
-import { auth, db, googleProvider, OWNER_EMAIL, describeFirebaseError } from '../firebase';
+import { auth, db, googleProvider, OWNER_EMAIL, describeFirebaseError, clearLocalCache } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
   collection,
@@ -59,8 +59,26 @@ import {
   query,
   where,
   writeBatch,
+  waitForPendingWrites,
 } from 'firebase/firestore';
 import { newId } from '../utils/ids';
+import {
+  hydrateLessonPlan,
+  writeLessonPlan,
+  deleteLessonPlanDeep,
+  getLessonPlanContent,
+  loadLessonPlanImages,
+  mergeLessonPlan,
+  loadVersionHistory,
+  loadAllLessonPlansFull,
+  asFullForRewrite,
+  trimHistoryToFit,
+  checkLimits,
+  splitLessonPlan,
+  MAX_DOC_BYTES,
+  bytesOf,
+} from '../services/lessonPlanStore';
+import type { PlanVersionRecord } from '../types';
 
 type Notice = { message: string; type: 'success' | 'error' | 'info' };
 
@@ -145,6 +163,15 @@ interface AppContextType {
   submitLessonPlan: (planId: string, comment?: string) => Promise<void>;
   reviewLessonPlan: (planId: string, action: 'approve' | 'returned', note: string) => Promise<void>;
   updateLessonPlanTeachingStatus: (planId: string, status: 'not_taught' | 'in_progress' | 'completed', taughtDate?: string, classes?: string[]) => Promise<void>;
+  /** Giáo án đầy đủ nội dung + hình (danh sách chỉ có phần tóm tắt) */
+  getFullLessonPlan: (plan: LessonPlan | string) => Promise<LessonPlan | null>;
+  /** Lịch sử phiên bản kèm nội dung để so sánh */
+  loadLessonPlanHistory: (plan: LessonPlan) => Promise<PlanVersionRecord[]>;
+  /** Số giáo án còn lưu kiểu cũ (cần chuyển) */
+  legacyLessonPlanCount: number;
+  migrateLessonPlanStorage: (onProgress?: (done: number, total: number) => void) => Promise<{ done: number; failed: number }>;
+  /** Ước tính dung lượng đã dùng (byte) */
+  storageEstimate: { total: number; lessonPlans: number; images: number; versions: number; other: number; planCount: number };
 
   meetings: Meeting[];
   saveMeeting: (meeting: Meeting, options?: { silent?: boolean }) => Promise<boolean>;
@@ -191,7 +218,7 @@ interface AppContextType {
 
   resetToSampleData: () => Promise<void>;
   clearAllRealData: () => Promise<void>;
-  exportSystemBackup: () => void;
+  exportSystemBackup: () => Promise<void>;
   importSystemBackup: (backupData: unknown) => Promise<void>;
 
   isFirestoreConnected: boolean;
@@ -248,6 +275,8 @@ const CONTENT_COLLECTIONS = [
   'meetings', 'observations', 'questions', 'examBlueprints', 'exams', 'examResults',
   'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots',
 ] as const;
+/** Các bảng chứa nội dung/hình/phiên bản giáo án (lưu tách, bản 2.4) */
+const LESSON_PLAN_PART_COLLECTIONS = ['lessonPlanContent', 'lessonPlanImages', 'lessonPlanVersions'] as const;
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
@@ -480,7 +509,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     subscribeList<Assignment>('assignments', setRealAssignments);
     subscribeList<DepartmentPlan>('departmentPlans', setRealDeptPlans);
     subscribeList<TeacherPlan>('teacherPlans', setRealTeacherPlans);
-    subscribeList<LessonPlan>('lessonPlans', setRealLessonPlans);
+    // Giáo án: chỉ tải phần tóm tắt; nội dung + hình tải khi mở từng giáo án (xem lessonPlanStore.ts)
+    subscriptions.push(
+      onSnapshot(
+        collection(db, 'lessonPlans'),
+        snapshot => {
+          const list: LessonPlan[] = [];
+          snapshot.forEach(docSnap => list.push(hydrateLessonPlan(docSnap.data(), docSnap.id)));
+          setRealLessonPlans(list);
+        },
+        onError('lessonPlans'),
+      ),
+    );
     subscribeList<Meeting>('meetings', setRealMeetings);
     subscribeList<ObservationRecord>('observations', setRealObservations);
     subscribeList<Question>('questions', setRealQuestions);
@@ -770,10 +810,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const confirmLeaveUnsynced = async () =>
+    window.confirm('Một số thay đổi chưa gửi được lên máy chủ (mạng đang chập chờn). Đăng xuất bây giờ sẽ MẤT các thay đổi này.\n\nBấm "Hủy" để ở lại chờ mạng, "OK" để vẫn đăng xuất.');
+
+  // Lần đăng xuất trước không xóa được dữ liệu lưu tạm (đang mở phần mềm ở tab khác) → nhắc người dùng
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('cacheClearFailed')) {
+        sessionStorage.removeItem('cacheClearFailed');
+        setNotification({ message: 'Chưa xóa được dữ liệu lưu tạm trên máy vì phần mềm còn mở ở tab khác. Hãy đóng các tab đó rồi đăng xuất lại nếu đây là máy dùng chung.', type: 'error' });
+      }
+    } catch {
+      /* bỏ qua */
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const logout = async () => {
     try {
+      // Chờ các thay đổi chưa gửi lên máy chủ (tối đa 8 giây) trước khi xóa bộ nhớ trên máy
+      const synced = await Promise.race([waitForPendingWrites(db).then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), 8000))]);
+      if (!synced && !(await confirmLeaveUnsynced())) return;
       await signOut(auth);
       setNotification({ message: 'Đã đăng xuất khỏi hệ thống.', type: 'info' });
+      // Xóa dữ liệu lưu tạm trên máy (máy dùng chung ở trường) rồi tải lại trang
+      await clearLocalCache();
     } catch (err) {
       console.error(err);
     }
@@ -1034,7 +1094,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Kế hoạch tổ ----------
   const saveDepartmentPlan = async (plan: DepartmentPlan, options: { silent?: boolean } = {}) => {
-    const updatedPlan: DepartmentPlan = { ...plan, updatedAt: new Date().toISOString() };
+    // Lịch sử phiên bản không được làm bản ghi vượt 1 MB: bỏ nội dung các phiên bản cũ nhất nếu cần
+    const updatedPlan: DepartmentPlan = trimHistoryToFit({ ...plan, updatedAt: new Date().toISOString() });
     const ok = await upsertItem('departmentPlans', updatedPlan, setDemoDeptPlans, setRealDeptPlans);
     if (!ok) return false;
     if (!options.silent) {
@@ -1163,8 +1224,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // ---------- Kế hoạch bài dạy ----------
   const saveLessonPlan = async (plan: LessonPlan, options: { silent?: boolean } = {}) => {
     const updatedPlan: LessonPlan = { ...plan, updatedAt: new Date().toISOString() };
-    const ok = await upsertItem('lessonPlans', updatedPlan, setDemoLessonPlans, setRealLessonPlans, true);
-    if (!ok) return false;
+    if (isDemoMode) {
+      setDemoLessonPlans(prev => upsertById(prev, { ...updatedPlan, contentState: 'full' }, true));
+    } else {
+      const existing = realLessonPlans.find(p => p.id === plan.id);
+      // Giáo án kiểu cũ đang chờ duyệt/đã duyệt: giáo viên không được ghi phần nội dung (quy tắc bảo mật)
+      // → góp ý, ghi nhận thực dạy... vẫn lưu theo kiểu cũ cho tới khi tổ trưởng "Tối ưu lưu trữ".
+      const legacy = existing && existing.storage !== 'split' ? existing : null;
+      const keepLegacy = !!legacy && !permissions.isLeader && !['draft', 'returned'].includes(legacy.status);
+      let saved: LessonPlan | null = null;
+      const ok = await persist(async () => {
+        if (keepLegacy) {
+          const { contentState: _c, ...legacyDoc } = trimHistoryToFit(updatedPlan, MAX_DOC_BYTES); // chỉ cắt khi thật sự vượt giới hạn
+          await setDoc(doc(db, 'lessonPlans', updatedPlan.id), legacyDoc);
+          saved = { ...legacyDoc, contentState: 'full' } as LessonPlan;
+          return;
+        }
+        saved = await writeLessonPlan(db, updatedPlan, {
+          isNew: !existing,
+          prevImageIds: existing?.storage === 'split' ? existing.imageIds || [] : [],
+        });
+      });
+      if (!ok || !saved) return false;
+      const savedPlan: LessonPlan = saved;
+      setRealLessonPlans(prev => upsertById(prev, savedPlan, true));
+    }
     if (!options.silent) {
       setNotification({ message: `Đã lưu kế hoạch bài dạy: ${updatedPlan.title}`, type: 'success' });
       await logAction('Lưu kế hoạch bài dạy', 'LessonPlan', updatedPlan.id, `Trạng thái: ${updatedPlan.status}`);
@@ -1173,16 +1257,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteLessonPlan = async (id: string) => {
-    const ok = await removeItem('lessonPlans', id, setDemoLessonPlans, setRealLessonPlans);
+    let ok: boolean;
+    if (isDemoMode) {
+      setDemoLessonPlans(prev => prev.filter(p => p.id !== id));
+      ok = true;
+    } else {
+      const plan = realLessonPlans.find(p => p.id === id);
+      ok = !!plan && (await persist(() => deleteLessonPlanDeep(db, plan)));
+      if (ok) setRealLessonPlans(prev => prev.filter(p => p.id !== id));
+    }
     if (ok) {
       setNotification({ message: 'Đã xóa kế hoạch bài dạy', type: 'info' });
       await logAction('Xóa kế hoạch bài dạy', 'LessonPlan', id, '');
     }
   };
 
+  const getFullLessonPlan = async (planOrId: LessonPlan | string): Promise<LessonPlan | null> => {
+    const plan = typeof planOrId === 'string' ? currentLessonPlans.find(p => p.id === planOrId) : planOrId;
+    if (!plan) return null;
+    if (isDemoMode || plan.contentState !== 'light') return plan;
+    const content = await getLessonPlanContent(db, plan.id);
+    if (!content) throw new Error('Không tìm thấy nội dung giáo án trên máy chủ.');
+    const images = await loadLessonPlanImages(db, plan.id, content.imageIds || []);
+    return mergeLessonPlan(plan, content, images);
+  };
+
+  const loadLessonPlanHistory = async (plan: LessonPlan) =>
+    isDemoMode ? plan.versionHistory || [] : loadVersionHistory(db, plan);
+
+  /** Nội dung đầy đủ để chụp phiên bản khi nộp/duyệt; báo lỗi nếu không tải được */
+  const snapshotOf = async (plan: LessonPlan) => {
+    try {
+      const full = await getFullLessonPlan(plan);
+      return full ? lessonSnapshot(full) : undefined;
+    } catch (err) {
+      setNotification({ message: `Không tải được nội dung giáo án: ${describeFirebaseError(err)}`, type: 'error' });
+      return null;
+    }
+  };
+
   const submitLessonPlan = async (planId: string, comment?: string) => {
     const plan = currentLessonPlans.find(p => p.id === planId);
     if (!plan) return;
+    const snap = await snapshotOf(plan);
+    if (snap === null) return;
     const nextVersion = (plan.version || 1) + 1;
     const now = new Date().toISOString();
     const updatedPlan: LessonPlan = {
@@ -1199,7 +1317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           changeSummary: 'Nộp kế hoạch bài dạy lên Tổ trưởng chuyên môn',
           status: 'submitted',
           comment: comment || 'Kính gửi Tổ trưởng phê duyệt kế hoạch bài dạy.',
-          dataSnapshot: lessonSnapshot(plan),
+          dataSnapshot: snap,
         },
       ],
     };
@@ -1216,6 +1334,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const plan = currentLessonPlans.find(p => p.id === planId);
     if (!plan) return;
+    const snap = await snapshotOf(plan);
+    if (snap === null) return;
     const isApprove = action === 'approve';
     const nextStatus = isApprove ? ('approved' as const) : ('returned' as const);
     const now = new Date().toISOString();
@@ -1233,7 +1353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           changeSummary: isApprove ? 'Tổ chuyên môn phê duyệt kế hoạch bài dạy' : 'Yêu cầu chỉnh sửa, bổ sung giáo án',
           status: nextStatus,
           comment: note,
-          dataSnapshot: lessonSnapshot(plan),
+          dataSnapshot: snap,
         },
       ],
       comments: note
@@ -1546,6 +1666,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const saveScoreRecord = (record: ScoreRecord) => saveExamResult(record);
 
+  // ---------- Lưu trữ giáo án kiểu tách (bản 2.4) ----------
+  const legacyLessonPlanCount = isDemoMode ? 0 : realLessonPlans.filter(p => p.storage !== 'split').length;
+
+  const migrateLessonPlanStorage = async (onProgress?: (done: number, total: number) => void) => {
+    if (isDemoMode || !permissions.isAdminOrHead) {
+      setNotification({ message: 'Chỉ Tổ trưởng/Quản trị chuyển dữ liệu (ở chế độ dữ liệu thật).', type: 'error' });
+      return { done: 0, failed: 0 };
+    }
+    const legacy = realLessonPlans.filter(p => p.storage !== 'split');
+    let done = 0;
+    let failed = 0;
+    for (const p of legacy) {
+      try {
+        const saved = await writeLessonPlan(db, asFullForRewrite(p), { isNew: false });
+        setRealLessonPlans(prev => upsertById(prev, saved));
+        done++;
+      } catch (err) {
+        console.error('Migrate lesson plan failed', p.id, err);
+        failed++;
+      }
+      onProgress?.(done + failed, legacy.length);
+    }
+    setNotification({
+      message: failed
+        ? `Đã chuyển ${done} giáo án; ${failed} giáo án chưa chuyển được (thử lại sau).`
+        : `Đã chuyển ${done} giáo án sang cách lưu mới.`,
+      type: failed ? 'error' : 'success',
+    });
+    await logAction('Tối ưu lưu trữ giáo án', 'System', 'lessonPlans', `Chuyển ${done} giáo án, lỗi ${failed}`);
+    return { done, failed };
+  };
+
+  const storageEstimate = useMemo(() => {
+    let lessonPlansBytes = 0;
+    let images = 0;
+    let versions = 0;
+    for (const p of currentLessonPlans) {
+      if (p.storage === 'split') {
+        const { contentState: _c, ...light } = p;
+        lessonPlansBytes += bytesOf(light) + (p.contentBytes || 0);
+        images += p.imageBytes || 0;
+        versions += p.versionBytes || 0;
+      } else {
+        lessonPlansBytes += bytesOf(p);
+      }
+    }
+    const other = [
+      currentMembers, currentClasses, currentAssignments, currentDeptPlans, currentTeacherPlans, currentMeetings,
+      currentObservations, currentQuestions, currentExamBlueprints, currentExams, currentExamResults,
+      currentSpecialTopics, currentSkknTopics, currentTrainings, currentInitiatives, currentDocuments, currentReportSnapshots,
+    ].reduce((a, list) => a + bytesOf(list), 0);
+    // Firestore tính thêm phần chỉ mục và tên trường → cộng ~20%
+    const total = Math.round((lessonPlansBytes + images + versions + other) * 1.2);
+    return { total, lessonPlans: lessonPlansBytes, images, versions, other, planCount: currentLessonPlans.length };
+  }, [
+    currentLessonPlans, currentMembers, currentClasses, currentAssignments, currentDeptPlans, currentTeacherPlans, currentMeetings,
+    currentObservations, currentQuestions, currentExamBlueprints, currentExams, currentExamResults,
+    currentSpecialTopics, currentSkknTopics, currentTrainings, currentInitiatives, currentDocuments, currentReportSnapshots,
+  ]);
+
   // ---------- Quản trị dữ liệu ----------
   const resetToSampleData = async () => {
     setDemoConfig(clone(SAMPLE_DEPARTMENT_CONFIG));
@@ -1586,7 +1766,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     const ok = await persist(async () => {
-      for (const collectionName of CONTENT_COLLECTIONS) {
+      for (const collectionName of [...CONTENT_COLLECTIONS, ...LESSON_PLAN_PART_COLLECTIONS]) {
         const snapshot = await getDocs(collection(db, collectionName));
         for (let i = 0; i < snapshot.docs.length; i += 400) {
           const batch = writeBatch(db);
@@ -1617,10 +1797,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await logAction('Xóa trắng dữ liệu', 'System', 'all', 'Xóa toàn bộ dữ liệu chuyên môn để bắt đầu sử dụng thật');
   };
 
-  const exportSystemBackup = () => {
+  const exportSystemBackup = async () => {
+    let lessonPlansFull = currentLessonPlans;
+    if (!isDemoMode) {
+      setIsLoading(true);
+      try {
+        lessonPlansFull = await loadAllLessonPlansFull(db, currentLessonPlans);
+      } catch (err) {
+        setNotification({ message: `Không tải được nội dung giáo án để sao lưu: ${describeFirebaseError(err)}`, type: 'error' });
+        return;
+      } finally {
+        setIsLoading(false);
+      }
+    }
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.0',
+      version: '2.4',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
@@ -1629,7 +1821,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       assignments: currentAssignments,
       departmentPlans: currentDeptPlans,
       teacherPlans: currentTeacherPlans,
-      lessonPlans: currentLessonPlans,
+      lessonPlans: lessonPlansFull
+        .filter(p => p.contentState !== 'light') // (không xảy ra) – không xuất giáo án thiếu nội dung
+        .map(asFullForRewrite)
+        .map(({ contentState: _c, imageIds: _i, versionBytes: _v, contentBytes: _cb, imageBytes: _ib, ...p }) => p),
       meetings: currentMeetings,
       observations: currentObservations,
       questions: currentQuestions,
@@ -1702,20 +1897,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    // Kiểm tra giáo án trước khi ghi bất cứ thứ gì (tránh phục hồi dở dang)
+    const badPlans = (byKey.lessonPlans as LessonPlan[]).filter(lp => checkLimits(splitLessonPlan(asFullForRewrite(lp))));
+    if (badPlans.length) {
+      byKey.lessonPlans = (byKey.lessonPlans as LessonPlan[]).filter(lp => !badPlans.includes(lp));
+    }
     setIsLoading(true);
     try {
       const ok = await persist(async () => {
         await setDoc(doc(db, 'departments', cfg.id), cfg);
         const ops: Array<[string, { id: string }]> = [];
-        for (const key of Object.keys(byKey)) byKey[key].forEach(item => ops.push([key, item]));
+        for (const key of Object.keys(byKey)) if (key !== 'lessonPlans') byKey[key].forEach(item => ops.push([key, item]));
         for (let i = 0; i < ops.length; i += 400) {
           const batch = writeBatch(db);
           ops.slice(i, i + 400).forEach(([key, item]) => batch.set(doc(db, key, item.id), item));
           await batch.commit();
         }
+        // Giáo án: ghi theo cách tách (nội dung, hình, phiên bản riêng)
+        for (const lp of byKey.lessonPlans as LessonPlan[]) {
+          await writeLessonPlan(db, asFullForRewrite(lp), { isNew: true });
+        }
       });
       if (!ok) return;
-      setNotification({ message: 'Đã phục hồi dữ liệu từ file sao lưu thành công', type: 'success' });
+      setNotification({
+        message: badPlans.length
+          ? `Đã phục hồi dữ liệu. ${badPlans.length} giáo án quá giới hạn dung lượng nên bỏ qua: ${badPlans.map(b => b.title).slice(0, 3).join('; ')}${badPlans.length > 3 ? '…' : ''}`
+          : 'Đã phục hồi dữ liệu từ file sao lưu thành công',
+        type: badPlans.length ? 'error' : 'success',
+      });
       await logAction('Phục hồi dữ liệu', 'System', 'backup', `Phục hồi từ tệp sao lưu ${String(data.exportedAt || '')}`);
     } finally {
       setIsLoading(false);
@@ -1775,6 +1984,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         submitLessonPlan,
         reviewLessonPlan,
         updateLessonPlanTeachingStatus,
+        getFullLessonPlan,
+        loadLessonPlanHistory,
+        legacyLessonPlanCount,
+        migrateLessonPlanStorage,
+        storageEstimate,
         meetings: currentMeetings,
         saveMeeting,
         deleteMeeting,

@@ -37,6 +37,10 @@ export interface DocxReadOptions {
   processImage?: ImageProcessor;
   /** Tổng dung lượng ảnh tối đa (ký tự data URL) – Firestore giới hạn 1 MB mỗi tài liệu */
   imageBudget?: number;
+  /** Số hình tối đa */
+  maxImages?: number;
+  /** Giới hạn mỗi hình (ký tự data URL) */
+  maxImageChars?: number;
 }
 
 // Một số ký tự của phông Symbol (w:sym) hay gặp trong giáo án
@@ -82,12 +86,20 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
       stats.skippedImages++;
       return ' [hình vẽ định dạng ' + ext.toUpperCase() + ' – không hiển thị được trên web, cần chèn lại ảnh PNG/JPG] ';
     }
+    if (stats.imageCount >= (opts.maxImages ?? Infinity)) {
+      stats.skippedImages++;
+      return ' [hình vẽ – vượt số hình tối đa của một giáo án] ';
+    }
     const bytes = await zip.file(path)?.async('uint8array');
     if (!bytes) return '';
     const url = opts.processImage ? await opts.processImage(bytes, mime) : null;
     if (!url) {
       stats.skippedImages++;
       return ' [hình vẽ – chưa nhập được] ';
+    }
+    if (url.length > (opts.maxImageChars ?? 950_000)) {
+      stats.skippedImages++;
+      return ' [hình vẽ – quá lớn, cần chèn lại] ';
     }
     if (url.length > budget) {
       stats.skippedImages++;

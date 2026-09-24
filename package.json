@@ -1,7 +1,7 @@
 {
   "name": "so-sinh-hoat-chuyen-mon-to-toan",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.4.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "node --import tsx --experimental-test-module-mocks --test tests/*.test.ts"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",

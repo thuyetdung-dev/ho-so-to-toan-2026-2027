@@ -11,6 +11,7 @@ import { useConfirm } from '../common/ConfirmDialog';
 import { MathFormulaToolbar } from '../common/MathFormulaToolbar';
 import { MathGraph } from '../common/MathGraph';
 import { compressImageInBrowser } from '../../utils/docxReader';
+import { checkLimits, splitLessonPlan, bytesOf, formatBytes, MAX_IMAGE_BYTES, MAX_IMAGES_PER_PLAN } from '../../services/lessonPlanStore';
 import { FormulaDoctor, countFormulaIssues } from '../common/FormulaDoctor';
 
 interface Props {
@@ -25,7 +26,6 @@ type ActField = 'objectives' | 'content' | 'product' | 'implementation';
 type Target = { kind: 'plan'; key: PlanField; label: string } | { kind: 'act'; actId: string; key: ActField; label: string };
 
 /** Firestore giới hạn 1 MB / tài liệu – chừa khoảng trống cho lịch sử phiên bản, góp ý */
-const MAX_PLAN_CHARS = 900_000;
 
 const hasRich = (s: string) => /\$|!\[|\[\[|\\begin\{/.test(s);
 
@@ -216,8 +216,13 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
       setError('Không đọc được ảnh.');
       return;
     }
-    if (JSON.stringify(draft).length + url.length > MAX_PLAN_CHARS) {
-      setError('Giáo án đã gần đạt giới hạn dung lượng (khoảng 900 KB). Hãy dùng ảnh nhỏ hơn hoặc để ảnh trên Drive và dán liên kết.');
+    // Bản 2.4: mỗi hình lưu riêng → chỉ giới hạn từng hình và số hình, không còn giới hạn 900 KB cho cả giáo án
+    if (bytesOf(url) > MAX_IMAGE_BYTES) {
+      setError(`Ảnh sau khi nén vẫn quá lớn (${formatBytes(bytesOf(url))}). Hãy cắt bớt ảnh rồi chèn lại.`);
+      return;
+    }
+    if (Object.keys(draft.images || {}).length >= MAX_IMAGES_PER_PLAN) {
+      setError(`Mỗi giáo án tối đa ${MAX_IMAGES_PER_PLAN} hình.`);
       return;
     }
     const id = newId('img').replace(/-/g, '_');
@@ -241,10 +246,8 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
       sourceFileUrl: safeUrl(draft.sourceFileUrl) || undefined,
       images: Object.keys(used).length ? used : undefined,
     };
-    const size = JSON.stringify(toSave).length;
-    if (size > MAX_PLAN_CHARS) {
-      return setError(`Giáo án quá lớn (${Math.round(size / 1024)} KB, tối đa ~${Math.round(MAX_PLAN_CHARS / 1024)} KB) do có nhiều hình. Hãy xóa bớt hình hoặc để ảnh trên Drive rồi dán liên kết.`);
-    }
+    const limitError = checkLimits(splitLessonPlan({ ...toSave, contentState: 'full' }));
+    if (limitError) return setError(limitError);
     setError('');
     setSaving(true);
     const ok = await onSave(toSave);

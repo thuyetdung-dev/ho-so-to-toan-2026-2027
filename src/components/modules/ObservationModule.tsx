@@ -362,7 +362,7 @@ export const ObservationModule: React.FC = () => {
                       const lp = teacherPlans.find(p => p.id === e.target.value);
                       if (lp) {
                         setLessonName(lp.title);
-                        setActivities(lp.activities.map(a => ({ ...emptyActivity(1), activityName: a.name })));
+                        setActivities((lp.activityNames ?? (lp.activities || []).map(a => a.name)).map(name => ({ ...emptyActivity(1), activityName: name })));
                       }
                     }}
                     className={`${input} mt-1 font-normal`}

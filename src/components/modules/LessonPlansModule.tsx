@@ -34,12 +34,16 @@ import {
   Stethoscope,
 } from 'lucide-react';
 import { FormulaDoctor, countFormulaIssues } from '../common/FormulaDoctor';
+import { useLessonPlanDetail } from '../../hooks/useLessonPlanDetail';
+import type { PlanVersionRecord } from '../../types';
 
 export const LessonPlansModule: React.FC = () => {
   const {
     activeMember,
     lessonPlans,
     saveLessonPlan,
+    getFullLessonPlan,
+    loadLessonPlanHistory,
     submitLessonPlan,
     reviewLessonPlan,
     updateLessonPlanTeachingStatus,
@@ -132,14 +136,26 @@ export const LessonPlansModule: React.FC = () => {
     .sort((a, b) => a.grade - b.grade || a.week - b.week);
 
   const selectedPlan = lessonPlans.find(p => p.id === selectedPlanId) || filteredPlans[0];
+  // Nội dung + hình chỉ tải khi mở giáo án (bản 2.4)
+  const { plan: fullPlan, loading: detailLoading, error: detailError, missingImages } = useLessonPlanDetail(selectedPlan);
+  const [diffHistory, setDiffHistory] = useState<PlanVersionRecord[] | null>(null);
+  const openDiff = async () => {
+    if (!selectedPlan) return;
+    try {
+      setDiffHistory(await loadLessonPlanHistory(selectedPlan));
+      setShowDiffModal(true);
+    } catch {
+      setNotification({ message: 'Không tải được lịch sử phiên bản. Kiểm tra kết nối mạng.', type: 'error' });
+    }
+  };
   const isOwner = !!selectedPlan && selectedPlan.teacherId === activeMember.id;
   const canEdit = !!selectedPlan && permissions.canContribute && (isOwner || isLeader) && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   const canSubmit = !!selectedPlan && isOwner && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   // Tổ trưởng/tổ phó được sửa lỗi công thức cả khi giáo án đang chờ duyệt / đã duyệt
   const canFixFormula = canEdit || (!!selectedPlan && isLeader && permissions.canContribute);
   const formulaIssues = useMemo(
-    () => (selectedPlan ? countFormulaIssues(selectedPlan) : { errors: 0, suggestions: 0 }),
-    [selectedPlan],
+    () => (fullPlan ? countFormulaIssues(fullPlan) : { errors: 0, suggestions: 0 }),
+    [fullPlan],
   );
   const [doctorOpen, setDoctorOpen] = useState(false);
   const canDelete = !!selectedPlan && ((isOwner && selectedPlan.status === 'draft') || permissions.isAdminOrHead);
@@ -211,9 +227,21 @@ export const LessonPlansModule: React.FC = () => {
     }
   };
 
-  const handleClonePlan = async (plan: LessonPlan) => {
+  const handleClonePlan = async (lightPlan: LessonPlan) => {
+    let plan: LessonPlan | null;
+    try {
+      plan = await getFullLessonPlan(lightPlan);
+    } catch {
+      plan = null;
+    }
+    if (!plan) {
+      setNotification({ message: 'Không tải được nội dung giáo án gốc để nhân bản.', type: 'error' });
+      return;
+    }
+    const { storage: _s, imageIds: _i, contentBytes: _cb, imageBytes: _ib, versionBytes: _vb, ...source } = plan;
     const cloned: LessonPlan = {
-      ...plan,
+      ...source,
+      contentState: 'full',
       id: newId('lp'),
       approvedBy: undefined,
       taughtClasses: [],
@@ -336,7 +364,7 @@ export const LessonPlansModule: React.FC = () => {
               </button>
 
               <button
-                onClick={() => setShowDiffModal(true)}
+                onClick={openDiff}
                 className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 rounded-lg border border-slate-200 flex items-center gap-1.5 shadow-xs transition-colors"
               >
                 <GitCompare className="w-3.5 h-3.5 text-indigo-600" />
@@ -630,7 +658,8 @@ export const LessonPlansModule: React.FC = () => {
 
                   {canEdit && (
                     <button
-                      onClick={() => setEditingPlan(selectedPlan)}
+                      onClick={() => fullPlan && setEditingPlan(fullPlan)}
+                      disabled={!fullPlan}
                       className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-blue-50 text-blue-700 rounded-lg flex items-center gap-1 border border-blue-200"
                     >
                       <Pencil className="w-3.5 h-3.5" />
@@ -713,17 +742,28 @@ export const LessonPlansModule: React.FC = () => {
                 </div>
               </div>
 
+              {!fullPlan ? (
+                <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-xl">
+                  {detailError ? <span className="text-rose-600">Không tải được nội dung giáo án: {detailError}</span> : detailLoading ? 'Đang tải nội dung giáo án… (nếu chờ lâu, hãy kiểm tra kết nối mạng)' : 'Chưa có nội dung.'}
+                </div>
+              ) : (
+                <>
+              {missingImages > 0 && (
+                <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                  {missingImages} hình chưa tải được do mạng chập chờn – tải lại trang để xem đủ hình (hình vẫn được giữ nguyên khi lưu).
+                </div>
+              )}
               {/* I. Mục tiêu bài dạy */}
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1">
                   I. Mục tiêu bài dạy (Theo chuẩn GDPT 2018)
                 </h3>
                 <div className="space-y-2 text-xs text-slate-700">
-                  <div><strong>1. Về kiến thức:</strong> <MathText as="span" images={selectedPlan.images} content={selectedPlan.objectivesKnowledge || '—'} /></div>
-                  <div><strong>2. Về năng lực:</strong> <MathText as="span" images={selectedPlan.images} content={selectedPlan.objectivesCompetence || '—'} /></div>
-                  <div><strong>3. Về phẩm chất:</strong> <MathText as="span" images={selectedPlan.images} content={selectedPlan.objectivesQualities || '—'} /></div>
-                  {!selectedPlan.objectivesKnowledge && canEdit && (
-                    <button onClick={() => setEditingPlan(selectedPlan)} className="text-blue-700 font-semibold underline">
+                  <div><strong>1. Về kiến thức:</strong> <MathText as="span" images={fullPlan.images} content={fullPlan.objectivesKnowledge || '—'} /></div>
+                  <div><strong>2. Về năng lực:</strong> <MathText as="span" images={fullPlan.images} content={fullPlan.objectivesCompetence || '—'} /></div>
+                  <div><strong>3. Về phẩm chất:</strong> <MathText as="span" images={fullPlan.images} content={fullPlan.objectivesQualities || '—'} /></div>
+                  {!fullPlan.objectivesKnowledge && canEdit && (
+                    <button onClick={() => fullPlan && setEditingPlan(fullPlan)} className="text-blue-700 font-semibold underline">
                       Giáo án chưa có nội dung – bấm để soạn
                     </button>
                   )}
@@ -735,7 +775,7 @@ export const LessonPlansModule: React.FC = () => {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1">
                   II. Thiết bị dạy học và học liệu
                 </h3>
-                <MathText content={selectedPlan.equipment || '—'} images={selectedPlan.images} className="text-xs text-slate-700" />
+                <MathText content={fullPlan.equipment || '—'} images={fullPlan.images} className="text-xs text-slate-700" />
               </div>
 
               {/* III. Tiến trình dạy học: 4 Hoạt động */}
@@ -744,7 +784,7 @@ export const LessonPlansModule: React.FC = () => {
                   III. Tiến trình dạy học (4 Hoạt động chuẩn Phụ lục IV CV 5512)
                 </h3>
 
-                {selectedPlan.activities.map((act, idx) => (
+                {fullPlan.activities.map((act, idx) => (
                   <div key={act.id || idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-900">{act.name}</h4>
@@ -754,21 +794,21 @@ export const LessonPlansModule: React.FC = () => {
                     <div className="text-xs space-y-2 text-slate-700">
                       <div>
                         <span className="font-semibold text-slate-800">a) Mục tiêu: </span>
-                        <MathText as="span" images={selectedPlan.images} content={act.objectives || '—'} />
+                        <MathText as="span" images={fullPlan.images} content={act.objectives || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">b) Nội dung: </span>
-                        <MathText as="span" images={selectedPlan.images} content={act.content || '—'} />
+                        <MathText as="span" images={fullPlan.images} content={act.content || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">c) Sản phẩm: </span>
-                        <MathText as="span" images={selectedPlan.images} content={act.product || '—'} />
+                        <MathText as="span" images={fullPlan.images} content={act.product || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">d) Tổ chức thực hiện: </span>
                         <MathText
                           content={act.implementation || '—'}
-                          images={selectedPlan.images}
+                          images={fullPlan.images}
                           className="bg-white p-2.5 rounded border border-slate-200 mt-1 leading-relaxed"
                         />
                       </div>
@@ -776,6 +816,9 @@ export const LessonPlansModule: React.FC = () => {
                   </div>
                 ))}
               </div>
+
+                </>
+              )}
 
               {/* IV. Góp ý & Bình luận chuyên môn */}
               <div className="space-y-3 pt-4 border-t border-slate-200">
@@ -1108,18 +1151,18 @@ export const LessonPlansModule: React.FC = () => {
         </div>
       )}
 
-      {showDiffModal && selectedPlan && (
+      {showDiffModal && selectedPlan && fullPlan && diffHistory && (
         <VersionDiffModal
           title={selectedPlan.title}
-          history={selectedPlan.versionHistory || []}
-          current={lessonSnapshot(selectedPlan)}
+          history={diffHistory}
+          current={lessonSnapshot(fullPlan)}
           onClose={() => setShowDiffModal(false)}
         />
       )}
 
-      {doctorOpen && selectedPlan && (
+      {doctorOpen && fullPlan && (
         <FormulaDoctor
-          plan={selectedPlan}
+          plan={fullPlan}
           onClose={() => setDoctorOpen(false)}
           onApply={p => saveLessonPlan(p)}
         />
