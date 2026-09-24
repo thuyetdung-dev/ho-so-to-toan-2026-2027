@@ -40,6 +40,11 @@ test('planImport: nhận hàng tiêu đề, bỏ qua hàng dữ liệu', () => {
   assert.equal(classifyHeader(['Bài kiểm tra, đánh giá', 'Thời gian', 'Thời điểm', 'Hình thức'])?.kind, 'eval');
   assert.equal(classifyHeader(['Kiểm tra giữa kỳ I', '90 phút', 'Tuần 9', 'TN + TL']), null);
   assert.equal(classifyHeader(['1', 'Bài 1. Hàm số', '3', 'Nhận biết']), null);
+  // Bảng chuyên đề có cột "Kiểm tra, đánh giá" → vẫn là bảng phân phối, cột đó vào ghi chú (lỗi thực tế: 6 "bài kiểm tra" ảo)
+  const cd = classifyHeader(['STT', 'Nội dung chuyên đề', 'Tuần', 'Kiểm tra, đánh giá']);
+  assert.equal(cd?.kind, 'dist');
+  assert.equal((cd!.map as Record<string, number>).notes, 3);
+  assert.equal(classifyHeader(['Tuần', 'Nội dung', 'Kiểm tra, đánh giá', 'Hình thức'])?.kind, 'dist');
   assert.equal(parseWeek('Tuần 12'), 12);
   assert.equal(parseWeek('Tháng 10'), 6);
   assert.deepEqual(parseTietRange('Tiết 4, 5'), { count: 2, first: 4 });

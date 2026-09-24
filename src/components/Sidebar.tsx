@@ -156,6 +156,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
+        {(config.schoolLeaders || []).some(l => l.name.trim()) && (
+          <div className="p-3 border-b border-slate-200" data-testid="school-leaders">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">Ban giám hiệu</div>
+            <ul className="mt-1 space-y-1.5 px-2">
+              {(config.schoolLeaders || []).filter(l => l.name.trim()).map(l => (
+                <li key={l.id} className="text-xs leading-tight">
+                  <div className="font-semibold text-slate-800">{l.name}</div>
+                  <div className="text-[10px] text-slate-500">{l.title}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="p-3 border-b border-slate-200">
           <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">
             Phân hệ Quản lý Chuyên môn

@@ -28,6 +28,7 @@ import {
   X,
   Trash2,
 } from 'lucide-react';
+import { planApprover, signatureLines } from '../../utils/leaders';
 
 export const PlansModule: React.FC = () => {
   const {
@@ -42,6 +43,7 @@ export const PlansModule: React.FC = () => {
     permissions,
   } = useApp();
   const confirm = useConfirm();
+  const approver = planApprover(config);
 
   const isLeader = permissions.isLeader;
   const canApprove = permissions.canApproveDeptPlan;
@@ -512,8 +514,16 @@ export const PlansModule: React.FC = () => {
             </div>
             <div>
               <div className="font-bold text-slate-800">BAN GIÁM HIỆU PHÊ DUYỆT</div>
+              {signatureLines(approver).map(line => (
+                <div key={line} className="font-bold text-slate-800">{line}</div>
+              ))}
               <div className="text-[11px] text-slate-400 italic mb-12">(Ký tên và đóng dấu)</div>
-              <div className="font-bold text-slate-900">{currentPlan.approvedBy || 'Chưa phê duyệt'}</div>
+              <div className="font-bold text-slate-900" data-testid="plan-approver">
+                {approver?.name || currentPlan.approvedBy || 'Chưa phê duyệt'}
+              </div>
+              {!approver && (
+                <div className="text-[10px] text-slate-400 print:hidden mt-1">Khai báo Ban giám hiệu trong Cài đặt → Thông tin chung</div>
+              )}
             </div>
           </div>
         </div>

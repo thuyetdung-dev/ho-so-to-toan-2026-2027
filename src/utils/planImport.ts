@@ -70,7 +70,7 @@ const DIST_RULES: [DistField, RegExp][] = [
   ['objectives', /yeu cau|muc tieu|yccd|chuan kien thuc/],
   ['equipment', /thiet bi|hoc lieu|do dung/],
   ['location', /dia diem/],
-  ['notes', /ghi chu/],
+  ['notes', /ghi chu|kiem tra|danh gia/],
   ['periods', /so tiet|thoi luong|tong so tiet/],
   ['tiet', /^tiet\b|ppct/],
   ['week', /tuan|thoi diem|thoi gian/],
@@ -102,8 +102,11 @@ export function classifyHeader(cells: string[]): Header | null {
     const f = EVAL_RULES.find(([, re]) => re.test(t))?.[0];
     if (f && ev[f] === undefined) ev[f] = i;
   }
-  const looksDist = shortCells.some(({ t }) => /so tiet|bai hoc|ten bai/.test(t));
-  if (!looksDist && ev.name !== undefined && (ev.duration !== undefined || ev.format !== undefined || ev.week !== undefined)) {
+  const looksDist = shortCells.some(({ t }) => /so tiet|bai hoc|ten bai|noi dung|chu de|thoi luong/.test(t));
+  // Bảng kiểm tra định kỳ: cột tên bài kiểm tra là cột ĐẦU (sau STT). Bảng phân phối có cột "Kiểm tra, đánh giá"
+  // (cách đánh giá từng bài/chuyên đề) không phải bảng kiểm tra định kỳ.
+  const firstCol = shortCells.find(({ t }) => !/^(stt|tt)$/.test(t))?.i;
+  if (!looksDist && ev.name !== undefined && ev.name === firstCol && (ev.duration !== undefined || ev.format !== undefined || ev.week !== undefined)) {
     return { kind: 'eval', map: ev };
   }
 
@@ -338,6 +341,10 @@ export function parsePlanGrids(grids: Grid[], text: string, opts: PlanImportOpti
     for (const row of t.rows) {
       const name = cell(row, 'name');
       if (!name || /^\(?\d{1,2}\)?$/.test(name)) continue;
+      if (name.length > 80) {
+        warnings.push(`Bỏ qua dòng kiểm tra quá dài (có thể không phải tên bài kiểm tra): "${name.slice(0, 50)}…"`);
+        continue;
+      }
       const dur = cell(row, 'duration').match(/(\d{2,3})/);
       const wk = parseWeek(cell(row, 'week'));
       evaluations.push({

@@ -234,6 +234,11 @@ export const SAMPLE_ACCESS_REQUESTS: AccessRequest[] = [
 
 export const SAMPLE_DEPARTMENT_CONFIG: DepartmentConfig = {
   id: 'dept-toan-01',
+  schoolLeaders: [
+    { id: 'bgh-ht', title: 'Hiệu trưởng', name: 'TS. Nguyễn Văn Bình' },
+    { id: 'bgh-pht-cm', title: 'Phó hiệu trưởng phụ trách chuyên môn', name: 'ThS. Lê Thị Hoa', signsPlans: true },
+    { id: 'bgh-pht-csvc', title: 'Phó hiệu trưởng phụ trách cơ sở vật chất', name: 'Phạm Văn Nam' },
+  ],
   schoolName: 'Trường THPT Chuyên & Thực nghiệm Nguyễn Du',
   departmentName: 'Tổ Toán – Tin học',
   academicYear: '2026-2027',

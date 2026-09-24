@@ -250,6 +250,12 @@ const DEFAULT_REAL_CONFIG: DepartmentConfig = {
   endDate: '2027-05-28',
   weeksCount: 35,
   standardPeriods: 17,
+  // Ban giám hiệu Trường THPT Phan Đăng Lưu năm học 2026-2027 (sửa trong Cài đặt → Thông tin chung)
+  schoolLeaders: [
+    { id: 'bgh-ht', title: 'Hiệu trưởng', name: 'Trần Thị Thắm' },
+    { id: 'bgh-pht-cm', title: 'Phó hiệu trưởng phụ trách chuyên môn', name: 'Mai Thị Ngọc Nhung', signsPlans: true },
+    { id: 'bgh-pht-csvc', title: 'Phó hiệu trưởng phụ trách cơ sở vật chất', name: 'Đào Văn Tám' },
+  ],
 };
 
 const LEADER_ROLES: UserRole[] = ['admin', 'head', 'deputy'];

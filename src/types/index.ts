@@ -193,6 +193,17 @@ export interface DepartmentConfig {
   observationCriteria?: ObservationCriterionItem[];
   examTemplates?: ExamTemplateStructure[];
   externalLinks?: ExternalLinksConfig;
+  /** Ban giám hiệu nhà trường (hiển thị ở thanh bên, ký duyệt kế hoạch) */
+  schoolLeaders?: SchoolLeader[];
+}
+
+export interface SchoolLeader {
+  id: string;
+  /** Chức vụ: Hiệu trưởng, Phó hiệu trưởng phụ trách chuyên môn... */
+  title: string;
+  name: string;
+  /** Người ký duyệt kế hoạch dạy học của tổ (thường là PHT phụ trách chuyên môn) */
+  signsPlans?: boolean;
 }
 
 export interface SchoolClass {

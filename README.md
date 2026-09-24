@@ -190,6 +190,11 @@ firebase deploy --only firestore:rules
 - Nhận ra tên môn mới/cũ là một: "Toán 2" = "Toán buổi 2" = "Toán (T2)"; "Chuyên đề Toán" = "Chuyên đề học tập Toán".
 - Xuất Excel ra đúng 2 sheet TongHop + PhanCong như file của tổ (PhanCong giữ nguyên thứ tự dòng của file đã nhập). File mẫu cũng theo định dạng mới.
 
+### Bản 2.4.3 – Ban giám hiệu, người ký duyệt kế hoạch
+- Khung **Ban giám hiệu** ở thanh bên trái: Hiệu trưởng Trần Thị Thắm; PHT phụ trách chuyên môn Mai Thị Ngọc Nhung; PHT phụ trách cơ sở vật chất Đào Văn Tám (sửa trong Cài đặt → Thông tin chung).
+- Mục ký **"Ban giám hiệu phê duyệt"** của Kế hoạch dạy học ghi đúng người ký duyệt (mặc định PHT phụ trách chuyên môn) theo thể thức "KT. HIỆU TRƯỞNG – PHÓ HIỆU TRƯỞNG" (trước đây ghi tên người bấm duyệt trên phần mềm).
+- Sửa lỗi nhập kế hoạch từ Word/PDF: bảng phân phối có cột "Kiểm tra, đánh giá" bị hiểu nhầm là bảng kiểm tra định kỳ (tạo ra các "bài kiểm tra" ảo, cùng Tuần 9 – 90 phút).
+
 ## 5. Cấu trúc thư mục chính
 
 ```

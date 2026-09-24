@@ -3,6 +3,7 @@ import { useConfirm } from '../common/ConfirmDialog';
 import { newId } from '../../utils/ids';
 import { useApp } from '../../context/AppContext';
 import { StoragePanel } from '../common/StoragePanel';
+import type { SchoolLeader } from "../../types";
 import {
   Settings,
   Shield,
@@ -75,6 +76,7 @@ export const SettingsModule: React.FC = () => {
 
   // General Config State
   const [schoolName, setSchoolName] = useState(config.schoolName);
+  const [leaders, setLeaders] = useState<SchoolLeader[]>(config.schoolLeaders || []);
   const [departmentName, setDepartmentName] = useState(config.departmentName);
   const [academicYear, setAcademicYear] = useState(config.academicYear);
   const [currentTerm, setCurrentTerm] = useState(config.currentTerm);
@@ -151,6 +153,7 @@ export const SettingsModule: React.FC = () => {
   // Bản cũ chỉ đọc cấu hình lúc mở trang → khi lưu có thể ghi đè cấu hình thật bằng giá trị mặc định.
   useEffect(() => {
     setSchoolName(config.schoolName);
+    setLeaders(config.schoolLeaders || []);
     setDepartmentName(config.departmentName);
     setAcademicYear(config.academicYear);
     setCurrentTerm(config.currentTerm);
@@ -175,6 +178,9 @@ export const SettingsModule: React.FC = () => {
       currentTerm,
       standardPeriods: Number(standardPeriods),
       weeksCount: Number(weeksCount),
+      schoolLeaders: leaders
+        .map(l => ({ ...l, title: l.title.trim(), name: l.name.trim() }))
+        .filter(l => l.name || l.title),
     });
   };
 
@@ -582,6 +588,57 @@ export const SettingsModule: React.FC = () => {
                     Khung thời gian năm học do Bộ GD&ĐT quy định (HK1: 18 tuần, HK2: 17 tuần).
                   </p>
                 </div>
+              </div>
+
+              <div className="space-y-2 pt-2" data-testid="leaders-form">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-700">Ban giám hiệu nhà trường</label>
+                  <button
+                    type="button"
+                    onClick={() => setLeaders(l => [...l, { id: newId('bgh'), title: 'Phó hiệu trưởng', name: '' }])}
+                    className="px-2.5 py-1 font-semibold text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50"
+                  >
+                    + Thêm
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Hiển thị ở thanh bên trái. Người được chọn "Ký duyệt kế hoạch" có tên ở mục ký của Kế hoạch dạy học (PHT ký "KT. HIỆU TRƯỞNG").
+                </p>
+                {leaders.map((l, i) => (
+                  <div key={l.id} className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr_auto_auto] gap-2 items-center">
+                    <input
+                      value={l.title}
+                      onChange={e => setLeaders(ls => ls.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
+                      placeholder="Chức vụ (VD: Phó hiệu trưởng phụ trách chuyên môn)"
+                      aria-label="Chức vụ"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    />
+                    <input
+                      value={l.name}
+                      onChange={e => setLeaders(ls => ls.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                      placeholder="Họ và tên"
+                      aria-label="Họ và tên"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    />
+                    <label className="flex items-center gap-1.5 whitespace-nowrap text-slate-600">
+                      <input
+                        type="radio"
+                        name="signsPlans"
+                        checked={!!l.signsPlans}
+                        onChange={() => setLeaders(ls => ls.map((x, j) => ({ ...x, signsPlans: j === i })))}
+                      />
+                      Ký duyệt kế hoạch
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setLeaders(ls => ls.filter((_, j) => j !== i))}
+                      className="p-1.5 text-rose-500 hover:bg-rose-50 rounded"
+                      aria-label={`Xóa ${l.name || l.title}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
 
               <div className="pt-4 border-t border-slate-200 flex justify-end">
