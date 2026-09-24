@@ -7,6 +7,7 @@
  */
 import JSZip from 'jszip';
 import { elementChildren, ommlToLatex } from './omml';
+import { oleToLatex, type CfbLike } from './mtef';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const M = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
@@ -23,6 +24,8 @@ export interface DocxReadResult {
   imageCount: number;
   skippedImages: number;
   mathTypeObjects: number;
+  /** Số công thức MathType đã chuyển được sang LaTeX */
+  mathTypeConverted: number;
   /** Bảng giữ nguyên cấu trúc hàng/cột (ô gộp dọc được chép giá trị ô trên xuống). lineIndex = vị trí trong text */
   tables: DocxTable[];
 }
@@ -41,6 +44,8 @@ export interface DocxReadOptions {
   maxImages?: number;
   /** Giới hạn mỗi hình (ký tự data URL) */
   maxImageChars?: number;
+  /** Bộ đọc tệp OLE (XLSX.CFB) – có thì chuyển được công thức MathType sang LaTeX */
+  cfb?: CfbLike;
 }
 
 // Một số ký tự của phông Symbol (w:sym) hay gặp trong giáo án
@@ -70,7 +75,8 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
     relTarget.set(r.getAttribute('Id') || '', r.getAttribute('Target') || '');
   });
 
-  const stats = { equations: 0, imageCount: 0, skippedImages: 0, mathTypeObjects: 0 };
+  const stats = { equations: 0, imageCount: 0, skippedImages: 0, mathTypeObjects: 0, mathTypeConverted: 0 };
+  let displayPara = false; // đoạn kiểu MTDisplayEquation → công thức riêng dòng
   const imageMap: Record<string, string> = {};
   const byRel = new Map<string, string>(); // cùng một ảnh dùng nhiều lần → một bản
   let budget = opts.imageBudget ?? 700_000;
@@ -143,7 +149,21 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
           const progId = ole?.getAttribute('ProgID') || '';
           if (/Equation|MathType|DSMT/i.test(progId)) {
             stats.mathTypeObjects++;
-            out += ' [công thức MathType – cần gõ lại bằng $...$] ';
+            // Đọc dữ liệu MathType (MTEF) trong tệp OLE → LaTeX
+            const oleRid = ole ? ole.getAttributeNS(R, 'id') || ole.getAttribute('r:id') || '' : '';
+            const target = relTarget.get(oleRid);
+            let latex: string | null = null;
+            if (target && opts.cfb) {
+              const path = target.startsWith('/') ? target.slice(1) : `word/${target.replace(/^\.\//, '')}`;
+              const bin = await zip.file(path)?.async('uint8array');
+              if (bin) latex = oleToLatex(bin, opts.cfb);
+            }
+            if (latex) {
+              stats.mathTypeConverted++;
+              out += displayPara ? `\n$$${latex}$$\n` : `$${latex}$`;
+            } else {
+              out += ' [công thức MathType chưa đọc được – cần gõ lại] ';
+            }
           } else {
             const img = Array.from(c.getElementsByTagNameNS('*', 'imagedata'))[0];
             const rId = img ? img.getAttributeNS(R, 'id') || img.getAttribute('r:id') || '' : '';
@@ -184,8 +204,13 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
         continue;
       }
       if (c.localName === 'p') {
+        const pStyleEl = Array.from(c.getElementsByTagNameNS(W, 'pStyle'))[0];
+        const pStyle = pStyleEl ? attrW(pStyleEl, 'val') : '';
+        if (/^TOC/i.test(pStyle)) continue; // bỏ Mục lục tự động của Word (số trang không có ý nghĩa trên phần mềm)
+        displayPara = /MTDisplayEquation/i.test(pStyle);
         const isList = Array.from(c.getElementsByTagNameNS(W, 'numPr')).length > 0;
         const text = (await inline(c)).replace(/[ \t ]+/g, ' ');
+        displayPara = false;
         text.split('\n').forEach((l, i) => {
           const t = l.trim();
           if (t) lines.push(i === 0 && isList && !/^[-+•]|^[a-zđ]\)|^\d+[.)]|^[IVX]+\./i.test(t) ? `- ${t}` : t);

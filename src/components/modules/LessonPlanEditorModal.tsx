@@ -334,7 +334,7 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
 
         <p className="text-[11px] text-slate-500 shrink-0">
           Công thức gõ trong <code className="bg-slate-100 px-1 rounded">$...$</code> (vd <code className="bg-slate-100 px-1 rounded">{'$\\int_0^1 x^2\\,dx$'}</code>), riêng dòng dùng{' '}
-          <code className="bg-slate-100 px-1 rounded">$$...$$</code>. Đồ thị: <code className="bg-slate-100 px-1 rounded">{'[[do-thi: y = x^2 - 2x; x = -2..4]]'}</code>. Nhập từ Word giữ được công thức Equation và hình ảnh.
+          <code className="bg-slate-100 px-1 rounded">$$...$$</code>. Đồ thị: <code className="bg-slate-100 px-1 rounded">{'[[do-thi: y = x^2 - 2x; x = -2..4]]'}</code>. Nhập từ Word giữ được công thức Equation, công thức MathType và hình ảnh.
         </p>
         {importInfo && (
           <div className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 shrink-0 ${importInfo.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>

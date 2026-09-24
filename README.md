@@ -131,12 +131,12 @@ firebase deploy --only firestore:rules
 ### Bản 2.0.4 – Nhập giáo án từ Word/PDF
 - Trong "Soạn kế hoạch bài dạy" có nút **Nhập từ Word/PDF**: đọc tệp .docx hoặc .pdf, tự tách theo mẫu Phụ lục IV CV 5512 (Tên bài, Chương, Thời gian thực hiện, I. Mục tiêu 1-2-3, II. Thiết bị, III. Tiến trình – Hoạt động 1..n với a) b) c) d)) và điền vào các ô. Có hỏi trước khi ghi đè nội dung đang soạn.
 - Tệp không theo mẫu → đưa toàn bộ chữ vào "Nội dung" của Hoạt động 1 để tự sắp xếp.
-- Giới hạn: công thức Equation/MathType, hình vẽ trong tệp không chuyển thành chữ; PDF dạng ảnh scan không đọc được; tệp .doc cũ cần lưu lại thành .docx.
+- Giới hạn (đã khắc phục ở bản 2.1 và 2.6): công thức Equation/MathType, hình vẽ trong tệp không chuyển thành chữ; PDF dạng ảnh scan không đọc được; tệp .doc cũ cần lưu lại thành .docx.
 - Thêm ô "Liên kết tệp giáo án gốc" (Drive/OneDrive) và hiển thị tên/đường dẫn tệp gốc trên giáo án.
 
 ### Bản 2.1 – Bộ công cụ toán học cho giáo án
 - **Toàn màn hình**: nút "Toàn màn hình" cạnh "Trình duyệt" để trình chiếu giáo án khi họp tổ (chữ phóng to, Esc để thoát).
-- **Bộ đọc Word mới** (`src/utils/docxReader.ts`, `omml.ts`): công thức Equation của Word được chuyển sang LaTeX (phân số, lũy thừa, căn, tích phân, tổng, giới hạn, hệ phương trình, ma trận, vectơ, ngoặc...), hình ảnh PNG/JPG trong tệp được nén và giữ lại. Công thức MathType và hình WMF/EMF được đánh dấu để gõ lại (trình duyệt không đọc được định dạng này).
+- **Bộ đọc Word mới** (`src/utils/docxReader.ts`, `omml.ts`): công thức Equation của Word được chuyển sang LaTeX (phân số, lũy thừa, căn, tích phân, tổng, giới hạn, hệ phương trình, ma trận, vectơ, ngoặc...), hình ảnh PNG/JPG trong tệp được nén và giữ lại. Hình WMF/EMF được đánh dấu để chèn lại (trình duyệt không đọc được định dạng này). Công thức MathType: xem bản 2.6.
 - **Bộ vẽ đồ thị `mathviz`** (`src/utils/mathviz.ts`, `MathGraph.tsx`): gõ `[[do-thi: y = x^3 - 3x; x = -3..3; y = -4..4; A(1;-2)]]` để vẽ đồ thị (nhiều hàm, tiệm cận đứng `x = 1`, điểm có tên); tự ngắt nét tại điểm gián đoạn. Không dùng eval – an toàn.
 - **Bộ hiển thị** (`katex-renderer.tsx`): LaTeX `$...$`, `$$...$$`, môi trường `\begin{cases}`…, ảnh `![chú thích](img:...)`, đồ thị, GeoGebra `[[geogebra: https://www.geogebra.org/m/...]]`.
 - **Công cụ trong khung soạn giáo án**: bảng chèn nhanh công thức (đại số, giải tích, hình học, tập hợp, Hy Lạp), hệ phương trình, bảng xét dấu, vẽ đồ thị có xem trước, chèn ảnh (tự nén), nhúng GeoGebra; ô đang soạn hiển thị "Xem nhanh" công thức ngay bên dưới; nút phóng to khung soạn.
@@ -204,6 +204,12 @@ firebase deploy --only firestore:rules
 ### Bản 2.5.1 – Chỉ Quản trị viên được chuyển năm học
 - Nút "Chuyển năm học mới", "Bắt đầu quy trình chuyển năm học" và ô "Năm học hiện tại" chỉ Quản trị viên dùng được; Tổ trưởng thấy thông báo "Chỉ Quản trị viên hệ thống được chuyển năm học".
 - Chặn cả ở máy chủ (firestore.rules): Tổ trưởng vẫn sửa được cấu hình tổ nhưng không đổi được năm học. **Cần dán lại firestore.rules lên Firebase.**
+
+### Bản 2.6 – Đọc công thức MathType trong file Word
+- Bộ chuyển **MathType → LaTeX** (`src/utils/mtef.ts`): đọc dữ liệu MathType (MTEF 5, Equation.DSMT4–7) nằm trong từng đối tượng OLE của file Word và chuyển thành công thức LaTeX **sửa được** (không phải ảnh): phân số, căn, mũ/chỉ số, ngoặc tự co giãn, hệ phương trình (ngoặc nhọn, ngoặc vuông "hoặc"), ma trận, tích phân, tổng, giới hạn, max/min có cận, vectơ, mũ góc, chữ Việt trong công thức, tên hàm (sin, cos, ln, log...).
+- Kiểm tra với giáo án thật "GT12-C1-B2-GTLN GTNN CUA HAM SO.docx": **255/255 công thức** chuyển được, KaTeX hiển thị không lỗi. Công thức đứng riêng dòng (MTDisplayEquation) hiển thị căn giữa.
+- Bỏ phần **Mục lục** tự động của Word khi nhập (số trang không có ý nghĩa trên phần mềm).
+- Sửa lỗi: dòng thông báo công thức không đọc được chứa "$...$" bị hiển thị thành công thức.
 
 ## 5. Cấu trúc thư mục chính
 

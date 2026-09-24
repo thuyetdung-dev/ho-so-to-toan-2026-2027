@@ -308,11 +308,13 @@ export async function extractTextFromFile(file: File): Promise<ExtractResult> {
     const { readDocx, compressImageInBrowser } = await import('./docxReader');
     try {
       // Bản 2.4: hình lưu riêng từng bản ghi → cho phép tổng dung lượng hình lớn (tối đa 60 hình)
-      const r = await readDocx(buffer, { processImage: compressImageInBrowser, imageBudget: 40_000_000, maxImages: 60 });
+      const XLSX = await import('@e965/xlsx'); // bộ đọc tệp OLE (CFB) để chuyển công thức MathType
+      const r = await readDocx(buffer, { processImage: compressImageInBrowser, imageBudget: 40_000_000, maxImages: 60, cfb: XLSX.CFB as never });
       const notes: string[] = [];
       if (r.equations) notes.push(`${r.equations} công thức Word đã chuyển sang LaTeX`);
       if (r.imageCount) notes.push(`${r.imageCount} hình vẽ đã nhập`);
-      if (r.mathTypeObjects) notes.push(`${r.mathTypeObjects} công thức MathType không chuyển được (đã đánh dấu để gõ lại)`);
+      if (r.mathTypeConverted) notes.push(`${r.mathTypeConverted} công thức MathType đã chuyển sang LaTeX`);
+      if (r.mathTypeObjects > r.mathTypeConverted) notes.push(`${r.mathTypeObjects - r.mathTypeConverted} công thức MathType không đọc được (đã đánh dấu để gõ lại)`);
       if (r.skippedImages) notes.push(`${r.skippedImages} hình không nhập được (WMF/EMF hoặc quá dung lượng)`);
       return { text: r.text, images: r.images, notes };
     } catch (err) {
