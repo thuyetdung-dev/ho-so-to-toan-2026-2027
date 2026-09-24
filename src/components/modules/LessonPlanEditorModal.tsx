@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { X, Save, Plus, Trash2, Eye, Pencil } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { X, Save, Plus, Trash2, Eye, Pencil, FileUp, Loader2, CheckCircle2, AlertTriangle, Link2 } from 'lucide-react';
 import type { LessonPlan, LessonPlanActivity, SchoolClass } from '../../types';
 import { MathText } from '../../utils/katex-renderer';
-import { newId } from '../../utils/ids';
+import { newId, safeUrl } from '../../utils/ids';
+import { extractTextFromFile, parseLessonText } from '../../utils/lessonImport';
+import { useConfirm } from '../common/ConfirmDialog';
 
 interface Props {
   plan: LessonPlan;
@@ -20,6 +22,94 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
   const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importInfo, setImportInfo] = useState<{ ok: boolean; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const confirm = useConfirm();
+
+  /** Nhập nội dung giáo án từ tệp Word (.docx) hoặc PDF, tự tách theo cấu trúc CV 5512 */
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) {
+      setImportInfo({ ok: false, text: 'Tệp quá lớn (tối đa 15 MB).' });
+      return;
+    }
+    setImporting(true);
+    setImportInfo(null);
+    try {
+      const text = await extractTextFromFile(file);
+      if (!text.trim()) {
+        setImportInfo({
+          ok: false,
+          text: 'Không đọc được chữ trong tệp. Nếu là PDF scan (ảnh chụp), hãy dùng bản Word hoặc PDF xuất trực tiếp từ Word.',
+        });
+        return;
+      }
+      const parsed = parseLessonText(text);
+      const hasContent =
+        !!(draft.objectivesKnowledge || draft.objectivesCompetence || draft.objectivesQualities || draft.equipment) ||
+        draft.activities.some(a => a.content || a.product || a.implementation || a.objectives);
+
+      if (!parsed.recognized) {
+        const ok = await confirm({
+          title: 'Không nhận ra cấu trúc CV 5512',
+          message:
+            'Tệp không có các mục "I. MỤC TIÊU", "II. THIẾT BỊ...", "III. TIẾN TRÌNH DẠY HỌC", "Hoạt động 1...". Đưa toàn bộ nội dung vào ô "Nội dung" của hoạt động đầu tiên để bạn tự sắp xếp?',
+          confirmText: 'Đưa vào',
+        });
+        if (!ok) return;
+        setDraft(d => ({
+          ...d,
+          sourceFileName: file.name,
+          activities: d.activities.length
+            ? d.activities.map((a, i) => (i === 0 ? { ...a, content: parsed.rawText } : a))
+            : [{ id: newId('activity'), name: 'Hoạt động 1', objectives: '', content: parsed.rawText, product: '', implementation: '' }],
+        }));
+        setImportInfo({ ok: false, text: `Đã đưa toàn bộ nội dung tệp "${file.name}" vào Hoạt động 1 › Nội dung. Hãy chia lại các mục cho đúng.` });
+        return;
+      }
+
+      if (hasContent) {
+        const ok = await confirm({
+          title: 'Ghi đè nội dung đang soạn?',
+          message: `Nội dung đọc từ "${file.name}" sẽ thay thế Mục tiêu, Thiết bị và các Hoạt động hiện có trong giáo án này.`,
+          confirmText: 'Ghi đè',
+          danger: true,
+        });
+        if (!ok) return;
+      }
+
+      setDraft(d => ({
+        ...d,
+        title: d.title.trim() ? d.title : parsed.title || d.title,
+        topicTitle: d.topicTitle.trim() ? d.topicTitle : parsed.topicTitle || d.topicTitle,
+        periodCount: parsed.periodCount || d.periodCount,
+        objectivesKnowledge: parsed.objectivesKnowledge || d.objectivesKnowledge,
+        objectivesCompetence: parsed.objectivesCompetence || d.objectivesCompetence,
+        objectivesQualities: parsed.objectivesQualities || d.objectivesQualities,
+        equipment: parsed.equipment || d.equipment,
+        activities: parsed.activities.length ? parsed.activities.map(a => ({ ...a, id: newId('activity') })) : d.activities,
+        sourceFileName: file.name,
+      }));
+      const filled = [
+        parsed.objectivesKnowledge && 'kiến thức',
+        parsed.objectivesCompetence && 'năng lực',
+        parsed.objectivesQualities && 'phẩm chất',
+      ].filter(Boolean);
+      setImportInfo({
+        ok: true,
+        text:
+          `Đã nhập từ "${file.name}": ${filled.length ? `mục tiêu (${filled.join(', ')}), ` : ''}${parsed.equipment ? 'thiết bị, ' : ''}${parsed.activities.length} hoạt động. ` +
+          'Hãy kiểm tra lại: công thức dạng Equation/MathType và hình vẽ trong tệp không chuyển được thành chữ – nên gõ lại công thức trong $...$.',
+      });
+    } catch (err) {
+      setImportInfo({ ok: false, text: `Không đọc được tệp: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const set = <K extends keyof LessonPlan>(key: K, value: LessonPlan[K]) => setDraft(d => ({ ...d, [key]: value }));
   const setAct = (id: string, patch: Partial<LessonPlanActivity>) =>
@@ -31,9 +121,15 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
     e.preventDefault();
     if (!draft.title.trim() || !draft.topicTitle.trim()) return setError('Cần nhập tên bài dạy và chủ đề.');
     if (draft.activities.some(a => !a.name.trim())) return setError('Mỗi hoạt động cần có tên.');
+    if (draft.sourceFileUrl && !safeUrl(draft.sourceFileUrl)) return setError('Liên kết tệp gốc phải bắt đầu bằng http:// hoặc https://');
     setError('');
     setSaving(true);
-    const ok = await onSave({ ...draft, title: draft.title.trim(), topicTitle: draft.topicTitle.trim() });
+    const ok = await onSave({
+      ...draft,
+      title: draft.title.trim(),
+      topicTitle: draft.topicTitle.trim(),
+      sourceFileUrl: safeUrl(draft.sourceFileUrl) || undefined,
+    });
     setSaving(false);
     if (ok) onCancel();
   };
@@ -47,6 +143,17 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
           <h3 className="text-base font-bold text-slate-900">Soạn kế hoạch bài dạy</h3>
           <div className="flex items-center gap-2">
+            <input ref={fileRef} type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={handleImportFile} />
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => fileRef.current?.click()}
+              className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1 disabled:opacity-60"
+              title="Nhập nội dung giáo án từ tệp Word (.docx) hoặc PDF"
+            >
+              {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
+              {importing ? 'Đang đọc tệp...' : 'Nhập từ Word/PDF'}
+            </button>
             <button
               type="button"
               onClick={() => setPreview(p => !p)}
@@ -61,8 +168,15 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
           </div>
         </div>
         <p className="text-[11px] text-slate-500">
-          Gõ công thức toán trong dấu <code className="bg-slate-100 px-1 rounded">$...$</code> (ví dụ <code className="bg-slate-100 px-1 rounded">{'$\\int_0^1 x^2\\,dx$'}</code>). Bấm "Xem trước" để kiểm tra hiển thị.
+          Gõ công thức toán trong dấu <code className="bg-slate-100 px-1 rounded">$...$</code> (ví dụ <code className="bg-slate-100 px-1 rounded">{'$\\int_0^1 x^2\\,dx$'}</code>). Bấm "Xem trước" để kiểm tra hiển thị. Có thể bấm <strong>Nhập từ Word/PDF</strong> để lấy nội dung từ giáo án đã soạn sẵn (theo mẫu Phụ lục IV CV 5512).
         </p>
+        {importInfo && (
+          <div className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${importInfo.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+            {importInfo.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />}
+            <span className="flex-1">{importInfo.text}</span>
+            <button type="button" onClick={() => setImportInfo(null)} className="text-slate-400 hover:text-slate-700" aria-label="Đóng thông báo"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto space-y-4 text-xs pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -115,6 +229,21 @@ export const LessonPlanEditorModal: React.FC<Props> = ({ plan, classes, onCancel
               </div>
             </fieldset>
           )}
+
+          <label className="block font-semibold text-slate-700">
+            Liên kết tệp giáo án gốc (Google Drive, OneDrive... – tùy chọn)
+            <div className="relative mt-1">
+              <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+              <input
+                type="url"
+                value={draft.sourceFileUrl || ''}
+                onChange={e => set('sourceFileUrl', e.target.value)}
+                placeholder="https://drive.google.com/..."
+                className={`${input} pl-8`}
+              />
+            </div>
+            {draft.sourceFileName && <span className="block mt-1 font-normal text-[11px] text-slate-500">Nội dung đã nhập từ tệp: {draft.sourceFileName}</span>}
+          </label>
 
           <div className="space-y-2">
             <h4 className="font-bold text-blue-900 uppercase tracking-wide">I. Mục tiêu</h4>

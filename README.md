@@ -128,6 +128,12 @@ firebase deploy --only firestore:rules
 - Bảng "Kế hoạch dạy học theo CV 5512" trên Tổng quan trước đây là 3 bài **viết cứng**; nay lấy đúng các bài của tuần hiện tại từ Kế hoạch dạy học của tổ (tính theo ngày bắt đầu năm học), kèm trạng thái thực dạy thật.
 - Bỏ các dòng chữ bịa: "100% đã được phê duyệt", "Đạt chỉ tiêu kế hoạch tháng"; Báo cáo không còn nhắc tới ngân hàng câu hỏi/đề.
 
+### Bản 2.0.4 – Nhập giáo án từ Word/PDF
+- Trong "Soạn kế hoạch bài dạy" có nút **Nhập từ Word/PDF**: đọc tệp .docx hoặc .pdf, tự tách theo mẫu Phụ lục IV CV 5512 (Tên bài, Chương, Thời gian thực hiện, I. Mục tiêu 1-2-3, II. Thiết bị, III. Tiến trình – Hoạt động 1..n với a) b) c) d)) và điền vào các ô. Có hỏi trước khi ghi đè nội dung đang soạn.
+- Tệp không theo mẫu → đưa toàn bộ chữ vào "Nội dung" của Hoạt động 1 để tự sắp xếp.
+- Giới hạn: công thức Equation/MathType, hình vẽ trong tệp không chuyển thành chữ; PDF dạng ảnh scan không đọc được; tệp .doc cũ cần lưu lại thành .docx.
+- Thêm ô "Liên kết tệp giáo án gốc" (Drive/OneDrive) và hiển thị tên/đường dẫn tệp gốc trên giáo án.
+
 ## 5. Cấu trúc thư mục chính
 
 ```
@@ -137,6 +143,6 @@ server.ts                 Máy chủ Express khi chạy trên máy/VPS
 firestore.rules           Quy tắc bảo mật Firestore (triển khai bằng firebase deploy)
 src/context/AppContext.tsx  Trạng thái, đồng bộ Firestore, phân quyền
 src/components/modules/   Các phân hệ (Kế hoạch, Giáo án, Dự giờ, Đề, Phân tích, ...)
-src/utils/                diff (so sánh phiên bản), stats (thống kê điểm), ids, excel, katex
+src/utils/                lessonImport (đọc giáo án Word/PDF), diff (so sánh phiên bản), stats (thống kê điểm), ids, excel, katex
 tests/                    Kiểm thử đơn vị (npm test)
 ```

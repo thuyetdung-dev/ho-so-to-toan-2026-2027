@@ -3,7 +3,7 @@ import { useApp, lessonSnapshot } from '../../context/AppContext';
 import { VersionDiffModal } from '../common/VersionDiffModal';
 import { LessonPlanEditorModal } from './LessonPlanEditorModal';
 import { useConfirm } from '../common/ConfirmDialog';
-import { newId, todayISO } from '../../utils/ids';
+import { newId, todayISO, safeUrl } from '../../utils/ids';
 import { LessonPlan, LessonPlanActivity } from '../../types';
 import { MathText } from '../../utils/katex-renderer';
 import {
@@ -531,6 +531,18 @@ export const LessonPlansModule: React.FC = () => {
                     </span>
                   </div>
                   <h2 className="text-base font-bold text-slate-900 mt-1">{selectedPlan.title}</h2>
+                  {(selectedPlan.sourceFileUrl || selectedPlan.sourceFileName) && (
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      Tệp gốc:{' '}
+                      {safeUrl(selectedPlan.sourceFileUrl) ? (
+                        <a href={safeUrl(selectedPlan.sourceFileUrl)!} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">
+                          {selectedPlan.sourceFileName || 'Mở tệp'}
+                        </a>
+                      ) : (
+                        <span>{selectedPlan.sourceFileName}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">

@@ -337,6 +337,10 @@ export interface LessonPlan {
   taughtDate?: string;
   taughtClasses?: string[];
   teachingStatus?: 'not_started' | 'teaching' | 'completed' | 'in_progress' | 'not_taught';
+  /** Tên tệp Word/PDF đã nhập nội dung */
+  sourceFileName?: string;
+  /** Liên kết tới tệp gốc (Google Drive, OneDrive...) */
+  sourceFileUrl?: string;
 }
 
 export interface MeetingTask {
