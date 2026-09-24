@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp, lessonSnapshot } from '../../context/AppContext';
 import { VersionDiffModal } from '../common/VersionDiffModal';
 import { LessonPlanEditorModal } from './LessonPlanEditorModal';
@@ -27,6 +27,8 @@ import {
   ChevronRight,
   BookOpen,
   Pencil,
+  Maximize2,
+  Minimize2,
   Trash2,
   Printer as PrinterIcon,
 } from 'lucide-react';
@@ -48,6 +50,36 @@ export const LessonPlansModule: React.FC = () => {
 
   const isLeader = permissions.isLeader;
   const [editingPlan, setEditingPlan] = useState<LessonPlan | null>(null);
+  // Xem giáo án toàn màn hình (dùng Fullscreen API nếu trình duyệt hỗ trợ, nếu không thì phủ kín cửa sổ)
+  const [fullView, setFullView] = useState(false);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const toggleFullView = async () => {
+    if (fullView) {
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
+      setFullView(false);
+      return;
+    }
+    setFullView(true);
+    try {
+      if (viewRef.current && document.fullscreenEnabled) await viewRef.current.requestFullscreen();
+    } catch {
+      /* không hỗ trợ → vẫn dùng chế độ phủ kín cửa sổ */
+    }
+  };
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement) setFullView(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullView(false);
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
   const [searchText, setSearchText] = useState('');
   const [onlyMine, setOnlyMine] = useState(false);
 
@@ -497,7 +529,15 @@ export const LessonPlansModule: React.FC = () => {
         {/* Right Col: Detailed 5512 Lesson Plan View */}
         <div className="lg:col-span-8 space-y-6">
           {selectedPlan ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6">
+            <div
+              ref={viewRef}
+              className={
+                fullView
+                  ? 'fixed inset-0 z-50 bg-white overflow-y-auto p-6 sm:px-12 lg:px-24 space-y-6'
+                  : 'bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6'
+              }
+              style={fullView ? ({ zoom: 1.3 } as React.CSSProperties) : undefined}
+            >
               {/* Actions & Status bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
                 <div>
@@ -616,6 +656,15 @@ export const LessonPlansModule: React.FC = () => {
                     </button>
                   )}
 
+                  <button
+                    onClick={toggleFullView}
+                    className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-900 text-white rounded-lg flex items-center gap-1 shadow-xs"
+                    title={fullView ? 'Thoát toàn màn hình (Esc)' : 'Xem giáo án toàn màn hình (trình chiếu, họp tổ)'}
+                  >
+                    {fullView ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    <span>{fullView ? 'Thoát toàn màn hình' : 'Toàn màn hình'}</span>
+                  </button>
+
                   {/* Approval controls for Leader */}
                   {isLeader && selectedPlan.status === 'submitted' && (!isOwner || permissions.isAdminOrHead) && (
                     <div className="flex items-center gap-1">
@@ -651,9 +700,9 @@ export const LessonPlansModule: React.FC = () => {
                   I. Mục tiêu bài dạy (Theo chuẩn GDPT 2018)
                 </h3>
                 <div className="space-y-2 text-xs text-slate-700">
-                  <div><strong>1. Về kiến thức:</strong> <MathText as="span" content={selectedPlan.objectivesKnowledge || '—'} /></div>
-                  <div><strong>2. Về năng lực:</strong> <MathText as="span" content={selectedPlan.objectivesCompetence || '—'} /></div>
-                  <div><strong>3. Về phẩm chất:</strong> <MathText as="span" content={selectedPlan.objectivesQualities || '—'} /></div>
+                  <div><strong>1. Về kiến thức:</strong> <MathText as="span" images={selectedPlan.images} content={selectedPlan.objectivesKnowledge || '—'} /></div>
+                  <div><strong>2. Về năng lực:</strong> <MathText as="span" images={selectedPlan.images} content={selectedPlan.objectivesCompetence || '—'} /></div>
+                  <div><strong>3. Về phẩm chất:</strong> <MathText as="span" images={selectedPlan.images} content={selectedPlan.objectivesQualities || '—'} /></div>
                   {!selectedPlan.objectivesKnowledge && canEdit && (
                     <button onClick={() => setEditingPlan(selectedPlan)} className="text-blue-700 font-semibold underline">
                       Giáo án chưa có nội dung – bấm để soạn
@@ -667,7 +716,7 @@ export const LessonPlansModule: React.FC = () => {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1">
                   II. Thiết bị dạy học và học liệu
                 </h3>
-                <p className="text-xs text-slate-700">{selectedPlan.equipment}</p>
+                <MathText content={selectedPlan.equipment || '—'} images={selectedPlan.images} className="text-xs text-slate-700" />
               </div>
 
               {/* III. Tiến trình dạy học: 4 Hoạt động */}
@@ -686,21 +735,23 @@ export const LessonPlansModule: React.FC = () => {
                     <div className="text-xs space-y-2 text-slate-700">
                       <div>
                         <span className="font-semibold text-slate-800">a) Mục tiêu: </span>
-                        <span>{act.objectives}</span>
+                        <MathText as="span" images={selectedPlan.images} content={act.objectives || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">b) Nội dung: </span>
-                        <MathText as="span" content={act.content || '—'} />
+                        <MathText as="span" images={selectedPlan.images} content={act.content || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">c) Sản phẩm: </span>
-                        <MathText as="span" content={act.product || '—'} />
+                        <MathText as="span" images={selectedPlan.images} content={act.product || '—'} />
                       </div>
                       <div>
                         <span className="font-semibold text-slate-800">d) Tổ chức thực hiện: </span>
-                        <div className="whitespace-pre-wrap bg-white p-2.5 rounded border border-slate-200 mt-1 font-mono text-[11px] leading-relaxed">
-                          {act.implementation}
-                        </div>
+                        <MathText
+                          content={act.implementation || '—'}
+                          images={selectedPlan.images}
+                          className="bg-white p-2.5 rounded border border-slate-200 mt-1 leading-relaxed"
+                        />
                       </div>
                     </div>
                   </div>

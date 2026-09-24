@@ -134,6 +134,14 @@ firebase deploy --only firestore:rules
 - Giới hạn: công thức Equation/MathType, hình vẽ trong tệp không chuyển thành chữ; PDF dạng ảnh scan không đọc được; tệp .doc cũ cần lưu lại thành .docx.
 - Thêm ô "Liên kết tệp giáo án gốc" (Drive/OneDrive) và hiển thị tên/đường dẫn tệp gốc trên giáo án.
 
+### Bản 2.1 – Bộ công cụ toán học cho giáo án
+- **Toàn màn hình**: nút "Toàn màn hình" cạnh "Trình duyệt" để trình chiếu giáo án khi họp tổ (chữ phóng to, Esc để thoát).
+- **Bộ đọc Word mới** (`src/utils/docxReader.ts`, `omml.ts`): công thức Equation của Word được chuyển sang LaTeX (phân số, lũy thừa, căn, tích phân, tổng, giới hạn, hệ phương trình, ma trận, vectơ, ngoặc...), hình ảnh PNG/JPG trong tệp được nén và giữ lại. Công thức MathType và hình WMF/EMF được đánh dấu để gõ lại (trình duyệt không đọc được định dạng này).
+- **Bộ vẽ đồ thị `mathviz`** (`src/utils/mathviz.ts`, `MathGraph.tsx`): gõ `[[do-thi: y = x^3 - 3x; x = -3..3; y = -4..4; A(1;-2)]]` để vẽ đồ thị (nhiều hàm, tiệm cận đứng `x = 1`, điểm có tên); tự ngắt nét tại điểm gián đoạn. Không dùng eval – an toàn.
+- **Bộ hiển thị** (`katex-renderer.tsx`): LaTeX `$...$`, `$$...$$`, môi trường `\begin{cases}`…, ảnh `![chú thích](img:...)`, đồ thị, GeoGebra `[[geogebra: https://www.geogebra.org/m/...]]`.
+- **Công cụ trong khung soạn giáo án**: bảng chèn nhanh công thức (đại số, giải tích, hình học, tập hợp, Hy Lạp), hệ phương trình, bảng xét dấu, vẽ đồ thị có xem trước, chèn ảnh (tự nén), nhúng GeoGebra; ô đang soạn hiển thị "Xem nhanh" công thức ngay bên dưới; nút phóng to khung soạn.
+- Ảnh được lưu cùng giáo án (giới hạn ~900 KB/giáo án do Firestore); ảnh không còn dùng tự được dọn khi lưu.
+
 ## 5. Cấu trúc thư mục chính
 
 ```
@@ -143,6 +151,6 @@ server.ts                 Máy chủ Express khi chạy trên máy/VPS
 firestore.rules           Quy tắc bảo mật Firestore (triển khai bằng firebase deploy)
 src/context/AppContext.tsx  Trạng thái, đồng bộ Firestore, phân quyền
 src/components/modules/   Các phân hệ (Kế hoạch, Giáo án, Dự giờ, Đề, Phân tích, ...)
-src/utils/                lessonImport (đọc giáo án Word/PDF), diff (so sánh phiên bản), stats (thống kê điểm), ids, excel, katex
+src/utils/                mathviz (đồ thị), omml + docxReader (công thức & hình trong Word), lessonImport, diff (so sánh phiên bản), stats (thống kê điểm), ids, excel, katex
 tests/                    Kiểm thử đơn vị (npm test)
 ```

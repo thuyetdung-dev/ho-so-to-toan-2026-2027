@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import katex from 'katex';
+import { MathGraph } from '../components/common/MathGraph';
 
 interface MathRendererProps {
   content: string;
@@ -18,80 +19,131 @@ function cleanLatexString(raw: string): string {
   return raw.replace(/\$\$\$/g, () => '$$');
 }
 
+/** Ảnh nhúng dạng Markdown: chỉ nhận ảnh data:image/... (base64) hoặc https */
+const IMAGE_RE = /!\[([^\]\n]{0,200})\]\((data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+|https:\/\/[^\s)]+|img:[A-Za-z0-9_-]+)\)/;
+const GRAPH_RE = /\[\[\s*(?:do-thi|đồ-thị|đồ thị|do thi|graph)\s*:\s*([\s\S]+?)\]\]/u;
+const GEOGEBRA_RE = /\[\[\s*geogebra\s*:\s*(\S+?)\s*\]\]/i;
+const RICH_RE = new RegExp(`(${IMAGE_RE.source}|${GRAPH_RE.source}|${GEOGEBRA_RE.source})`, 'gu');
+/** Môi trường LaTeX viết trần (không có $...$), ví dụ \begin{cases}...\end{cases} */
+const ENV_RE = /(\\begin\{(align\*?|aligned|cases|array|matrix|pmatrix|bmatrix|vmatrix|gather\*?|equation\*?|split)\}[\s\S]+?\\end\{\2\})/g;
+
+function renderKatex(formula: string, display: boolean, key: string) {
+  try {
+    const html = katex.renderToString(formula, {
+      displayMode: display,
+      throwOnError: false,
+      strict: false,
+      trust: false,
+      maxExpand: 1000,
+    });
+    return (
+      <span
+        key={key}
+        className={`katex-rendered inline-block ${display ? 'my-2 block text-center overflow-x-auto max-w-full' : 'mx-0.5 align-middle'}`}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  } catch {
+    return (
+      <span key={key} className="font-mono text-slate-700 mx-0.5 text-xs bg-slate-100 px-1 rounded">
+        {formula}
+      </span>
+    );
+  }
+}
+
+/** Phần văn bản thường: nhận thêm môi trường \begin{...}...\end{...} viết trần */
+function renderPlain(text: string, key: string) {
+  const pieces = text.split(ENV_RE);
+  const out: React.ReactNode[] = [];
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i];
+    if (!piece) continue;
+    if (/^\\begin\{/.test(piece) && pieces[i + 1] && piece.includes(`\\end{${pieces[i + 1]}}`)) {
+      out.push(renderKatex(piece, true, `${key}-env${i}`));
+      i++; // bỏ nhóm tên môi trường
+      continue;
+    }
+    out.push(
+      <span key={`${key}-t${i}`} className="whitespace-pre-wrap">
+        {piece}
+      </span>,
+    );
+  }
+  return out;
+}
+
+function renderMath(text: string, block: boolean, keyPrefix: string) {
+  const cleaned = cleanLatexString(text);
+  // $$...$$ | \[...\] | $...$ | \(...\)
+  const regex = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^\$\n\r]+?\$|\\\([\s\S]+?\\\))/g;
+  const parts = cleaned.split(regex);
+  return parts.map((part, index) => {
+    if (!part) return null;
+    const key = `${keyPrefix}-${index}`;
+    const isDoubleDollar = part.startsWith('$$') && part.endsWith('$$') && part.length >= 4;
+    const isBracketBlock = part.startsWith('\\[') && part.endsWith('\\]') && part.length >= 4;
+    const isSingleDollar = part.startsWith('$') && part.endsWith('$') && !isDoubleDollar && part.length >= 2;
+    const isParenInline = part.startsWith('\\(') && part.endsWith('\\)') && part.length >= 4;
+    if (isDoubleDollar || isBracketBlock || isSingleDollar || isParenInline) {
+      let formula = isSingleDollar ? part.slice(1, -1) : part.slice(2, -2);
+      formula = formula.replace(/^\$+/, '').replace(/\$+$/, '').trim();
+      if (!formula) return null;
+      const display = (isDoubleDollar || isBracketBlock || block) && !isSingleDollar && !isParenInline;
+      return renderKatex(formula, display, key);
+    }
+    return <React.Fragment key={key}>{renderPlain(part, key)}</React.Fragment>;
+  });
+}
+
 /**
- * KaTeX renderer safely parses LaTeX math enclosed in $...$, $$...$$, \(...\), or \[...\]
- * Handles nested dollar signs, special characters, and never double-renders.
+ * Bộ hiển thị nội dung toán học:
+ *  - Công thức LaTeX: $...$, $$...$$, \(...\), \[...\], và môi trường \begin{cases}... viết trần
+ *  - Hình ảnh: ![chú thích](data:image/png;base64,...) hoặc ![..](https://...)
+ *  - Đồ thị hàm số: [[do-thi: y = x^3 - 3x; x = -3..3]]  (xem src/utils/mathviz.ts)
+ *  - GeoGebra: [[geogebra: https://www.geogebra.org/m/abcd]]
  */
-export const MathText: React.FC<MathRendererProps & { as?: 'div' | 'span' }> = ({ content, className = '', block = false, as = 'div' }) => {
+export const MathText: React.FC<MathRendererProps & { as?: 'div' | 'span'; images?: Record<string, string> }> = ({
+  content,
+  className = '',
+  block = false,
+  as = 'div',
+  images,
+}) => {
   const renderedElements = useMemo(() => {
     if (!content || typeof content !== 'string') return null;
-
-    const cleaned = cleanLatexString(content);
-
-    // Regex capturing:
-    // 1. $$...$$
-    // 2. \[...\]
-    // 3. $...$
-    // 4. \(...\)
-    const regex = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^\$\n\r]+?\$|\\\([\s\S]+?\\\))/g;
-    const parts = cleaned.split(regex);
-
-    return parts.map((part, index) => {
-      if (!part) return null;
-
-      const isDoubleDollar = part.startsWith('$$') && part.endsWith('$$') && part.length >= 4;
-      const isBracketBlock = part.startsWith('\\[') && part.endsWith('\\]') && part.length >= 4;
-      const isBlock = isDoubleDollar || isBracketBlock || block;
-
-      const isSingleDollar = part.startsWith('$') && part.endsWith('$') && !isDoubleDollar && part.length >= 2;
-      const isParenInline = part.startsWith('\\(') && part.endsWith('\\)') && part.length >= 4;
-      const isInline = isSingleDollar || isParenInline;
-
-      if (isDoubleDollar || isBracketBlock || isSingleDollar || isParenInline) {
-        let formula = '';
-        if (isDoubleDollar) formula = part.slice(2, -2).trim();
-        else if (isBracketBlock) formula = part.slice(2, -2).trim();
-        else if (isSingleDollar) formula = part.slice(1, -1).trim();
-        else if (isParenInline) formula = part.slice(2, -2).trim();
-
-        // Strip any residual redundant outer dollar signs inside the formula
-        formula = formula.replace(/^\$+/, '').replace(/\$+$/, '').trim();
-
-        if (!formula) return null;
-
-        try {
-          const html = katex.renderToString(formula, {
-            displayMode: isBlock && !isSingleDollar && !isParenInline,
-            throwOnError: false,
-            strict: false,
-            trust: false,
-            maxExpand: 1000,
-          });
-          return (
-            <span
-              key={`math-${index}`}
-              className={`katex-rendered inline-block ${isBlock && !isSingleDollar && !isParenInline ? 'my-2 block text-center' : 'mx-0.5 align-middle'}`}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          );
-        } catch {
-          // If katex fails completely, render clean formula
-          return (
-            <span key={`err-${index}`} className="font-mono text-slate-700 mx-0.5 text-xs bg-slate-100 px-1 rounded">
-              {formula}
-            </span>
-          );
-        }
+    const out: React.ReactNode[] = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+    RICH_RE.lastIndex = 0;
+    let i = 0;
+    while ((m = RICH_RE.exec(content))) {
+      if (m.index > last) out.push(...renderMath(content.slice(last, m.index), block, `m${i}`));
+      const token = m[0];
+      const img = token.match(IMAGE_RE);
+      const graph = token.match(GRAPH_RE);
+      const ggb = token.match(GEOGEBRA_RE);
+      const src = img ? (img[2].startsWith('img:') ? images?.[img[2].slice(4)] : img[2]) : undefined;
+      if (img && !src) {
+        out.push(<span key={`img${i}`} className="text-[11px] italic text-slate-400">[{img[1] || 'hình'} – không tìm thấy dữ liệu ảnh]</span>);
+      } else if (img && src) {
+        out.push(
+          <span key={`img${i}`} className="block my-2">
+            <img src={src} alt={img[1] || 'Hình minh họa'} loading="lazy" referrerPolicy="no-referrer" className="max-w-full h-auto rounded border border-slate-200 bg-white" />
+            {img[1] && !/^hình\s*\d*$/i.test(img[1]) && <span className="block text-[11px] text-slate-500 italic mt-0.5">{img[1]}</span>}
+          </span>,
+        );
+      } else if (graph) {
+        out.push(<MathGraph key={`g${i}`} spec={graph[1]} />);
+      } else if (ggb) {
+        out.push(<GeoGebraViewer key={`ggb${i}`} url={ggb[1]} />);
       }
-
-      // Plain text block
-      return (
-        <span key={`text-${index}`} className="whitespace-pre-wrap">
-          {part}
-        </span>
-      );
-    });
-  }, [content, block]);
+      last = m.index + token.length;
+      i++;
+    }
+    if (last < content.length) out.push(...renderMath(content.slice(last), block, `m${i}`));
+    return out;
+  }, [content, block, images]);
 
   const Tag = as;
   return <Tag className={`math-content leading-relaxed ${className}`}>{renderedElements}</Tag>;

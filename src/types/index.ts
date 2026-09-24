@@ -341,6 +341,8 @@ export interface LessonPlan {
   sourceFileName?: string;
   /** Liên kết tới tệp gốc (Google Drive, OneDrive...) */
   sourceFileUrl?: string;
+  /** Ảnh nhúng trong giáo án: mã → data URL (nội dung dùng ![chú thích](img:mã)) */
+  images?: Record<string, string>;
 }
 
 export interface MeetingTask {
