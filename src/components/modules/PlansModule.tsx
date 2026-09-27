@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp, planSnapshot } from '../../context/AppContext';
 import { VersionDiffModal } from '../common/VersionDiffModal';
 import { PlanEditorModal } from './PlanEditorModal';
+import { TeacherPlansPanel } from './TeacherPlansPanel';
 import { useConfirm } from '../common/ConfirmDialog';
 import { todayISO } from '../../utils/ids';
 import { DepartmentPlan, TeacherPlan, PlanDistributionItem } from '../../types';
@@ -48,6 +49,8 @@ export const PlansModule: React.FC = () => {
   const isLeader = permissions.isLeader;
   const canApprove = permissions.canApproveDeptPlan;
 
+  const [activeView, setActiveView] = useState<'department' | 'teacher'>('department');
+  const [showGradePicker, setShowGradePicker] = useState(false);
   const [selectedGrade, setSelectedGrade] = useState<10 | 11 | 12>(12);
   const [editor, setEditor] = useState<{ plan: DepartmentPlan; isNew: boolean } | null>(null);
 
@@ -76,15 +79,15 @@ export const PlansModule: React.FC = () => {
   const isPastYearPlan = !!currentPlan && currentPlan.academicYear !== config.academicYear;
   const canEditPlan = isLeader && !!currentPlan && (currentPlan.status === 'draft' || currentPlan.status === 'returned');
 
-  const openNewPlan = () => {
+  const openNewPlan = (grade: 10 | 11 | 12 = selectedGrade) => {
     const now = new Date().toISOString();
     setEditor({
       isNew: true,
       plan: {
-        id: `dplan-${config.academicYear.replace(/[^0-9]/g, '')}-${selectedGrade}`,
-        grade: selectedGrade,
+        id: `dplan-${config.academicYear.replace(/[^0-9]/g, '')}-${grade}`,
+        grade,
         academicYear: config.academicYear,
-        title: `Kế hoạch dạy học môn Toán Khối ${selectedGrade} – Năm học ${config.academicYear}`,
+        title: `Kế hoạch dạy học môn Toán Khối ${grade} – Năm học ${config.academicYear}`,
         status: 'draft',
         version: 1,
         generalSituation: '',
@@ -173,6 +176,30 @@ export const PlansModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Chọn loại kế hoạch: Phụ lục I (tổ) hoặc Phụ lục III (cá nhân) */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit print:hidden" role="tablist">
+        {([
+          ['department', 'Kế hoạch của tổ (Phụ lục I)'],
+          ['teacher', 'Kế hoạch cá nhân (Phụ lục III)'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={activeView === id}
+            onClick={() => setActiveView(id)}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              activeView === id ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeView === 'teacher' && <TeacherPlansPanel />}
+
+      {activeView === 'department' && (
+      <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
@@ -192,13 +219,13 @@ export const PlansModule: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {isLeader && !currentPlan && (
+          {isLeader && (
             <button
-              onClick={openNewPlan}
+              onClick={() => setShowGradePicker(true)}
               className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Tạo kế hoạch Khối {selectedGrade}</span>
+              <span>Thêm kế hoạch tổ chuyên môn</span>
             </button>
           )}
           {canEditPlan && (
@@ -781,6 +808,51 @@ export const PlansModule: React.FC = () => {
           current={planSnapshot(currentPlan)}
           onClose={() => setShowDiffModal(false)}
         />
+      )}
+
+      </div>
+      )}
+
+      {/* Hộp chọn khối khi thêm kế hoạch tổ */}
+      {showGradePicker && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-3 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900">Thêm kế hoạch dạy học của tổ</h3>
+              <button onClick={() => setShowGradePicker(false)} className="text-slate-400 hover:text-slate-600" aria-label="Đóng">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-slate-600">
+              Mỗi khối có một kế hoạch dạy học cho năm học {config.academicYear}. Chọn khối cần lập:
+            </p>
+            <div className="space-y-2">
+              {([10, 11, 12] as const).map(g => {
+                const existing = departmentPlans.find(p => p.grade === g && p.academicYear === config.academicYear);
+                return (
+                  <button
+                    key={g}
+                    disabled={!!existing}
+                    onClick={() => {
+                      setSelectedGrade(g);
+                      setShowGradePicker(false);
+                      openNewPlan(g);
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-lg border flex items-center justify-between disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed border-slate-300 hover:bg-blue-50 hover:border-blue-300"
+                  >
+                    <span className="font-semibold">Toán Khối {g}</span>
+                    <span className="text-[11px]">
+                      {existing ? 'Đã có kế hoạch' : 'Chưa có — bấm để lập'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+              Khối đã có kế hoạch thì chọn khối đó ở thanh "Khối lớp" rồi bấm <strong>Chỉnh sửa</strong>. Muốn làm lại từ đầu thì xóa kế hoạch cũ trước (chỉ xóa được khi chưa duyệt).
+            </p>
+          </div>
+        </div>
       )}
 
       {editor && (
