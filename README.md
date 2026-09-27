@@ -1,4 +1,4 @@
-# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT (phiên bản 2.4)
+# Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT
 
 Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.
 Ứng dụng dùng React + Vite, dữ liệu lưu trên Firebase (Firestore), đăng nhập bằng Google, Trợ lý AI dùng Gemini.
@@ -216,6 +216,49 @@ firebase deploy --only firestore:rules
 - Chủ sở hữu phần mềm (tài khoản tạo tổ) luôn được nhận là **Quản trị viên**, kể cả khi hồ sơ gắn email của mình đang ghi vai trò "Giáo viên".
 - Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
 - Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
+
+### Bản 2.7 – Siết phân quyền theo chủ sở hữu, dọn phần đã chuyển ra ngoài
+
+**Bảo mật (firestore.rules – phải `firebase deploy --only firestore:rules` mới có hiệu lực):**
+- `teacherPlans`: trước đây *bất kỳ thành viên nào* cũng ghi đè được kế hoạch cá nhân của đồng nghiệp.
+  Nay chỉ chính chủ sửa được, và giáo viên không tự chuyển kế hoạch của mình sang trạng thái "đã duyệt".
+- `observations`: người dự viết phiếu; người được dự chỉ thêm được `teacherFeedback`, không sửa
+  được nhận xét đồng nghiệp đã ghi về tiết dạy của mình.
+- `skknTopics`, `trainings`: chỉ người đứng tên sửa bản của mình (tổ trưởng sửa mọi bản).
+- `specialTopics`, `documents`: như trên, bản ghi cũ chưa có trường chủ sở hữu vẫn sửa được để không kẹt dữ liệu.
+- `departmentPlans`: giáo viên cập nhật tiến độ dạy nhưng không được thêm/bớt dòng phân phối chương trình
+  của kế hoạch đã duyệt (số dòng phải giữ nguyên).
+- Bỏ quy tắc của `questions`, `examBlueprints`, `exams`, `examResults` — các collection này không còn được dùng.
+- Còn tồn: `initiatives` chưa khóa được theo chủ sở hữu vì kiểu `InitiativeRecord` mới chỉ có `teacherName`
+  (chuỗi tên), chưa có mã người đăng. Cần thêm `authorId` rồi siết như các collection khác.
+
+**Riêng tư:**
+- Dữ liệu mẫu không còn chứa địa chỉ Gmail của người thật (đổi sang tên miền `example.com`).
+- Đăng xuất / xóa khóa AI nay xóa cả `gemini_model` (trước đây bỏ sót, máy dùng chung còn lưu lựa chọn mô hình).
+
+**Liên kết ngoài:**
+- `examAndQuestionBankUrl` trước đây được khai báo trong kiểu dữ liệu và dữ liệu mẫu nhưng **không hiển thị ở đâu cả**.
+  Nay thanh bên có nhóm "Liên kết ngoài" gồm ngân hàng câu hỏi/đề kiểm tra và kho tài liệu Drive;
+  địa chỉ đặt trong Cài đặt → Thông tin chung, chỉ nhận `https://`, để trống thì mục hiện mờ.
+
+**Phân công:**
+- `saveAssignment` nay có ghi nhật ký (các thao tác khác đã có, riêng phân công bị sót).
+- Cảnh báo mới khi **một lớp có từ hai giáo viên trở lên cùng dạy một môn** — khác với cảnh báo trùng dòng
+  của cùng một giáo viên. Phần mềm chỉ cảnh báo, không tự xóa, vì có thể là dạy ghép hoặc chia nhóm.
+
+**Dọn mã:**
+- Xóa `ExamCreatorModule.tsx` và `AnalyticsModule.tsx` (894 dòng, không được `App.tsx` gọi từ bản 2.6).
+- Bỏ tab "Cấu trúc đề mẫu" trong Cài đặt, hai dòng về đề kiểm tra trong bảng phân quyền,
+  loại tài liệu "Đề kiểm tra", và các số liệu câu hỏi/đề/điểm trong Báo cáo (các collection này
+  không còn nơi nhập nên báo cáo luôn in ra câu "chưa có dữ liệu").
+- Nhãn "Mô phỏng vai trò" trong Cài đặt nói rõ chỉ dùng ở chế độ dữ liệu mẫu.
+
+**Chưa làm trong bản này:**
+- Chưa có đường dẫn riêng cho từng phân hệ (nhấn F5 vẫn giữ đúng phân hệ nhờ `localStorage`,
+  nhưng chưa gửi được liên kết trực tiếp tới một giáo án hay kế hoạch cụ thể).
+- Hình trong giáo án vẫn lưu base64 trong Firestore thay vì Firebase Storage.
+- `sample-data.ts` vẫn nằm trong gói chính (~217 kB gzip) dù chỉ dùng cho chế độ dữ liệu mẫu.
+
 
 ## 5. Cấu trúc thư mục chính
 

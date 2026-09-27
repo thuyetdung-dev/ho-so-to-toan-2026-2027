@@ -53,6 +53,25 @@ service cloud.firestore {
     function canContribute() {
       return isMember() && !isPrincipal();
     }
+    // Mã hồ sơ thành viên của chính mình (ghi trong chỉ mục /accessIndex)
+    function myMemberId() {
+      return hasIndex() ? get(indexPath()).data.get('memberId', '') : '';
+    }
+    // Hồ sơ này có phải của mình không? Một người có thể có nhiều hồ sơ cùng email
+    // (hồ sơ tạo từ Excel rồi mới gắn email), nên đối chiếu cả mã lẫn email trên hồ sơ.
+    function ownsMember(memberId) {
+      return memberId is string && memberId != '' && memberId.matches('^[a-zA-Z0-9_@.+\\-]+$')
+        && (
+          memberId == myMemberId()
+          || (exists(/databases/$(database)/documents/members/$(memberId))
+              && get(/databases/$(database)/documents/members/$(memberId)).data.get('email', '').lower() == myEmail())
+        );
+    }
+    // Bản ghi của mình, hoặc bản ghi cũ chưa có trường chủ sở hữu (dữ liệu trước bản 2.7)
+    function ownsOrUnowned(field) {
+      return !(field in resource.data) || resource.data[field] == null || resource.data[field] == ''
+        || ownsMember(resource.data[field]);
+    }
     // Ai được gán vai trò nào: admin ← chỉ Quản trị; head ← Tổ trưởng/Quản trị; còn lại ← Tổ trưởng/Tổ phó
     function canAssignRole(role) {
       return role == 'admin' ? isAdmin() : (role == 'head' ? isAdminOrHead() : isLeader());
@@ -150,9 +169,13 @@ service cloud.firestore {
     match /departmentPlans/{id} {
       allow read: if isMember();
       allow create, delete: if isLeader();
-      // Tổ trưởng soạn/trình; BGH phê duyệt; giáo viên cập nhật tiến độ dạy
+      // Tổ trưởng soạn/trình; BGH phê duyệt; giáo viên chỉ cập nhật tiến độ dạy.
+      // Giáo viên không được thêm/bớt dòng phân phối chương trình đã duyệt — số dòng phải giữ nguyên.
+      // (Khóa từng trường trong mỗi dòng cần tách tiến độ ra một collection riêng; xem README mục 6.)
       allow update: if isLeader() || isPrincipal()
-        || (canContribute() && changedOnly(['distribution', 'updatedAt']));
+        || (canContribute() && changedOnly(['distribution', 'updatedAt'])
+            && request.resource.data.distribution is list
+            && request.resource.data.distribution.size() == resource.data.distribution.size());
     }
     match /reportSnapshots/{id} {
       allow read: if isMember();
@@ -162,9 +185,17 @@ service cloud.firestore {
     }
 
     // ---------- Hồ sơ chuyên môn (mọi thành viên đóng góp) ----------
+    // Kế hoạch giáo dục cá nhân: chỉ chính chủ soạn, và không tự duyệt kế hoạch của mình
     match /teacherPlans/{id} {
       allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
+      allow create: if validId(id) && (isLeader()
+        || (canContribute() && ownsMember(request.resource.data.teacherId)
+            && request.resource.data.status in ['draft', 'submitted']));
+      allow update: if isLeader()
+        || (canContribute() && ownsMember(resource.data.teacherId)
+            && request.resource.data.teacherId == resource.data.teacherId
+            && (request.resource.data.status in ['draft', 'submitted']
+                || request.resource.data.status == resource.data.status));
       allow delete: if isLeader();
     }
     match /lessonPlans/{id} {
@@ -237,54 +268,46 @@ service cloud.firestore {
       allow read: if isMember();
       allow write: if canContribute();
     }
+    // Phiếu dự giờ: người dự viết phiếu; người được dự chỉ thêm phản hồi của mình,
+    // không sửa được nhận xét mà đồng nghiệp đã ghi về tiết dạy của mình.
     match /observations/{id} {
       allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
+      allow create: if validId(id) && canContribute()
+        && (isLeader() || ownsMember(request.resource.data.observerId));
+      allow update: if isLeader()
+        || (canContribute() && ownsMember(resource.data.observerId)
+            && request.resource.data.observerId == resource.data.observerId)
+        || (canContribute() && ownsMember(resource.data.teacherId)
+            && changedOnly(['teacherFeedback', 'status', 'updatedAt']));
       allow delete: if isLeader();
     }
-    match /questions/{id} {
-      allow read: if isMember();
-      // Giáo viên thêm/sửa câu hỏi ở trạng thái "chờ duyệt"; chỉ tổ trưởng/tổ phó duyệt
-      allow create, update: if validId(id) && (isLeader() || (canContribute() && request.resource.data.status == 'pending'));
-      allow delete: if isLeader();
-    }
-    match /examBlueprints/{id} {
-      allow read: if isMember();
-      allow write: if canContribute();
-    }
-    match /exams/{id} {
-      // Đề chưa công bố: chỉ tác giả, tổ trưởng/tổ phó, BGH được xem
-      allow read: if isMember() && (
-        resource.data.isPublished == true ||
-        resource.data.authorUid == request.auth.uid ||
-        isLeader() || isPrincipal()
-      );
-      allow create: if canContribute() && validId(id) && request.resource.data.authorUid == request.auth.uid;
-      // Tác giả sửa đề của mình nhưng không tự công bố
-      allow update: if isLeader() || (canContribute() && resource.data.authorUid == request.auth.uid
-        && request.resource.data.isPublished == resource.data.isPublished);
-      allow delete: if isLeader() || (canContribute() && resource.data.authorUid == request.auth.uid);
-    }
-    match /examResults/{id} {
-      allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
-      allow delete: if isLeader();
-    }
+    // Ngân hàng câu hỏi, đề kiểm tra và kết quả kiểm tra đã chuyển sang công cụ ngoài
+    // (xem mục "Liên kết ngoài" trong Cài đặt). Các collection questions, examBlueprints,
+    // exams, examResults không còn được ứng dụng dùng nên rơi vào quy tắc từ chối mặc định.
+
+    // Chuyên đề, sáng kiến, bồi dưỡng, tài liệu: người đăng sửa bản của mình; tổ trưởng sửa mọi bản.
     match /specialTopics/{id} {
       allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
+      allow create: if canContribute() && validId(id);
+      allow update: if isLeader() || (canContribute() && ownsOrUnowned('authorId'));
       allow delete: if isLeader();
     }
     match /skknTopics/{id} {
       allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
+      allow create: if canContribute() && validId(id)
+        && (isLeader() || ownsMember(request.resource.data.authorId));
+      allow update: if isLeader() || (canContribute() && ownsMember(resource.data.authorId));
       allow delete: if isLeader();
     }
     match /trainings/{id} {
       allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
+      allow create: if canContribute() && validId(id)
+        && (isLeader() || ownsMember(request.resource.data.teacherId));
+      allow update: if isLeader() || (canContribute() && ownsMember(resource.data.teacherId));
       allow delete: if isLeader();
     }
+    // LƯU Ý: InitiativeRecord hiện chỉ có teacherName (chuỗi tên), chưa có mã người đăng,
+    // nên chưa khóa được theo chủ sở hữu. Cần thêm trường authorId vào kiểu dữ liệu rồi siết như trên.
     match /initiatives/{id} {
       allow read: if isMember();
       allow create, update: if canContribute() && validId(id);
@@ -292,7 +315,8 @@ service cloud.firestore {
     }
     match /documents/{id} {
       allow read: if isMember();
-      allow create, update: if canContribute() && validId(id);
+      allow create: if canContribute() && validId(id);
+      allow update: if isLeader() || (canContribute() && ownsOrUnowned('uploaderId'));
       allow delete: if isLeader();
     }
 

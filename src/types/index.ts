@@ -150,7 +150,9 @@ export interface ExamResultRecord {
 
 export type ScoreRecord = ExamResultRecord;
 
-export type DocumentCategory = 'van_ban' | 'mau_bieu' | 'bai_giang' | 'de_kiem_tra' | 'hoc_lieu' | 'khac';
+// Ghi chú: loại 'de_kiem_tra' đã bỏ khi chuyển việc ra đề sang công cụ ngoài.
+// Tài liệu cũ mang loại đó vẫn đọc được và hiển thị là "Khác".
+export type DocumentCategory = 'van_ban' | 'mau_bieu' | 'bai_giang' | 'hoc_lieu' | 'khac';
 
 export interface SharedDocument {
   id: string;

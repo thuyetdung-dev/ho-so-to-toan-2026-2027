@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as XLSX from '@e965/xlsx';
-import { subjectKey, findDuplicateAssignments, sortAssignments, groupByTeacher, isDutyRow, summaryRows, dutyName, exportOrder } from '../src/utils/assignments.ts';
+import { subjectKey, findClassSubjectConflicts, findDuplicateAssignments, sortAssignments, groupByTeacher, isDutyRow, summaryRows, dutyName, exportOrder } from '../src/utils/assignments.ts';
 import { pickAssignmentSheet } from '../src/utils/excel.ts';
 import type { Assignment, Member } from '../src/types/index.ts';
 
@@ -99,4 +99,39 @@ test('phân công: file của tổ (bản sửa) – chọn đúng sheet PhanCon
   // Xuất Excel: đúng thứ tự từng dòng như file gốc
   const shuffled = [...list].sort(() => Math.random() - 0.5);
   assert.deepEqual(exportOrder(shuffled, members).map(a => a.id), list.map(a => a.id));
+});
+
+test('phân công: cảnh báo khi một lớp có hai giáo viên cùng dạy một môn', () => {
+  const base = { grade: 12 as const, periodsPerWeek: 4, term: 'HK1' as const, academicYear: '2026-2027', classId: 'c1' };
+  const list: Assignment[] = [
+    { ...base, id: 'a1', teacherId: 'gv-01', teacherName: 'Thầy A', className: '10A1', subject: 'Toán' },
+    { ...base, id: 'a2', teacherId: 'gv-02', teacherName: 'Cô B', className: '10A1', subject: 'Toán' },
+    // Cùng lớp nhưng khác môn → không phải xung đột
+    { ...base, id: 'a3', teacherId: 'gv-03', teacherName: 'Thầy C', className: '10A1', subject: 'Chuyên đề học tập Toán' },
+    // Cùng giáo viên ghi trùng dòng → việc của findDuplicateAssignments, không tính ở đây
+    { ...base, id: 'a4', teacherId: 'gv-04', teacherName: 'Cô D', className: '11A1', subject: 'Toán' },
+    { ...base, id: 'a5', teacherId: 'gv-04', teacherName: 'Cô D', className: '11A1', subject: 'Toán (T1)' },
+    // Dòng tiết quy đổi không gắn lớp → bỏ qua
+    { ...base, id: 'a6', teacherId: 'gv-01', teacherName: 'Thầy A', className: '', subject: 'Quy đổi nhiệm vụ', duties: 'TTCM' },
+    { ...base, id: 'a7', teacherId: 'gv-02', teacherName: 'Cô B', className: '', subject: 'Quy đổi nhiệm vụ', duties: 'TPCM' },
+  ];
+
+  const conflicts = findClassSubjectConflicts(list);
+  assert.equal(conflicts.length, 1, 'chỉ 10A1 môn Toán là chồng chéo');
+  assert.equal(conflicts[0].className, '10A1');
+  assert.deepEqual(conflicts[0].teachers.map(t => t.name).sort(), ['Cô B', 'Thầy A']);
+
+  // Tên môn viết khác nhau của cùng một môn vẫn bị bắt
+  const aliased: Assignment[] = [
+    { ...base, id: 'b1', teacherId: 'gv-01', teacherName: 'Thầy A', className: '12A1', subject: 'Toán buổi 2' },
+    { ...base, id: 'b2', teacherId: 'gv-02', teacherName: 'Cô B', className: '12A1', subject: 'Toán (T2)' },
+  ];
+  assert.equal(findClassSubjectConflicts(aliased).length, 1);
+
+  // Khác học kỳ thì không tính là chồng chéo
+  const twoTerms: Assignment[] = [
+    { ...base, id: 'c1', teacherId: 'gv-01', teacherName: 'Thầy A', className: '12A2', subject: 'Toán' },
+    { ...base, id: 'c2', teacherId: 'gv-02', teacherName: 'Cô B', className: '12A2', subject: 'Toán', term: 'HK2' as const },
+  ];
+  assert.equal(findClassSubjectConflicts(twoTerms).length, 0);
 });

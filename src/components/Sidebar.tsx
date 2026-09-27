@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
+import { safeUrl } from '../utils/ids';
 import {
   LayoutDashboard,
   Users,
@@ -12,6 +13,9 @@ import {
   Printer,
   Bot,
   Settings,
+  ExternalLink,
+  Library,
+  HardDrive,
 } from 'lucide-react';
 
 export const MODULE_IDS = [
@@ -56,6 +60,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pendingLessonPlans = permissions.isLeader ? lessonPlans.filter(p => p.status === 'submitted').length : 0;
   const pendingDeptPlans = permissions.canApproveDeptPlan ? departmentPlans.filter(p => p.status === 'submitted').length : 0;
   const pendingRequests = permissions.isLeader ? accessRequests.filter(r => r.status === 'pending').length : 0;
+
+  // Công việc tổ đã chuyển sang công cụ ngoài. Địa chỉ do Tổ trưởng đặt trong Cài đặt → Liên kết ngoài.
+  const externalItems = [
+    {
+      key: 'exams',
+      label: 'Ngân hàng câu hỏi & Đề kiểm tra',
+      desc: 'Thực hiện trên trang chuyên dụng',
+      icon: Library,
+      url: safeUrl(config.externalLinks?.examAndQuestionBankUrl),
+    },
+    {
+      key: 'drive',
+      label: 'Kho tài liệu của tổ',
+      desc: 'Thư mục Google Drive',
+      icon: HardDrive,
+      url: safeUrl(config.externalLinks?.sharedDocumentsDriveUrl),
+    },
+  ];
 
   const navItems = [
     {
@@ -224,6 +246,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
+
+          {/* Liên kết ngoài: mở trang khác ở tab mới, không đồng bộ dữ liệu */}
+          <div className="pt-3 mt-2 border-t border-slate-200">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3 py-1">
+              Liên kết ngoài
+            </div>
+            <div className="space-y-1 mt-1">
+              {externalItems.map(item => {
+                const Icon = item.icon;
+                const common = 'w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-xs font-medium transition-all group';
+
+                if (!item.url) {
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => {
+                        onSelectModule('settings');
+                        onCloseMobile();
+                      }}
+                      title="Chưa cấu hình địa chỉ. Bấm để mở Cài đặt → Liên kết ngoài."
+                      className={`${common} text-slate-400 hover:bg-slate-200/70`}
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <div className="truncate">
+                          <div className="leading-snug truncate">{item.label}</div>
+                          <div className="text-[10px] leading-tight truncate italic">Chưa cấu hình địa chỉ</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                }
+
+                return (
+                  <a
+                    key={item.key}
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={onCloseMobile}
+                    className={`${common} text-slate-700 hover:bg-slate-200/70 hover:text-slate-900`}
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Icon className="w-4 h-4 shrink-0 text-slate-500 group-hover:text-blue-600" />
+                      <div className="truncate">
+                        <div className="leading-snug truncate">{item.label}</div>
+                        <div className="text-[10px] leading-tight truncate text-slate-400">{item.desc}</div>
+                      </div>
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-slate-400 ml-2" />
+                  </a>
+                );
+              })}
+            </div>
+          </div>
         </nav>
 
         {/* Footer info in sidebar */}

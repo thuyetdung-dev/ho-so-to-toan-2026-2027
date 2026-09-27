@@ -29,11 +29,8 @@ export const ReportsModule: React.FC = () => {
     allMembers,
     assignments,
     observations,
-    questions,
     meetings,
-    scoreRecords,
     specialTopics,
-    exams,
     config,
     reportSnapshots,
     saveReportSnapshot,
@@ -62,11 +59,7 @@ export const ReportsModule: React.FC = () => {
   const [finalizedBy, setFinalizedBy] = useState('');
 
   // Live aggregated metrics
-  const approvedQuestionsCount = questions.filter(q => q.status === 'approved').length;
   const lessonStudyMeetingsCount = meetings.filter(m => m.type === 'lesson_study').length;
-  // Bản cũ gán cứng điểm trung bình 7.42 và lấy max(số buổi NCBH, số chuyên đề) → số liệu báo cáo sai.
-  const allScores = scoreRecords.flatMap(r => (Array.isArray(r.scores) ? r.scores.filter(x => typeof x === 'number' && !Number.isNaN(x)) : []));
-  const avgScore = allScores.length ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 100) / 100 : 0;
   const activeTeachers = allMembers.filter(m => m.status === 'active' && m.role !== 'principal');
   const assignedTeacherIds = new Set(assignments.map(a => a.teacherId));
   const assignedPct = activeTeachers.length ? Math.round((activeTeachers.filter(m => assignedTeacherIds.has(m.id)).length / activeTeachers.length) * 100) : 0;
@@ -76,9 +69,6 @@ export const ReportsModule: React.FC = () => {
     meetingsCount: meetings.length,
     lessonStudyCount: lessonStudyMeetingsCount,
     observationsCount: observations.length,
-    questionsCount: questions.length,
-    examsCount: exams.length,
-    avgScore,
     plansCount: lessonPlans.length,
     specialTopicsCount: specialTopics.length,
   });
@@ -94,22 +84,10 @@ export const ReportsModule: React.FC = () => {
       ? `thực hiện ${live.observationsCount} lượt dự giờ trao đổi chuyên môn`
       : 'chưa có dữ liệu dự giờ';
 
-    const questionsText = live.questionsCount > 0
-      ? `đóng góp ${live.questionsCount} câu hỏi vào ngân hàng (${approvedQuestionsCount} câu đã duyệt)`
-      : 'chưa có dữ liệu câu hỏi đóng góp vào ngân hàng';
-
-    const examsText = live.examsCount > 0
-      ? `xây dựng ${live.examsCount} đề kiểm tra theo định dạng mới 2025`
-      : 'chưa có dữ liệu đề kiểm tra chính thức';
-
-    const testingText = allScores.length > 0
-      ? `Đã nhập ${scoreRecords.length} bảng điểm (${allScores.length} lượt học sinh), điểm trung bình ${avgScore.toFixed(2)}.`
-      : 'Chưa có dữ liệu kết quả kiểm tra được nhập trong kỳ này.';
-
     return {
       title: `Báo cáo sơ kết hoạt động chuyên môn ${term} – Năm học ${config.academicYear}`,
-      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${config.academicYear}: ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${lessonPlans.length} kế hoạch bài dạy được lưu (${lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${specialTopics.length} chuyên đề bồi dưỡng, ${skknTopics.length} đề tài SKKN. ${testingText}`,
-      adv: `1. (Tổ trưởng điền) Việc chấp hành quy chế chuyên môn, thực hiện chương trình GDPT 2018.\n2. (Tổ trưởng điền) Ứng dụng CNTT, đổi mới phương pháp dạy học.\n3. ${allScores.length > 0 ? `Đã tổng hợp kết quả kiểm tra: điểm trung bình ${avgScore.toFixed(2)}.` : '(Tổ trưởng điền) Kết quả kiểm tra, đánh giá.'}`,
+      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${config.academicYear}: ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${lessonPlans.length} kế hoạch bài dạy được lưu (${lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${specialTopics.length} chuyên đề bồi dưỡng, ${skknTopics.length} đề tài SKKN.`,
+      adv: `1. (Tổ trưởng điền) Việc chấp hành quy chế chuyên môn, thực hiện chương trình GDPT 2018.\n2. (Tổ trưởng điền) Ứng dụng CNTT, đổi mới phương pháp dạy học.\n3. (Tổ trưởng điền) Kết quả kiểm tra, đánh giá.`,
       lim: `1. (Tổ trưởng điền) Những hạn chế trong thực hiện chương trình, kiểm tra đánh giá.\n2. ${live.observationsCount < 4 ? 'Hoạt động dự giờ chéo giữa các đồng nghiệp trong tổ cần được đẩy mạnh theo đúng kế hoạch.' : 'Hoạt động viết sáng kiến kinh nghiệm cấp cơ sở cần đẩy nhanh tiến độ thử nghiệm thực tiễn.'}`,
       dir: `1. Tiếp tục đổi mới kiểm tra, đánh giá theo định hướng phát triển năng lực, bám sát định dạng đề thi tốt nghiệp THPT.\n2. Tổ chức chuyên đề sinh hoạt chuyên môn theo hướng nghiên cứu bài học tập trung vào các dạng bài toán ứng dụng thực tế.\n3. Duy trì kế hoạch phụ đạo học sinh có kết quả kiểm tra dưới trung bình và bồi dưỡng học sinh khá giỏi.`,
     };
@@ -199,7 +177,6 @@ export const ReportsModule: React.FC = () => {
     const periods = summarizeTeacher(asgs).total; // tiết theo TKB + tiết quy đổi nhiệm vụ, chủ nhiệm
     const obsDone = observations.filter(o => o.observerId === member.id).length;
     const obsReceived = observations.filter(o => o.teacherId === member.id).length;
-    const questionsContributed = questions.filter(q => q.authorId === member.id).length;
 
     return {
       id: member.id,
@@ -209,7 +186,6 @@ export const ReportsModule: React.FC = () => {
       classes: summarizeTeacher(asgs).classes.join(', ') || 'Chưa phân công',
       obsDone,
       obsReceived,
-      questionsContributed,
     };
   });
 
@@ -230,7 +206,6 @@ export const ReportsModule: React.FC = () => {
       { 'Mục': 'Số buổi SHCM theo NCBH', 'Nội dung': live.lessonStudyCount },
       { 'Mục': 'Số tiết dự giờ', 'Nội dung': live.observationsCount },
       { 'Mục': 'Số kế hoạch bài dạy', 'Nội dung': live.plansCount },
-      { 'Mục': 'Điểm trung bình các bảng điểm', 'Nội dung': live.avgScore || 'Chưa có dữ liệu' },
       { 'Mục': 'Báo cáo tổng quan', 'Nội dung': executiveSummary },
       { 'Mục': 'Ưu điểm & Kết quả đạt được', 'Nội dung': advantages },
       { 'Mục': 'Tồn tại & Hạn chế', 'Nội dung': limitations },

@@ -68,6 +68,42 @@ export function findDuplicateAssignments(list: Assignment[]): { keep: Assignment
   return { keep: list.filter(a => !removeIds.has(a.id)), remove: list.filter(a => removeIds.has(a.id)) };
 }
 
+export interface ClassSubjectConflict {
+  className: string;
+  subject: string;
+  term: string;
+  teachers: { id: string; name: string }[];
+}
+
+/**
+ * Tìm trường hợp MỘT LỚP có HAI GIÁO VIÊN TRỞ LÊN cùng dạy một môn trong cùng học kỳ.
+ * Khác với findDuplicateAssignments (cùng một giáo viên bị ghi trùng dòng): đây là xung đột
+ * phân công thật sự, cần tổ trưởng xem lại chứ phần mềm không tự gộp.
+ * Bỏ qua các dòng tiết quy đổi vì chúng không gắn với lớp cụ thể.
+ */
+export function findClassSubjectConflicts(list: Assignment[]): ClassSubjectConflict[] {
+  const groups = new Map<string, { className: string; subject: string; term: string; teachers: Map<string, string> }>();
+  list.forEach(a => {
+    if (isDuty(a) || !String(a.className || '').trim()) return;
+    const key = `${(a.className || '').toUpperCase()}|${a.term}|${a.academicYear || ''}|${subjectKey(a.subject)}`;
+    if (!groups.has(key)) {
+      groups.set(key, { className: a.className, subject: a.subject, term: a.term, teachers: new Map() });
+    }
+    groups.get(key)!.teachers.set(a.teacherId, a.teacherName);
+  });
+  const out: ClassSubjectConflict[] = [];
+  groups.forEach(g => {
+    if (g.teachers.size < 2) return;
+    out.push({
+      className: g.className,
+      subject: g.subject,
+      term: g.term,
+      teachers: [...g.teachers].map(([id, name]) => ({ id, name })),
+    });
+  });
+  return out.sort((a, b) => compareClassName(a.className, b.className));
+}
+
 const ROLE_RANK: Record<string, number> = { head: 0, deputy: 1, admin: 2, teacher: 3, principal: 4 };
 
 /** Tên riêng (chữ cuối) – người Việt sắp theo tên rồi mới đến họ */

@@ -1090,7 +1090,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const saveAssignment = async (asg: Assignment) => {
     const ok = await upsertItem('assignments', asg, setDemoAssignments, setRealAssignments);
-    if (ok) setNotification({ message: `Đã lưu phân công cho ${asg.teacherName}`, type: 'success' });
+    if (!ok) return;
+    setNotification({ message: `Đã lưu phân công cho ${asg.teacherName}`, type: 'success' });
+    // Bản cũ không ghi nhật ký cho thao tác này (các thao tác khác thì có).
+    await logAction(
+      'Lưu phân công giảng dạy',
+      'Assignment',
+      asg.id,
+      `${asg.teacherName} – ${asg.className || 'không gắn lớp'} – ${asg.subject} – ${asg.periodsPerWeek} tiết/tuần (${asg.term})`,
+    );
   };
 
   const setAssignments = async (asgs: Assignment[]) => {

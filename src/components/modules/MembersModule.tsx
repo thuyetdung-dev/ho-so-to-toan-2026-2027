@@ -30,7 +30,7 @@ import {
   exportToExcel,
   parseExcelFile,
 } from '../../utils/excel';
-import { assignmentKey, compareClassName, dutyName, exportOrder, findDuplicateAssignments, groupByTeacher, isDuty, isDutyRow, sortAssignments, summarizeTeacher, summaryRows } from '../../utils/assignments';
+import { assignmentKey, compareClassName, dutyName, exportOrder, findClassSubjectConflicts, findDuplicateAssignments, groupByTeacher, isDuty, isDutyRow, sortAssignments, summarizeTeacher, summaryRows } from '../../utils/assignments';
 
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
 
@@ -159,6 +159,12 @@ export const MembersModule: React.FC = () => {
   // Classes without teacher assignment
   const assignedClassNames = new Set(assignments.filter(a => a.term === termFilter && !isDuty(a)).map(a => a.className));
   const unassignedClasses = classes.filter(c => !assignedClassNames.has(c.name));
+
+  // Xung đột phân công: một lớp có từ hai giáo viên trở lên cùng dạy một môn
+  const classConflicts = useMemo(
+    () => findClassSubjectConflicts(assignments.filter(a => a.term === termFilter)),
+    [assignments, termFilter],
+  );
 
   const pendingInvitations = invitations.filter(i => i.status === 'pending');
   const pendingRequests = accessRequests.filter(r => r.status === 'pending');
@@ -610,6 +616,26 @@ export const MembersModule: React.FC = () => {
           <div className="text-xs text-amber-900">
             <span className="font-bold">Cảnh báo: </span>
             Các lớp chưa có giáo viên dạy môn Toán: {unassignedClasses.map(c => c.name).join(', ')}. Tổ trưởng vui lòng phân công bổ sung.
+          </div>
+        </div>
+      )}
+
+      {/* Cảnh báo: một lớp có nhiều giáo viên cùng dạy một môn */}
+      {classConflicts.length > 0 && activeTab === 'assignments' && (
+        <div className="bg-rose-50 border border-rose-300 rounded-xl p-4 flex items-start gap-3" data-testid="class-conflicts">
+          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-rose-900 space-y-1">
+            <div>
+              <span className="font-bold">Phân công chồng chéo: </span>
+              một lớp đang có nhiều giáo viên cùng dạy một môn. Tổ trưởng kiểm tra lại (phần mềm không tự xóa vì có thể là dạy ghép hoặc chia nhóm).
+            </div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {classConflicts.map(c => (
+                <li key={`${c.className}-${c.subject}`}>
+                  Lớp <strong>{c.className}</strong> – môn {c.subject}: {c.teachers.map(t => t.name).join(' và ')}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}

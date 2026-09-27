@@ -9,7 +9,6 @@ const CATEGORIES: Record<DocumentCategory, { label: string; color: string }> = {
   van_ban: { label: 'Văn bản chỉ đạo', color: 'bg-rose-100 text-rose-800' },
   mau_bieu: { label: 'Mẫu biểu', color: 'bg-amber-100 text-amber-800' },
   bai_giang: { label: 'Bài giảng / Giáo án mẫu', color: 'bg-blue-100 text-blue-800' },
-  de_kiem_tra: { label: 'Đề kiểm tra', color: 'bg-purple-100 text-purple-800' },
   hoc_lieu: { label: 'Học liệu số (GeoGebra...)', color: 'bg-emerald-100 text-emerald-800' },
   khac: { label: 'Khác', color: 'bg-slate-100 text-slate-700' },
 };
@@ -73,7 +72,7 @@ export const DocumentsModule: React.FC = () => {
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <FolderOpen className="w-5 h-5 text-blue-600" /> Tài liệu dùng chung
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">Văn bản chỉ đạo, mẫu biểu, bài giảng, đề kiểm tra và học liệu số của tổ — lưu dưới dạng liên kết (Google Drive, OneDrive, GeoGebra...)</p>
+          <p className="text-xs text-slate-500 mt-0.5">Văn bản chỉ đạo, mẫu biểu, bài giảng và học liệu số của tổ — lưu dưới dạng liên kết (Google Drive, OneDrive, GeoGebra...)</p>
         </div>
         <div className="flex gap-2">
           {driveUrl && (

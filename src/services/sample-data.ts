@@ -224,8 +224,10 @@ export const SAMPLE_INVITATIONS: MemberInvitation[] = [
 export const SAMPLE_ACCESS_REQUESTS: AccessRequest[] = [
   {
     id: 'req-01',
-    email: 'nguyenhuutoan@gmail.com',
-    displayName: 'Nguyễn Hữu Toàn',
+    // Dữ liệu mẫu dùng tên miền example.com để không lộ địa chỉ thư của người thật
+    // trong gói JavaScript công khai.
+    email: 'giaovien.hopdong@example.com',
+    displayName: 'Thầy Nguyễn Văn B',
     reason: 'Tôi là giáo viên Toán hợp đồng mới chuyển về trường, cần truy cập phân phối chương trình và kế hoạch bài dạy.',
     requestedAt: '2026-09-18T14:20:00Z',
     status: 'pending',

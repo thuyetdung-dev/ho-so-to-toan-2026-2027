@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useConfirm } from '../common/ConfirmDialog';
-import { newId } from '../../utils/ids';
+import { newId, safeUrl } from '../../utils/ids';
 import { useApp } from '../../context/AppContext';
 import { StoragePanel } from '../common/StoragePanel';
 import type { SchoolLeader } from "../../types";
@@ -21,7 +21,6 @@ import {
   GraduationCap,
   Award,
   FileCheck2,
-  FileSpreadsheet,
   Plus,
   Edit2,
   ArrowRight,
@@ -38,7 +37,6 @@ import {
   CurriculumTopic,
   MathCompetencyTag,
   ObservationCriterionItem,
-  ExamTemplateStructure,
   AcademicCalendarMilestone,
 } from '../../types';
 
@@ -73,7 +71,7 @@ export const SettingsModule: React.FC = () => {
 
   // Navigation tab in Settings
   const [activeTab, setActiveTab] = useState<
-    'general' | 'classes' | 'calendar' | 'topics' | 'competencies' | 'criteria' | 'exam_structures' | 'roles' | 'data' | 'audit'
+    'general' | 'classes' | 'calendar' | 'topics' | 'competencies' | 'criteria' | 'roles' | 'data' | 'audit'
   >('general');
 
   // General Config State
@@ -138,18 +136,9 @@ export const SettingsModule: React.FC = () => {
   const [newCritName, setNewCritName] = useState('');
   const [newCritMaxScore, setNewCritMaxScore] = useState(2.0);
 
-  // Exam Template Structure State
-  const [examTemplates, setExamTemplates] = useState<ExamTemplateStructure[]>(config.examTemplates || []);
-  const [showAddTemplateModal, setShowAddTemplateModal] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateDuration, setNewTemplateDuration] = useState(90);
-  const [newTemplateMcqCount, setNewTemplateMcqCount] = useState(12);
-  const [newTemplateMcqPoints, setNewTemplateMcqPoints] = useState(3.0);
-  const [newTemplateTfCount, setNewTemplateTfCount] = useState(4);
-  const [newTemplateTfPoints, setNewTemplateTfPoints] = useState(4.0);
-  const [newTemplateShortCount, setNewTemplateShortCount] = useState(6);
-  const [newTemplateShortPoints, setNewTemplateShortPoints] = useState(3.0);
-  const [newTemplateDesc, setNewTemplateDesc] = useState('');
+  // Liên kết ngoài (ngân hàng câu hỏi/đề kiểm tra, kho tài liệu Drive)
+  const [examBankUrl, setExamBankUrl] = useState(config.externalLinks?.examAndQuestionBankUrl || '');
+  const [driveUrl, setDriveUrl] = useState(config.externalLinks?.sharedDocumentsDriveUrl || '');
 
   // Đồng bộ lại biểu mẫu khi cấu hình thay đổi (dữ liệu thật tải về sau, đổi chế độ demo/thật...).
   // Bản cũ chỉ đọc cấu hình lúc mở trang → khi lưu có thể ghi đè cấu hình thật bằng giá trị mặc định.
@@ -165,7 +154,8 @@ export const SettingsModule: React.FC = () => {
     setTopics(config.curriculumTopics || []);
     setCompetencies(config.competencyTags || []);
     setCriteria(config.observationCriteria || []);
-    setExamTemplates(config.examTemplates || []);
+    setExamBankUrl(config.externalLinks?.examAndQuestionBankUrl || '');
+    setDriveUrl(config.externalLinks?.sharedDocumentsDriveUrl || '');
     const [y1] = (config.academicYear || '').split('-').map(Number);
     if (y1) setNextYearInput(`${y1 + 1}-${y1 + 2}`);
   }, [config]);
@@ -173,6 +163,21 @@ export const SettingsModule: React.FC = () => {
   // Handlers
   const handleSaveGeneralConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Chỉ nhận địa chỉ http(s); ô để trống nghĩa là chưa cấu hình (mục trong thanh bên sẽ mờ đi).
+    const cleanExamBank = examBankUrl.trim();
+    const cleanDrive = driveUrl.trim();
+    for (const [raw, label] of [
+      [cleanExamBank, 'Ngân hàng câu hỏi & Đề kiểm tra'],
+      [cleanDrive, 'Kho tài liệu của tổ'],
+    ] as const) {
+      if (raw && !safeUrl(raw)) {
+        setNotification({
+          message: `Địa chỉ "${label}" không hợp lệ. Hãy nhập đường dẫn bắt đầu bằng https://`,
+          type: 'error',
+        });
+        return;
+      }
+    }
     await updateConfig({
       schoolName,
       departmentName,
@@ -183,6 +188,10 @@ export const SettingsModule: React.FC = () => {
       schoolLeaders: leaders
         .map(l => ({ ...l, title: l.title.trim(), name: l.name.trim() }))
         .filter(l => l.name || l.title),
+      externalLinks: {
+        examAndQuestionBankUrl: cleanExamBank,
+        sharedDocumentsDriveUrl: cleanDrive,
+      },
     });
   };
 
@@ -348,41 +357,6 @@ export const SettingsModule: React.FC = () => {
     await handleSaveCriteria(updated);
   };
 
-  const handleSaveTemplates = async (newList: ExamTemplateStructure[]) => {
-    setExamTemplates(newList);
-    await updateConfig({ examTemplates: newList });
-  };
-
-  const handleAddTemplate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTemplateName.trim()) return;
-    const totalScore = Number(newTemplateMcqPoints) + Number(newTemplateTfPoints) + Number(newTemplateShortPoints);
-    const tmpl: ExamTemplateStructure = {
-      id: newId('tmpl'),
-      name: newTemplateName.trim(),
-      durationMinutes: Number(newTemplateDuration),
-      totalQuestions: Number(newTemplateMcqCount) + Number(newTemplateTfCount) + Number(newTemplateShortCount),
-      totalScore: Number(totalScore.toFixed(1)),
-      mcqCount: Number(newTemplateMcqCount),
-      mcqPoints: Number(newTemplateMcqPoints),
-      trueFalseCount: Number(newTemplateTfCount),
-      trueFalsePoints: Number(newTemplateTfPoints),
-      shortAnswerCount: Number(newTemplateShortCount),
-      shortAnswerPoints: Number(newTemplateShortPoints),
-      description: newTemplateDesc.trim(),
-    };
-    const updated = [...examTemplates, tmpl];
-    await handleSaveTemplates(updated);
-    setNewTemplateName('');
-    setNewTemplateDesc('');
-    setShowAddTemplateModal(false);
-  };
-
-  const handleDeleteTemplate = async (id: string) => {
-    const updated = examTemplates.filter(t => t.id !== id);
-    await handleSaveTemplates(updated);
-  };
-
   const handleBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -473,7 +447,6 @@ export const SettingsModule: React.FC = () => {
           { id: 'topics', label: `Chủ đề GDPT (${topics.length})`, icon: BookOpen },
           { id: 'competencies', label: `Năng lực Toán (${competencies.length})`, icon: Award },
           { id: 'criteria', label: `Tiêu chí dự giờ (${criteria.length})`, icon: FileCheck2 },
-          { id: 'exam_structures', label: `Cấu trúc đề mẫu (${examTemplates.length})`, icon: FileSpreadsheet },
           { id: 'roles', label: 'Phân quyền RBAC', icon: Shield },
           { id: 'data', label: 'Dữ liệu & Sao lưu', icon: Database },
           { id: 'audit', label: `Nhật ký (${auditLogs.length})`, icon: History },
@@ -649,6 +622,43 @@ export const SettingsModule: React.FC = () => {
                 ))}
               </div>
 
+              <div className="space-y-2 pt-4 border-t border-slate-200" data-testid="external-links-form">
+                <label className="block font-semibold text-slate-700">Liên kết ngoài</label>
+                <p className="text-[11px] text-slate-500">
+                  Hai công việc này tổ thực hiện trên công cụ khác. Địa chỉ điền ở đây sẽ hiện thành mục riêng ở cuối
+                  thanh bên trái và mở ở tab mới. Để trống thì mục vẫn hiện nhưng mờ đi. Phần mềm không đồng bộ dữ liệu
+                  với các trang này.
+                </p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <label className="block text-slate-600">
+                    Ngân hàng câu hỏi &amp; Đề kiểm tra
+                    <input
+                      type="url"
+                      value={examBankUrl}
+                      onChange={e => setExamBankUrl(e.target.value)}
+                      placeholder="https://..."
+                      aria-label="Địa chỉ trang ngân hàng câu hỏi và đề kiểm tra"
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-[11px]"
+                    />
+                  </label>
+                  <label className="block text-slate-600">
+                    Kho tài liệu của tổ (Google Drive)
+                    <input
+                      type="url"
+                      value={driveUrl}
+                      onChange={e => setDriveUrl(e.target.value)}
+                      placeholder="https://drive.google.com/drive/folders/..."
+                      aria-label="Địa chỉ thư mục Google Drive của tổ"
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-[11px]"
+                    />
+                  </label>
+                </div>
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                  Lưu ý: quyền xem thư mục Drive do Google quản lý, không theo phân quyền của phần mềm. Hãy đặt quyền
+                  chia sẻ thư mục cho đúng phạm vi tổ.
+                </p>
+              </div>
+
               <div className="pt-4 border-t border-slate-200 flex justify-end">
                 <button
                   type="submit"
@@ -677,7 +687,7 @@ export const SettingsModule: React.FC = () => {
               </li>
               <li className="flex items-start gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>Giữ nguyên toàn vẹn</strong> Ngân hàng câu hỏi & Cấu trúc đề mẫu.</span>
+                <span><strong>Giữ nguyên toàn vẹn</strong> danh mục chủ đề GDPT, thẻ năng lực Toán và tiêu chí dự giờ.</span>
               </li>
               <li className="flex items-start gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
@@ -1048,77 +1058,6 @@ export const SettingsModule: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 7: Exam Template Structures (Định dạng mới 2025) */}
-      {activeTab === 'exam_structures' && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">Cấu trúc Ma trận Đề thi Mẫu (Định dạng mới 2025)</h2>
-              <p className="text-xs text-slate-500">Cấu trúc chuẩn Bộ GD&ĐT: 12 câu TN nhiều lựa chọn + 4 câu Đúng/Sai + 6 câu Trả lời ngắn</p>
-            </div>
-
-            {isLeader && (
-              <button
-                onClick={() => setShowAddTemplateModal(true)}
-                className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Thêm cấu trúc mẫu</span>
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {examTemplates.map(tmpl => (
-              <div key={tmpl.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4 relative hover:border-blue-300 transition-colors">
-                <div className="flex items-start justify-between pr-6">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">{tmpl.name}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">{tmpl.description || 'Định dạng chuẩn GDPT 2018'}</p>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                    {tmpl.durationMinutes} phút
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-center">
-                  <div>
-                    <span className="block text-[11px] text-slate-500">Phần I (Nhiều LC)</span>
-                    <span className="text-xs font-bold text-slate-900">{tmpl.mcqCount ?? 12} câu</span>
-                    <span className="block text-[10px] text-blue-700 font-semibold">({(tmpl.mcqPoints ?? 3.0).toFixed(1)} đ)</span>
-                  </div>
-                  <div>
-                    <span className="block text-[11px] text-slate-500">Phần II (Đúng/Sai)</span>
-                    <span className="text-xs font-bold text-slate-900">{tmpl.trueFalseCount ?? 4} câu</span>
-                    <span className="block text-[10px] text-blue-700 font-semibold">({(tmpl.trueFalsePoints ?? 4.0).toFixed(1)} đ)</span>
-                  </div>
-                  <div>
-                    <span className="block text-[11px] text-slate-500">Phần III (Ngắn)</span>
-                    <span className="text-xs font-bold text-slate-900">{tmpl.shortAnswerCount ?? 6} câu</span>
-                    <span className="block text-[10px] text-blue-700 font-semibold">({(tmpl.shortAnswerPoints ?? 3.0).toFixed(1)} đ)</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-slate-600 border-t border-slate-100 pt-2">
-                  <span>Tổng số câu: <strong>{tmpl.totalQuestions ?? 22} câu</strong></span>
-                  <span className="text-emerald-700 font-bold">Thang điểm: {(tmpl.totalScore ?? tmpl.totalPoints ?? 10.0).toFixed(1)} điểm</span>
-                </div>
-
-                {isLeader && (
-                  <button
-                    onClick={() => handleDeleteTemplate(tmpl.id)}
-                    className="absolute top-3 right-3 text-slate-300 hover:text-rose-600 p-1"
-                    title="Xóa mẫu đề"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* TAB 8: RBAC Matrix */}
       {activeTab === 'roles' && (
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6">
@@ -1172,20 +1111,6 @@ export const SettingsModule: React.FC = () => {
                   <td className="p-3 text-center text-slate-400">Chỉ thảo luận</td>
                   <td className="p-3 text-center text-slate-400">Xem</td>
                 </tr>
-                <tr>
-                  <td className="p-3 font-medium">Xem đề kiểm tra chưa công bố (Bảo mật)</td>
-                  <td className="p-3 text-center text-emerald-600 font-bold">Có quyền</td>
-                  <td className="p-3 text-center text-emerald-600 font-bold">Có quyền</td>
-                  <td className="p-3 text-center text-slate-400">Chỉ xem nếu là tác giả/phản biện</td>
-                  <td className="p-3 text-center text-slate-400">Chỉ xem khi đã công bố</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-medium">Xem bảng đối sánh chất lượng theo Giáo viên</td>
-                  <td className="p-3 text-center text-emerald-600 font-bold">Có quyền</td>
-                  <td className="p-3 text-center text-emerald-600 font-bold">Có quyền</td>
-                  <td className="p-3 text-center text-rose-600 font-semibold">Bị ẩn bảo mật</td>
-                  <td className="p-3 text-center text-emerald-600 font-bold">Toàn quyền xem</td>
-                </tr>
               </tbody>
             </table>
           </div>
@@ -1193,10 +1118,14 @@ export const SettingsModule: React.FC = () => {
           {/* Switch Role Simulator – chỉ có ở chế độ demo (bản cũ cho mạo danh cả ở dữ liệu thật) */}
           {canSimulateRoles && <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-xs font-bold text-slate-800">Mô phỏng vai trò làm việc: </span>
+              <span className="text-xs font-bold text-slate-800">Mô phỏng vai trò (chỉ ở chế độ dữ liệu mẫu): </span>
               <span className="text-xs text-slate-500">
                 Bạn đang đóng vai <strong>{activeMember.displayName}</strong> ({activeMember.role.toUpperCase()})
               </span>
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Dùng để xem thử giao diện của từng vai trò. Ở chế độ dữ liệu thật, vai trò lấy từ tài khoản Google đang
+                đăng nhập và không đổi được tại đây; quyền thật do Firestore Security Rules quyết định.
+              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -1404,7 +1333,7 @@ export const SettingsModule: React.FC = () => {
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span>Cam kết bảo toàn dữ liệu tài sản số:</span>
                 </div>
-                <p>• <strong>Ngân hàng câu hỏi:</strong> Được giữ nguyên toàn bộ 100% để tiếp tục tái sử dụng và kiểm định chất lượng.</p>
+                <p>• <strong>Danh mục chuyên môn:</strong> Chủ đề GDPT, thẻ năng lực Toán và tiêu chí dự giờ được giữ nguyên để dùng tiếp.</p>
                 <p>• <strong>Làm mới chuyên môn:</strong> Bảng phân công giảng dạy cũ và các biên bản họp cũ sẽ không mang theo sang năm học mới.</p>
               </div>
             </div>
@@ -1893,149 +1822,6 @@ export const SettingsModule: React.FC = () => {
                   className="px-3.5 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
                 >
                   Thêm tiêu chí
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Add Exam Template Structure */}
-      {showAddTemplateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
-              <h3 className="text-sm font-bold text-slate-900">Thêm cấu trúc đề thi mẫu</h3>
-              <button onClick={() => setShowAddTemplateModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddTemplate} className="space-y-3 text-xs">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="block font-semibold text-slate-700 mb-1">Tên cấu trúc đề</label>
-                  <input
-                    type="text"
-                    placeholder="VD: Đề kiểm tra 45 phút Khối 12"
-                    value={newTemplateName}
-                    onChange={e => setNewTemplateName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Thời gian (phút)</label>
-                  <input
-                    type="number"
-                    min={15}
-                    max={180}
-                    value={newTemplateDuration}
-                    onChange={e => setNewTemplateDuration(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Phần I: Số câu Nhiều LC</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={newTemplateMcqCount}
-                      onChange={e => setNewTemplateMcqCount(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Điểm Phần I</label>
-                    <input
-                      type="number"
-                      step={0.25}
-                      min={0}
-                      value={newTemplateMcqPoints}
-                      onChange={e => setNewTemplateMcqPoints(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Phần II: Số câu Đúng/Sai</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={newTemplateTfCount}
-                      onChange={e => setNewTemplateTfCount(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Điểm Phần II</label>
-                    <input
-                      type="number"
-                      step={0.25}
-                      min={0}
-                      value={newTemplateTfPoints}
-                      onChange={e => setNewTemplateTfPoints(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Phần III: Số câu Trả lời ngắn</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={newTemplateShortCount}
-                      onChange={e => setNewTemplateShortCount(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Điểm Phần III</label>
-                    <input
-                      type="number"
-                      step={0.25}
-                      min={0}
-                      value={newTemplateShortPoints}
-                      onChange={e => setNewTemplateShortPoints(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Mô tả mục tiêu</label>
-                <input
-                  type="text"
-                  placeholder="Định dạng trắc nghiệm theo Thông tư 22/2021..."
-                  value={newTemplateDesc}
-                  onChange={e => setNewTemplateDesc(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddTemplateModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-                >
-                  Lưu cấu trúc đề mẫu
                 </button>
               </div>
             </form>

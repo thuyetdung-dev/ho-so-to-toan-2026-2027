@@ -65,6 +65,7 @@ export function clearStoredKey() {
     [localStorage, sessionStorage].forEach(s => {
       s.removeItem(KEY_STORE);
       s.removeItem(LIST_STORE);
+      s.removeItem(MODEL_STORE); // bản cũ bỏ sót → máy dùng chung còn lưu lựa chọn mô hình
     });
   }, undefined);
 }
