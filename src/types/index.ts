@@ -296,6 +296,33 @@ export interface DepartmentPlan {
   comments?: PlanReviewComment[];
 }
 
+/**
+ * Một dòng trong bảng của Phụ lục III (dùng chung cho mục I.1 Phân phối chương trình
+ * và mục I.2 Chuyên đề lựa chọn). Tên cột theo đúng khung Công văn 5512:
+ * Bài học (1) | Số tiết (2) | Thời điểm (3) | Thiết bị dạy học (4) | Địa điểm dạy học (5)
+ */
+export interface TeacherPlanLine {
+  id: string;
+  order: number;
+  /** (1) Tên bài học hoặc chuyên đề */
+  lesson: string;
+  /** (2) Số tiết dùng để dạy bài/chuyên đề */
+  periods: number;
+  /** (3) Tuần thực hiện */
+  timing: string;
+  /** (4) Thiết bị dạy học */
+  equipment: string;
+  /** (5) Địa điểm dạy học: lớp học, phòng bộ môn, phòng đa năng, thực địa... */
+  location: string;
+}
+
+/**
+ * Kế hoạch giáo dục của giáo viên – theo đúng Phụ lục III Công văn 5512/BGDĐT-GDTrH.
+ *
+ * Bản 2.8 dùng ba ô văn xuôi (teachingTasks / selfStudyPlan / expectedResults) không có
+ * trong khung chính thức. Ba trường đó được giữ lại dạng tùy chọn để không mất dữ liệu
+ * thầy cô đã nhập; giao diện gom chúng vào mục "II. Nhiệm vụ khác".
+ */
 export interface TeacherPlan {
   id: string;
   teacherId: string;
@@ -305,10 +332,30 @@ export interface TeacherPlan {
   title: string;
   status: 'draft' | 'submitted' | 'approved' | 'returned';
   version: number;
-  teachingTasks: string;
-  selfStudyPlan: string;
-  expectedResults: string;
   updatedAt: string;
+
+  /** MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC – đầu trang Phụ lục III */
+  subject?: string;
+  /** LỚP – đầu trang Phụ lục III (ví dụ "12A1, 12A2") */
+  className?: string;
+
+  /** I.1. Phân phối chương trình */
+  distribution?: TeacherPlanLine[];
+  /** I.2. Chuyên đề lựa chọn (đối với cấp trung học phổ thông) */
+  specialTopics?: TeacherPlanLine[];
+  /** II. Nhiệm vụ khác (nếu có): bồi dưỡng học sinh giỏi, tổ chức hoạt động giáo dục... */
+  otherTasks?: string;
+
+  /** Ý kiến của tổ trưởng khi duyệt hoặc trả lại */
+  comments?: PlanReviewComment[];
+
+  // ----- Trường của bản 2.8, không thuộc khung chính thức; chỉ đọc để chuyển tiếp dữ liệu cũ -----
+  /** @deprecated Bản cũ – nội dung được gom vào otherTasks khi mở chỉnh sửa */
+  teachingTasks?: string;
+  /** @deprecated Bản cũ */
+  selfStudyPlan?: string;
+  /** @deprecated Bản cũ */
+  expectedResults?: string;
 }
 
 export interface LessonPlanActivity {

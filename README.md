@@ -217,6 +217,34 @@ firebase deploy --only firestore:rules
 - Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
 - Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
 
+### Bản 2.10 – Kế hoạch cá nhân dựng lại đúng khung Phụ lục III (CV 5512)
+
+**Sửa sai của bản 2.9.** Màn hình Kế hoạch cá nhân ở bản 2.9 gồm ba mục
+"Nhiệm vụ được giao", "Kế hoạch tự học/BDTX", "Kết quả dự kiến". Đối chiếu với
+khung Phụ lục III kèm Công văn 5512/BGDĐT-GDTrH thì **ba mục đó không có trong biểu mẫu**;
+hai mục "tự học/BDTX" và "kết quả dự kiến" là do phần mềm tự đặt thêm, còn hai bảng bắt buộc
+thì thiếu. Bản 2.10 dựng lại đúng khung:
+
+| Phụ lục III chính thức | Bản 2.9 | Bản 2.10 |
+| --- | --- | --- |
+| Tiêu đề trường / tổ / họ tên giáo viên + quốc hiệu | thiếu | có |
+| Dòng "MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC …, LỚP …" | thiếu | có (`subject`, `className`) |
+| I.1. Phân phối chương trình (Bài học \| Số tiết \| Thời điểm \| Thiết bị \| Địa điểm) | thiếu | bảng nhập/sửa được, tự cộng tổng số tiết |
+| I.2. Chuyên đề lựa chọn (cấp THPT) | thiếu | bảng riêng, cùng 5 cột |
+| II. Nhiệm vụ khác (nếu có) | — | có |
+| Chú thích (1)–(5) dưới bảng | thiếu | có |
+| Ký tên hai cột: TỔ TRƯỞNG / GIÁO VIÊN | thiếu | có |
+| "Kế hoạch tự học, BDTX" | có | **bỏ** (không có trong biểu mẫu) |
+| "Kết quả dự kiến" | có | **bỏ** (không có trong biểu mẫu) |
+
+- Kế hoạch cũ **không mất dữ liệu**: ba trường của bản 2.9 được giữ lại trong kiểu `TeacherPlan`
+  (đánh dấu `@deprecated`) và nội dung của chúng được gộp vào mục **II. Nhiệm vụ khác** khi mở kế hoạch cũ.
+- `teacherPlanImport.ts` viết lại: dùng chung bộ dò bảng của Phụ lục I (`planImport.ts`) vì sáu cột
+  trùng nhau, rồi tách bảng nào là "chuyên đề", cắt lấy mục II, đọc dòng môn/lớp và bỏ phần chú thích
+  `(1)…(5)`, dòng chấm lửng và phần ký tên của khung mẫu.
+- Nhập từ tệp nay đổ thẳng vào **hai bảng**, không còn đổ vào ô văn xuôi.
+- `planImport.ts` được nạp động, không kéo vào gói khởi động.
+
 ### Bản 2.9 – Siết phân quyền, Kế hoạch cá nhân (Phụ lục III) và nhập từ Word/Excel/PDF
 
 **Bảo mật (firestore.rules – phải `firebase deploy --only firestore:rules` mới có hiệu lực):**

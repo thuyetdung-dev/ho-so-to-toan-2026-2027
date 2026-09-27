@@ -1,22 +1,29 @@
 /**
  * Nhập Kế hoạch giáo dục của giáo viên (Phụ lục III CV 5512) từ tệp Word / Excel / PDF.
  *
- * Khác với planImport.ts (Phụ lục I – đọc BẢNG phân phối chương trình), Phụ lục III chủ yếu là
- * VĂN XUÔI theo mục, nên ở đây tách theo tiêu đề mục thay vì dò bảng.
+ * Khung Phụ lục III gồm:
+ *   I.1. Phân phối chương trình  – bảng: Bài học | Số tiết | Thời điểm | Thiết bị dạy học | Địa điểm dạy học
+ *   I.2. Chuyên đề lựa chọn      – bảng cùng 6 cột (cấp THPT)
+ *   II.  Nhiệm vụ khác (nếu có)  – văn xuôi
  *
- * Phần đọc chữ của Word/PDF dùng lại extractTextFromFile() trong lessonImport.ts
- * (đã chuyển được công thức Word và MathType sang LaTeX).
+ * Phần dò bảng dùng lại bộ đọc của Phụ lục I (planImport.ts) vì sáu cột trùng nhau;
+ * ở đây chỉ thêm việc tách bảng nào thuộc "Phân phối chương trình", bảng nào thuộc
+ * "Chuyên đề lựa chọn", và cắt lấy phần "Nhiệm vụ khác".
  */
+import type { TeacherPlanLine } from '../types';
 import { extractTextFromFile } from './lessonImport';
+import type { ImportedDistItem } from './planImport';
 
 export interface ImportedTeacherPlan {
   title?: string;
   grade?: 10 | 11 | 12;
   teacherName?: string;
-  teachingTasks: string;
-  selfStudyPlan: string;
-  expectedResults: string;
-  /** Có nhận ra ít nhất một mục theo tiêu đề hay không */
+  subject?: string;
+  className?: string;
+  distribution: Omit<TeacherPlanLine, 'id' | 'order'>[];
+  specialTopics: Omit<TeacherPlanLine, 'id' | 'order'>[];
+  otherTasks: string;
+  /** Có đọc được bảng hoặc nhận ra mục nào không */
   recognized: boolean;
   rawText: string;
 }
@@ -26,10 +33,8 @@ export interface TeacherPlanImportResult extends ImportedTeacherPlan {
   notes: string[];
 }
 
-type Bucket = 'tasks' | 'study' | 'results' | null;
-
-/** Bỏ dấu để so khớp tiêu đề không phụ thuộc dấu và chữ hoa/thường */
-const fold = (s: string) =>
+/** Bỏ dấu để so khớp không phụ thuộc dấu và chữ hoa/thường */
+export const fold = (s: string) =>
   (s || '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -43,148 +48,167 @@ const stripOrdinal = (s: string) =>
   s.replace(/^\s*(?:[IVX]+|[0-9]{1,2}|[a-hA-H])\s*[.)\-–]\s*/, '').replace(/^\s*[-–•*]\s*/, '').trim();
 
 /**
- * Tiêu đề mục phải nằm ở ĐẦU dòng (cho phép vài từ dẫn như "Kế hoạch", "Công tác").
- * Không neo đầu dòng thì một dòng nội dung như "Hoàn thành 2 mô-đun BDTX" sẽ bị nhận
- * nhầm là tiêu đề và mất nội dung.
+ * Tiêu đề mục phải nằm ở ĐẦU dòng (cho phép vài từ dẫn như "Kế hoạch", "Các").
+ * Không neo đầu dòng thì một dòng nội dung như "Bồi dưỡng học sinh giỏi khối 12"
+ * sẽ bị nhận nhầm là tiêu đề mục II.
  */
-const LEAD = '(?:(?:ke hoach|cong tac|noi dung|phan|muc)\\s+)?';
+const LEAD = '(?:(?:ke hoach|cac|noi dung|muc)\\s+)?';
 const head = (body: string) => new RegExp(`^${LEAD}(?:${body})`);
 
-const HEAD: { bucket: Exclude<Bucket, null>; re: RegExp }[] = [
-  {
-    bucket: 'tasks',
-    re: head('nhiem vu|phan cong (chuyen mon|giang day|nhiem vu)|day hoc|giang day'),
-  },
-  {
-    bucket: 'study',
-    re: head('tu hoc|tu boi duong|boi duong thuong xuyen|bdtx|hoc tap( nang cao)?|nang cao trinh do|tu nghien cuu'),
-  },
-  {
-    bucket: 'results',
-    re: head('ket qua|chi tieu|dang ky thi dua|muc tieu phan dau'),
-  },
-];
+const RE_DIST_HEAD = head('phan phoi chuong trinh|ke hoach day hoc');
+const RE_TOPIC_HEAD = head('chuyen de lua chon|chuyen de hoc tap|chuyen de');
+const RE_OTHER_HEAD = head('nhiem vu khac|nhiem vu duoc giao|cac noi dung khac');
 
-/** Dòng này có phải tiêu đề mục không? Trả về mục tương ứng. */
-export function classifyTeacherPlanHeading(line: string): Bucket {
+export type Section = 'dist' | 'topics' | 'other' | null;
+
+/** Dòng này mở đầu mục nào của Phụ lục III? */
+export function classifyTeacherPlanHeading(line: string): Section {
   const bare = stripOrdinal(line).replace(/[:：].*$/, '');
   const f = fold(bare);
   if (!f || f.length > 90) return null;
-  for (const h of HEAD) if (h.re.test(f)) return h.bucket;
+  if (RE_OTHER_HEAD.test(f)) return 'other';
+  if (RE_TOPIC_HEAD.test(f)) return 'topics';
+  if (RE_DIST_HEAD.test(f)) return 'dist';
   return null;
 }
 
 /** Đoán khối lớp từ toàn văn */
 export function detectGrade(text: string): 10 | 11 | 12 | undefined {
-  const f = fold(text);
-  const m = f.match(/(?:khoi|lop)\s*(10|11|12)\b/);
-  if (m) return Number(m[1]) as 10 | 11 | 12;
-  return undefined;
+  const m = fold(text).match(/(?:khoi|lop)\s*(10|11|12)\b/);
+  return m ? (Number(m[1]) as 10 | 11 | 12) : undefined;
 }
 
-/** Tách văn bản Phụ lục III thành 3 mục nội dung */
-export function parseTeacherPlanText(text: string): ImportedTeacherPlan {
+/** Đọc dòng "MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC ....., LỚP....." ở đầu Phụ lục III */
+export function detectSubjectAndClass(text: string): { subject?: string; className?: string } {
+  const out: { subject?: string; className?: string } = {};
+  for (const raw of text.split('\n')) {
+    // Khung mẫu để trống bằng dấu chấm lửng ("……" hoặc "....."): coi như khoảng trắng
+    const line = raw.replace(/[.…]{2,}/g, ' ').replace(/\s+/g, ' ').trim();
+    const f = fold(line);
+    if (!out.subject && /^mon hoc/.test(f)) {
+      const m = line.match(/gi[áa]o\s*d[uụ]c\s*([^,]*)/i) || line.match(/^[^:]*[:：]\s*([^,]*)/);
+      const v = (m?.[1] || '').trim();
+      if (v && fold(v) !== 'lop') out.subject = v;
+    }
+    if (!out.className) {
+      const m = line.match(/l[ớo]p\s*[:：]?\s*([0-9][0-9A-Za-zÀ-ỹ,\s./-]*)/i);
+      const v = (m?.[1] || '').trim().replace(/[.,;]+$/, '');
+      if (v && /\d/.test(v) && v.length <= 60) out.className = v;
+    }
+  }
+  return out;
+}
+
+/** Chuyển một dòng bảng đọc được từ Phụ lục I sang dòng của Phụ lục III */
+function toLine(d: ImportedDistItem): Omit<TeacherPlanLine, 'id' | 'order'> {
+  return {
+    lesson: d.topicTitle || '',
+    periods: Number(d.periods) || 0,
+    timing: d.week ? `Tuần ${d.week}` : '',
+    equipment: d.equipment || '',
+    location: d.location || '',
+  };
+}
+
+/** Cắt lấy phần "II. Nhiệm vụ khác" trong toàn văn */
+export function extractOtherTasks(text: string): string {
   const lines = text
     .normalize('NFC')
     .replace(/\r/g, '')
     .split('\n')
-    // Gạch đầu dòng của phông Symbol/Wingdings → "- "
     .map(l => l.replace(/^[\s-•▪◦●○·]+(?=\S)/u, m => (/[-•▪◦●○·]/u.test(m) ? '- ' : '')))
-    .map(l => l.replace(/[ \t]+/g, ' ').trimEnd())
-    .filter(l => l.trim() !== '');
+    .map(l => l.replace(/[ \t]+/g, ' ').trimEnd());
 
-  const buckets: Record<Exclude<Bucket, null>, string[]> = { tasks: [], study: [], results: [] };
-  let current: Bucket = null;
-  let recognized = false;
-  let title: string | undefined;
-  let teacherName: string | undefined;
-
+  const out: string[] = [];
+  let inside = false;
   for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!title && /ke hoach/.test(fold(trimmed)) && fold(trimmed).length > 12) {
-      title = trimmed.replace(/^[-–•*\s]+/, '');
-    }
-    if (!teacherName) {
-      const m = trimmed.match(/^(?:h[oọ]\s*(?:v[àa]\s*)?t[êe]n|gi[áa]o\s*vi[êe]n|ng[ưu][ờo]i\s*l[ậa]p)\s*[:：]\s*(.+)$/i);
-      if (m && m[1].trim().length > 2) teacherName = m[1].trim();
-    }
-
-    const heading = classifyTeacherPlanHeading(trimmed);
-    if (heading) {
-      current = heading;
-      recognized = true;
-      // Nội dung viết ngay sau dấu hai chấm trên cùng dòng tiêu đề
-      const after = trimmed.split(/[:：]/).slice(1).join(':').trim();
-      if (after) buckets[heading].push(after);
+    const t = line.trim();
+    if (!t) continue;
+    const kind = classifyTeacherPlanHeading(t);
+    if (kind === 'other') {
+      inside = true;
+      // Phần chú thích trong ngoặc của khung mẫu không phải nội dung thật
+      const after = t.split(/[:：]/).slice(1).join(':').replace(/^\s*\([^)]*\)\s*/, '').trim();
+      if (after) out.push(after);
       continue;
     }
+    if (kind) {
+      inside = false;
+      continue;
+    }
+    // Dòng chú thích (1)...(5) và dòng chấm chấm của khung mẫu → bỏ
+    if (/^\(\d\)/.test(t) || /^[.\s…]+$/.test(t)) continue;
+    if (/^(to truong|giao vien|\(ky va ghi ro ho ten\))/.test(fold(t))) { inside = false; continue; }
+    if (inside) out.push(stripOrdinal(t) || t);
+  }
+  return out.join('\n').trim();
+}
 
-    if (current) buckets[current].push(stripOrdinal(trimmed) || trimmed);
+/** Đọc tệp kế hoạch cá nhân. Không ghi gì vào cơ sở dữ liệu. */
+export async function importTeacherPlanFile(
+  file: File,
+  opts: { grade: 10 | 11 | 12; weeksCount: number },
+): Promise<TeacherPlanImportResult> {
+  const name = file.name.toLowerCase();
+  const notes: string[] = [];
+
+  // 1) Đọc bảng bằng bộ dò bảng của Phụ lục I (sáu cột trùng nhau)
+  let tables: ImportedDistItem[] = [];
+  let source = 'Word';
+  try {
+    // Nạp động để bộ đọc bảng nằm ở gói riêng, không kéo vào gói khởi động
+    const { importPlanFile } = await import('./planImport');
+    const r = await importPlanFile(file, { grade: opts.grade, weeksCount: opts.weeksCount });
+    tables = r.distribution;
+    source = r.source;
+    notes.push(...r.notes, ...r.warnings);
+  } catch (err) {
+    // Tệp .txt hoặc tệp không có bảng: vẫn đọc chữ để lấy mục "Nhiệm vụ khác"
+    if (!name.endsWith('.txt')) notes.push(err instanceof Error ? err.message : 'Không dò được bảng trong tệp.');
   }
 
-  const join = (arr: string[]) => arr.join('\n').trim();
-
-  return {
-    title,
-    teacherName,
-    grade: detectGrade(text),
-    teachingTasks: join(buckets.tasks),
-    selfStudyPlan: join(buckets.study),
-    expectedResults: join(buckets.results),
-    recognized,
-    rawText: lines.join('\n'),
-  };
-}
-
-/** Bảng Excel → các dòng chữ "nhãn: nội dung" để bộ tách mục ở trên xử lý được */
-interface XLSXLike {
-  read: (data: ArrayBuffer | Uint8Array, opts: { type: string }) => { SheetNames: string[]; Sheets: Record<string, unknown> };
-  utils: { sheet_to_json: <T>(sheet: unknown, opts: { header: number; blankrows: boolean; defval: string }) => T[] };
-}
-
-export function workbookToText(XLSX: XLSXLike, data: ArrayBuffer): string {
-  const wb = XLSX.read(data, { type: 'array' });
-  const out: string[] = [];
-  for (const name of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[name], { header: 1, blankrows: false, defval: '' });
-    for (const row of rows) {
-      const cells = (row || []).map(c => String(c ?? '').trim()).filter(Boolean);
-      if (!cells.length) continue;
-      // Ô đầu là nhãn mục, các ô sau là nội dung → "Nhãn: nội dung"
-      out.push(cells.length > 1 ? `${cells[0]}: ${cells.slice(1).join(' ')}` : cells[0]);
+  // 2) Đọc chữ để lấy tiêu đề, môn/lớp và mục II
+  let text = '';
+  if (name.endsWith('.txt')) {
+    text = await file.text();
+    source = 'Văn bản thuần';
+  } else if (/\.(xlsx|xlsm|xls|ods|csv)$/.test(name)) {
+    source = 'Excel';
+    text = tables.map(d => `${d.topicTitle} ${d.equipment || ''} ${d.location || ''}`).join('\n');
+  } else {
+    try {
+      const extracted = await extractTextFromFile(file);
+      text = extracted.text;
+      notes.push(...extracted.notes);
+    } catch {
+      /* đã có bảng thì thiếu phần chữ cũng không sao */
     }
   }
-  return out.join('\n');
-}
 
-/** Đọc tệp kế hoạch cá nhân và tách mục. Không ghi gì vào cơ sở dữ liệu. */
-export async function importTeacherPlanFile(file: File): Promise<TeacherPlanImportResult> {
-  const name = file.name.toLowerCase();
+  // 3) Tách bảng chuyên đề khỏi bảng phân phối chương trình.
+  //    Bộ đọc Phụ lục I trả về một danh sách chung, nên dựa vào chữ "chuyên đề"
+  //    trong tên bài để tách; tệp nào ghi rõ hai bảng thì cách này khớp đúng.
+  const isTopic = (d: ImportedDistItem) => /chuyen de/.test(fold(d.topicTitle || ''));
+  const distribution = tables.filter(d => !isTopic(d)).map(toLine);
+  const specialTopics = tables.filter(isTopic).map(toLine);
 
-  if (/\.(xlsx|xlsm|xls|ods|csv)$/.test(name)) {
-    const XLSX = (await import('@e965/xlsx')) as unknown as XLSXLike;
-    const text = workbookToText(XLSX, await file.arrayBuffer());
-    const parsed = parseTeacherPlanText(text);
-    return {
-      ...parsed,
-      source: 'Excel',
-      notes: ['Excel chỉ đọc được chữ trong ô; công thức toán và hình vẽ cần gõ lại.'],
-    };
-  }
+  const sc = detectSubjectAndClass(text);
+  const otherTasks = extractOtherTasks(text);
+  const titleLine = text.split('\n').map(l => l.trim()).find(l => /^ke hoach giao duc/.test(fold(l)));
 
-  if (name.endsWith('.txt')) {
-    const text = await file.text();
-    const parsed = parseTeacherPlanText(text);
-    return { ...parsed, source: 'Văn bản thuần', notes: [] };
-  }
+  if (tables.length) notes.push(`Đọc được ${distribution.length} bài học${specialTopics.length ? ` và ${specialTopics.length} chuyên đề` : ''}.`);
 
-  // Word (.docx) và PDF: dùng lại bộ đọc của phần nhập giáo án
-  const extracted = await extractTextFromFile(file);
-  const parsed = parseTeacherPlanText(extracted.text);
   return {
-    ...parsed,
-    source: name.endsWith('.pdf') ? 'PDF' : 'Word',
-    notes: extracted.notes,
+    title: titleLine,
+    grade: detectGrade(text) || opts.grade,
+    subject: sc.subject,
+    className: sc.className,
+    distribution,
+    specialTopics,
+    otherTasks,
+    recognized: tables.length > 0 || otherTasks.length > 0,
+    rawText: text,
+    source,
+    notes,
   };
 }

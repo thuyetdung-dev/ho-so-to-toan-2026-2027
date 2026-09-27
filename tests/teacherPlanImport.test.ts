@@ -1,104 +1,87 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseTeacherPlanText,
   classifyTeacherPlanHeading,
   detectGrade,
-  workbookToText,
+  detectSubjectAndClass,
+  extractOtherTasks,
+  fold,
 } from '../src/utils/teacherPlanImport.ts';
 
-test('kế hoạch cá nhân: nhận ra tiêu đề mục dù viết hoa, có số thứ tự hay thiếu dấu', () => {
-  assert.equal(classifyTeacherPlanHeading('I. NHIỆM VỤ ĐƯỢC GIAO'), 'tasks');
-  assert.equal(classifyTeacherPlanHeading('1. Nhiem vu duoc giao'), 'tasks');
-  assert.equal(classifyTeacherPlanHeading('2) Phân công chuyên môn:'), 'tasks');
-  assert.equal(classifyTeacherPlanHeading('II. Kế hoạch tự học, tự bồi dưỡng'), 'study');
-  assert.equal(classifyTeacherPlanHeading('BDTX năm học 2026-2027'), 'study');
-  assert.equal(classifyTeacherPlanHeading('III. Kết quả dự kiến'), 'results');
-  assert.equal(classifyTeacherPlanHeading('Chỉ tiêu phấn đấu'), 'results');
-  // Không phải tiêu đề
+test('kế hoạch cá nhân: nhận ra tiêu đề các mục của Phụ lục III', () => {
+  assert.equal(classifyTeacherPlanHeading('1. Phân phối chương trình'), 'dist');
+  assert.equal(classifyTeacherPlanHeading('I. KẾ HOẠCH DẠY HỌC'), 'dist');
+  assert.equal(classifyTeacherPlanHeading('2. Chuyên đề lựa chọn (đối với cấp trung học phổ thông)'), 'topics');
+  assert.equal(classifyTeacherPlanHeading('Chuyên đề học tập:'), 'topics');
+  assert.equal(classifyTeacherPlanHeading('II. Nhiệm vụ khác (nếu có)'), 'other');
+  assert.equal(classifyTeacherPlanHeading('Các nội dung khác'), 'other');
+});
+
+test('kế hoạch cá nhân: dòng nội dung không bị nhận nhầm là tiêu đề', () => {
+  assert.equal(classifyTeacherPlanHeading('Bồi dưỡng học sinh giỏi khối 12'), null);
+  assert.equal(classifyTeacherPlanHeading('1. Hoàn thành 2 mô-đun BDTX'), null);
   assert.equal(classifyTeacherPlanHeading('Dạy lớp 12A1, 12A2 và 11B3'), null);
   assert.equal(classifyTeacherPlanHeading(''), null);
+  // Quá dài thì không phải tiêu đề mục
+  assert.equal(
+    classifyTeacherPlanHeading(
+      'Phân phối chương trình được xây dựng trên cơ sở khung thời gian năm học do Sở Giáo dục ban hành',
+    ),
+    null,
+  );
 });
 
 test('kế hoạch cá nhân: đoán khối lớp', () => {
-  assert.equal(detectGrade('Kế hoạch giáo dục môn Toán Khối 12 năm học 2026-2027'), 12);
+  assert.equal(detectGrade('Kế hoạch giáo dục của giáo viên – môn Toán, Khối 12'), 12);
   assert.equal(detectGrade('KE HOACH GIAO DUC - KHOI 10'), 10);
   assert.equal(detectGrade('Phụ lục III – lớp 11'), 11);
   assert.equal(detectGrade('Không nói gì về khối'), undefined);
 });
 
-test('kế hoạch cá nhân: tách đúng 3 mục từ văn bản Word', () => {
+test('kế hoạch cá nhân: đọc dòng "MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC ..., LỚP ..."', () => {
+  const r = detectSubjectAndClass('MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC TOÁN, LỚP 12A1');
+  assert.equal(r.subject, 'TOÁN');
+  assert.equal(r.className, '12A1');
+});
+
+test('kế hoạch cá nhân: dòng môn/lớp còn để trống dấu chấm thì không đoán bừa', () => {
+  const r = detectSubjectAndClass('MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC ……………….., LỚP………………..');
+  assert.equal(r.subject, undefined);
+  assert.equal(r.className, undefined);
+});
+
+test('kế hoạch cá nhân: cắt đúng mục II. Nhiệm vụ khác', () => {
   const text = [
-    'TRƯỜNG THPT PHAN ĐĂNG LƯU',
-    'TỔ TOÁN',
-    'KẾ HOẠCH GIÁO DỤC CỦA GIÁO VIÊN – MÔN TOÁN KHỐI 12 – NĂM HỌC 2026-2027',
-    'Họ và tên: Hồ Thuyết Dũng',
+    'I. Kế hoạch dạy học',
+    '1. Phân phối chương trình',
+    'Bài 1. Mệnh đề',
+    '2. Chuyên đề lựa chọn',
+    'Chuyên đề 1. Hệ phương trình bậc nhất ba ẩn',
+    'II. Nhiệm vụ khác (nếu có): (Bồi dưỡng học sinh giỏi; Tổ chức hoạt động giáo dục...)',
+    '- Bồi dưỡng học sinh giỏi khối 12',
+    '- Phụ trách câu lạc bộ Toán học',
     '',
-    'I. NHIỆM VỤ ĐƯỢC GIAO',
-    '- Dạy lớp 12A05, 12A11 và 11B11',
-    '- Kiêm nhiệm: Tổ trưởng chuyên môn',
-    '',
-    'II. KẾ HOẠCH TỰ HỌC, TỰ BỒI DƯỠNG',
-    '1. Hoàn thành 2 mô-đun BDTX',
-    '2. Dự giờ 4 tiết của đồng nghiệp',
-    '',
-    'III. KẾT QUẢ DỰ KIẾN',
-    'Hoàn thành chương trình đúng tiến độ; 85% học sinh đạt từ 5,0 trở lên.',
+    '(1) Tên bài học/chuyên đề được xây dựng từ nội dung/chủ đề.',
+    '(5) Địa điểm tổ chức hoạt động dạy học.',
+    'TỔ TRƯỞNG',
+    '(Ký và ghi rõ họ tên)',
   ].join('\n');
 
-  const r = parseTeacherPlanText(text);
-  assert.equal(r.recognized, true);
-  assert.equal(r.grade, 12);
-  assert.equal(r.teacherName, 'Hồ Thuyết Dũng');
-  assert.match(r.title || '', /KẾ HOẠCH GIÁO DỤC CỦA GIÁO VIÊN/);
-
-  assert.match(r.teachingTasks, /12A05, 12A11 và 11B11/);
-  assert.match(r.teachingTasks, /Tổ trưởng chuyên môn/);
-  assert.doesNotMatch(r.teachingTasks, /BDTX/, 'mục tự học không được lẫn sang nhiệm vụ');
-
-  assert.match(r.selfStudyPlan, /BDTX/);
-  assert.match(r.selfStudyPlan, /Dự giờ 4 tiết/);
-
-  assert.match(r.expectedResults, /85% học sinh/);
-  assert.doesNotMatch(r.expectedResults, /Dự giờ/);
+  const out = extractOtherTasks(text);
+  assert.match(out, /Bồi dưỡng học sinh giỏi khối 12/);
+  assert.match(out, /câu lạc bộ Toán học/);
+  assert.doesNotMatch(out, /Mệnh đề/, 'không được lẫn nội dung bảng phân phối chương trình');
+  assert.doesNotMatch(out, /Hệ phương trình/, 'không được lẫn nội dung chuyên đề');
+  assert.doesNotMatch(out, /Tên bài học/, 'phải bỏ phần chú thích (1)...(5)');
+  assert.doesNotMatch(out, /Ký và ghi rõ/, 'phải bỏ phần ký tên');
+  assert.doesNotMatch(out, /Bồi dưỡng học sinh giỏi; Tổ chức/, 'phải bỏ phần gợi ý trong ngoặc của khung mẫu');
 });
 
-test('kế hoạch cá nhân: nội dung viết ngay sau dấu hai chấm cùng dòng', () => {
-  const r = parseTeacherPlanText([
-    'Nhiệm vụ được giao: Dạy Toán 10A1, 10A2',
-    'Kế hoạch tự học: Nghiên cứu GeoGebra cho hình không gian',
-    'Kết quả dự kiến: Không có học sinh dưới 3,5 điểm',
-  ].join('\n'));
-  assert.equal(r.recognized, true);
-  assert.equal(r.teachingTasks, 'Dạy Toán 10A1, 10A2');
-  assert.equal(r.selfStudyPlan, 'Nghiên cứu GeoGebra cho hình không gian');
-  assert.equal(r.expectedResults, 'Không có học sinh dưới 3,5 điểm');
+test('kế hoạch cá nhân: không có mục II thì trả về chuỗi rỗng', () => {
+  assert.equal(extractOtherTasks('Tôi dạy ba lớp khối 11 và phụ trách đội tuyển học sinh giỏi.'), '');
 });
 
-test('kế hoạch cá nhân: tệp không có tiêu đề mục thì báo chưa nhận ra, giữ nguyên toàn văn', () => {
-  const text = 'Tôi dạy ba lớp khối 11 và phụ trách đội tuyển học sinh giỏi.';
-  const r = parseTeacherPlanText(text);
-  assert.equal(r.recognized, false);
-  assert.equal(r.teachingTasks, '');
-  assert.match(r.rawText, /đội tuyển học sinh giỏi/);
-});
-
-test('kế hoạch cá nhân: đọc bảng Excel thành dòng "nhãn: nội dung"', () => {
-  const fakeXLSX = {
-    read: () => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } }),
-    utils: {
-      sheet_to_json: <T,>() =>
-        [
-          ['Nhiệm vụ được giao', 'Dạy Toán 12A1', 'Chủ nhiệm 12A1'],
-          [],
-          ['Kết quả dự kiến', 'Tỉ lệ tốt nghiệp 100%'],
-        ] as unknown as T[],
-    },
-  };
-  const text = workbookToText(fakeXLSX as never, new ArrayBuffer(0));
-  assert.equal(text, 'Nhiệm vụ được giao: Dạy Toán 12A1 Chủ nhiệm 12A1\nKết quả dự kiến: Tỉ lệ tốt nghiệp 100%');
-
-  const r = parseTeacherPlanText(text);
-  assert.equal(r.teachingTasks, 'Dạy Toán 12A1 Chủ nhiệm 12A1');
-  assert.equal(r.expectedResults, 'Tỉ lệ tốt nghiệp 100%');
+test('fold: bỏ dấu và chuẩn hoá khoảng trắng', () => {
+  assert.equal(fold('  Chuyên   Đề   Lựa Chọn '), 'chuyen de lua chon');
+  assert.equal(fold('ĐỊA ĐIỂM'), 'dia diem');
 });
