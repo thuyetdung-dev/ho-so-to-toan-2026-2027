@@ -1,7 +1,7 @@
 {
   "name": "so-sinh-hoat-chuyen-mon-to-toan",
   "private": true,
-  "version": "2.7.0",
+  "version": "2.8.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

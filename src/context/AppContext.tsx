@@ -159,6 +159,7 @@ interface AppContextType {
 
   teacherPlans: TeacherPlan[];
   saveTeacherPlan: (plan: TeacherPlan) => Promise<void>;
+  deleteTeacherPlan: (id: string) => Promise<void>;
   lessonPlans: LessonPlan[];
   saveLessonPlan: (plan: LessonPlan, options?: { silent?: boolean }) => Promise<boolean>;
   deleteLessonPlan: (id: string) => Promise<void>;
@@ -1254,8 +1255,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const saveTeacherPlan = async (plan: TeacherPlan) => {
-    const ok = await upsertItem('teacherPlans', plan, setDemoTeacherPlans, setRealTeacherPlans);
-    if (ok) setNotification({ message: 'Đã lưu kế hoạch cá nhân của giáo viên', type: 'success' });
+    const toSave: TeacherPlan = { ...plan, updatedAt: new Date().toISOString() };
+    const ok = await upsertItem('teacherPlans', toSave, setDemoTeacherPlans, setRealTeacherPlans);
+    if (!ok) return;
+    const STATUS_TEXT: Record<TeacherPlan['status'], string> = {
+      draft: 'Bản nháp',
+      submitted: 'Đã nộp, chờ duyệt',
+      approved: 'Đã duyệt',
+      returned: 'Trả lại để điều chỉnh',
+    };
+    setNotification({ message: `Đã lưu kế hoạch cá nhân – ${STATUS_TEXT[toSave.status]}`, type: 'success' });
+    await logAction(
+      'Lưu kế hoạch giáo dục của giáo viên',
+      'TeacherPlan',
+      toSave.id,
+      `${toSave.teacherName} – Khối ${toSave.grade} – ${STATUS_TEXT[toSave.status]} (v${toSave.version})`,
+    );
+  };
+
+  const deleteTeacherPlan = async (id: string) => {
+    const target = currentTeacherPlans.find(p => p.id === id);
+    const ok = await removeItem('teacherPlans', id, setDemoTeacherPlans, setRealTeacherPlans);
+    if (!ok) return;
+    setNotification({ message: 'Đã xóa kế hoạch cá nhân', type: 'info' });
+    await logAction('Xóa kế hoạch giáo dục của giáo viên', 'TeacherPlan', id, target?.title || '');
   };
 
   // ---------- Kế hoạch bài dạy ----------
@@ -2016,6 +2039,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePlanDistributionStatus,
         teacherPlans: currentTeacherPlans,
         saveTeacherPlan,
+        deleteTeacherPlan,
         lessonPlans: currentLessonPlans,
         saveLessonPlan,
         deleteLessonPlan,

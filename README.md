@@ -217,7 +217,7 @@ firebase deploy --only firestore:rules
 - Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
 - Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
 
-### Bản 2.7 – Siết phân quyền theo chủ sở hữu, dọn phần đã chuyển ra ngoài
+### Bản 2.8 – Siết phân quyền, dọn phần đã chuyển ra ngoài, thêm Kế hoạch cá nhân (Phụ lục III)
 
 **Bảo mật (firestore.rules – phải `firebase deploy --only firestore:rules` mới có hiệu lực):**
 - `teacherPlans`: trước đây *bất kỳ thành viên nào* cũng ghi đè được kế hoạch cá nhân của đồng nghiệp.
@@ -252,6 +252,17 @@ firebase deploy --only firestore:rules
   loại tài liệu "Đề kiểm tra", và các số liệu câu hỏi/đề/điểm trong Báo cáo (các collection này
   không còn nơi nhập nên báo cáo luôn in ra câu "chưa có dữ liệu").
 - Nhãn "Mô phỏng vai trò" trong Cài đặt nói rõ chỉ dùng ở chế độ dữ liệu mẫu.
+
+**Kế hoạch (phân hệ 3) — bổ sung theo yêu cầu của tổ:**
+- Phân hệ 3 nay có hai thẻ: **Kế hoạch của tổ (Phụ lục I)** và **Kế hoạch cá nhân (Phụ lục III)**.
+- `teacherPlans` trước đây đã có đủ dữ liệu, hàm lưu, sao lưu và quy tắc bảo mật nhưng **không có màn hình nào**,
+  nên tổ không lập được kế hoạch cá nhân dù menu ghi "Phụ lục I, III". Nay có `TeacherPlansPanel`:
+  lập, sửa, nộp, tổ trưởng duyệt hoặc trả lại kèm ý kiến, lọc theo khối và theo "chỉ của tôi".
+  Giáo viên chỉ lập được cho chính mình; tổ trưởng lập hộ và duyệt được.
+- Nút **"Thêm kế hoạch tổ chuyên môn"** nay luôn hiện với tổ trưởng và mở hộp chọn khối
+  (khối đã có kế hoạch thì hiện mờ kèm ghi chú). Trước đây nút chỉ xuất hiện khi khối đang xem
+  chưa có kế hoạch, nên khi cả ba khối đã có thì không thấy nút đâu.
+- Thêm `deleteTeacherPlan`, và `saveTeacherPlan` nay ghi nhật ký kèm trạng thái.
 
 **Chưa làm trong bản này:**
 - Chưa có đường dẫn riêng cho từng phân hệ (nhấn F5 vẫn giữ đúng phân hệ nhờ `localStorage`,
