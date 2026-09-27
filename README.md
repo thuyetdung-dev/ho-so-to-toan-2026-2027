@@ -217,7 +217,7 @@ firebase deploy --only firestore:rules
 - Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
 - Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
 
-### Bản 2.8 – Siết phân quyền, dọn phần đã chuyển ra ngoài, thêm Kế hoạch cá nhân (Phụ lục III)
+### Bản 2.9 – Siết phân quyền, Kế hoạch cá nhân (Phụ lục III) và nhập từ Word/Excel/PDF
 
 **Bảo mật (firestore.rules – phải `firebase deploy --only firestore:rules` mới có hiệu lực):**
 - `teacherPlans`: trước đây *bất kỳ thành viên nào* cũng ghi đè được kế hoạch cá nhân của đồng nghiệp.
@@ -263,6 +263,19 @@ firebase deploy --only firestore:rules
   (khối đã có kế hoạch thì hiện mờ kèm ghi chú). Trước đây nút chỉ xuất hiện khi khối đang xem
   chưa có kế hoạch, nên khi cả ba khối đã có thì không thấy nút đâu.
 - Thêm `deleteTeacherPlan`, và `saveTeacherPlan` nay ghi nhật ký kèm trạng thái.
+
+**Nhập kế hoạch cá nhân từ tệp có sẵn (bản 2.9):**
+- Nút **"Nhập từ Word / Excel / PDF"** trong thẻ Kế hoạch cá nhân: đọc tệp thầy/cô đã soạn sẵn
+  rồi đổ vào biểu mẫu để xem lại, KHÔNG tự lưu vào cơ sở dữ liệu.
+- `src/utils/teacherPlanImport.ts` tách văn bản thành 3 mục của Phụ lục III theo tiêu đề
+  ("Nhiệm vụ được giao", "Kế hoạch tự học/BDTX", "Kết quả dự kiến/Chỉ tiêu"), nhận ra cả khi
+  viết hoa, có số thứ tự La Mã, hoặc gõ không dấu. Tự đoán khối lớp và họ tên người lập.
+- Tiêu đề mục phải nằm ở đầu dòng: nếu không neo như vậy thì một dòng nội dung như
+  "Hoàn thành 2 mô-đun BDTX" sẽ bị nhận nhầm là tiêu đề và mất nội dung (đã có kiểm thử cho ca này).
+- Word/PDF dùng lại bộ đọc của phần nhập giáo án nên giữ được công thức MathType đổi sang LaTeX.
+  Excel đọc theo kiểu "ô đầu là nhãn mục, các ô sau là nội dung".
+- Tệp không nhận ra tiêu đề nào thì toàn văn được đưa vào mục "Nhiệm vụ được giao" kèm cảnh báo
+  màu vàng để thầy/cô cắt lại cho đúng.
 
 **Chưa làm trong bản này:**
 - Chưa có đường dẫn riêng cho từng phân hệ (nhấn F5 vẫn giữ đúng phân hệ nhờ `localStorage`,

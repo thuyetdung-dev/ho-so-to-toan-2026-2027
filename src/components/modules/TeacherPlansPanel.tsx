@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId } from '../../utils/ids';
+import { importTeacherPlanFile } from '../../utils/teacherPlanImport';
 import type { TeacherPlan } from '../../types';
 import {
   Plus,
@@ -14,6 +15,9 @@ import {
   FileCheck,
   Printer,
   User as UserIcon,
+  Upload,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 
 const STATUS_BADGE: Record<TeacherPlan['status'], { label: string; cls: string }> = {
@@ -50,6 +54,9 @@ export const TeacherPlansPanel: React.FC = () => {
   const [editing, setEditing] = useState<{ plan: TeacherPlan; isNew: boolean } | null>(null);
   const [reviewing, setReviewing] = useState<{ plan: TeacherPlan; action: 'approve' | 'return' } | null>(null);
   const [reviewNote, setReviewNote] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importNotes, setImportNotes] = useState<string[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Giáo viên có thể đứng tên kế hoạch: tổ trưởng chọn được mọi người, giáo viên chỉ chính mình
   const selectableTeachers = useMemo(
@@ -95,6 +102,58 @@ export const TeacherPlansPanel: React.FC = () => {
     });
   };
 
+  /**
+   * Nhập kế hoạch từ tệp Word/Excel/PDF. Nội dung đọc được chỉ ĐỔ VÀO BIỂU MẪU để thầy/cô
+   * xem lại và sửa; phần mềm không tự lưu vào cơ sở dữ liệu.
+   */
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // cho phép chọn lại đúng tệp đó lần sau
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      setNotification({ message: 'Tệp lớn hơn 25 MB, hãy tách nhỏ hoặc lưu lại gọn hơn.', type: 'error' });
+      return;
+    }
+    const owner = selectableTeachers.find(m => isMe(m.id)) || selectableTeachers[0];
+    if (!owner) {
+      setNotification({ message: 'Chưa có hồ sơ giáo viên nào để lập kế hoạch.', type: 'error' });
+      return;
+    }
+    setImporting(true);
+    try {
+      const r = await importTeacherPlanFile(file);
+      const grade = r.grade || (gradeFilter === 'all' ? 12 : gradeFilter);
+      const notes = [...r.notes];
+      if (!r.recognized) {
+        notes.unshift('Không nhận ra tiêu đề mục nào trong tệp. Toàn bộ nội dung được đưa vào "Nhiệm vụ được giao" để thầy/cô cắt lại cho đúng.');
+      }
+      if (r.grade) notes.push(`Nhận ra Khối ${r.grade} từ nội dung tệp.`);
+      setImportNotes(notes);
+      setEditing({
+        isNew: true,
+        plan: {
+          id: newId('tplan'),
+          teacherId: owner.id,
+          teacherName: owner.displayName,
+          grade,
+          academicYear: config.academicYear,
+          title: r.title?.slice(0, 200) || `Kế hoạch giáo dục của giáo viên – Môn Toán Khối ${grade} – Năm học ${config.academicYear}`,
+          status: 'draft',
+          version: 1,
+          teachingTasks: r.recognized ? r.teachingTasks : r.rawText,
+          selfStudyPlan: r.selfStudyPlan,
+          expectedResults: r.expectedResults,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      setNotification({ message: `Đã đọc tệp ${r.source}. Kiểm tra lại nội dung rồi bấm Lưu.`, type: 'info' });
+    } catch (err) {
+      setNotification({ message: err instanceof Error ? err.message : 'Không đọc được tệp này.', type: 'error' });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing) return;
@@ -108,7 +167,7 @@ export const TeacherPlansPanel: React.FC = () => {
       return;
     }
     await saveTeacherPlan(p);
-    setEditing(null);
+    setEditing(null); setImportNotes([]);
   };
 
   const handleSubmit = async (p: TeacherPlan) => {
@@ -173,6 +232,24 @@ export const TeacherPlansPanel: React.FC = () => {
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Thêm kế hoạch cá nhân</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".docx,.pdf,.xlsx,.xls,.csv,.txt"
+            onChange={handleImportFile}
+            className="hidden"
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            title="Đọc kế hoạch đã soạn sẵn trong Word, Excel hoặc PDF"
+            className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-slate-50 text-blue-700 rounded-lg border border-blue-200 flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+          >
+            {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            <span>{importing ? 'Đang đọc tệp...' : 'Nhập từ Word / Excel / PDF'}</span>
           </button>
           <button
             onClick={() => window.print()}
@@ -313,10 +390,22 @@ export const TeacherPlansPanel: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900">
                 {editing.isNew ? 'Thêm kế hoạch giáo dục của giáo viên' : 'Chỉnh sửa kế hoạch cá nhân'}
               </h3>
-              <button type="button" onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-600" aria-label="Đóng">
+              <button type="button" onClick={() => { setEditing(null); setImportNotes([]); }} className="text-slate-400 hover:text-slate-600" aria-label="Đóng">
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {importNotes.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 space-y-1" data-testid="import-notes">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Nội dung đọc từ tệp – hãy kiểm tra lại trước khi lưu</span>
+                </div>
+                <ul className="list-disc list-inside text-amber-800 space-y-0.5">
+                  {importNotes.map((n, i) => <li key={i}>{n}</li>)}
+                </ul>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block font-semibold text-slate-700">
@@ -394,7 +483,7 @@ export const TeacherPlansPanel: React.FC = () => {
             </label>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              <button type="button" onClick={() => setEditing(null)} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+              <button type="button" onClick={() => { setEditing(null); setImportNotes([]); }} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
                 Hủy
               </button>
               <button type="submit" className="px-3.5 py-1.5 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
