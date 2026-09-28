@@ -12,6 +12,7 @@
  */
 import type { TeacherPlanLine } from '../types';
 import { extractTextFromFile } from './lessonImport';
+import type { DetectedPart } from './teacherPlanSections';
 import type { ImportedDistItem } from './planImport';
 
 export interface ImportedTeacherPlan {
@@ -211,4 +212,50 @@ export async function importTeacherPlanFile(
     source,
     notes,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Nhập tệp gộp nhiều phần: dò từng bảng rồi tách theo loại kế hoạch và khối
+// ---------------------------------------------------------------------------
+
+/** Kết quả dò tệp, để người dùng xác nhận trước khi tạo kế hoạch */
+export interface TeacherPlanAnalysis {
+  source: string;
+  notes: string[];
+  parts: DetectedPart[];
+  /** Lớp được phân công, nhiệm vụ kiêm nhiệm đọc được ở mục "Thông tin cá nhân" */
+  className?: string;
+  assignedTasks?: string;
+  teacherName?: string;
+}
+
+/** Đọc dòng "- Lớp được phân công giảng dạy: ..." và "- Nhiệm vụ khác ...: ..." */
+export function readPersonalInfo(text: string): { className?: string; assignedTasks?: string; teacherName?: string } {
+  const out: { className?: string; assignedTasks?: string; teacherName?: string } = {};
+  for (const raw of (text || '').split('\n')) {
+    const line = raw.replace(/^[\s-–•*]+/, '').trim();
+    const f = fold(line);
+    const after = line.split(/[:：]/).slice(1).join(':').trim();
+    if (!after) continue;
+    if (!out.teacherName && /^ho va ten/.test(f)) out.teacherName = after;
+    else if (!out.className && /^lop duoc phan cong/.test(f)) out.className = after;
+    else if (!out.assignedTasks && /^nhiem vu khac/.test(f)) out.assignedTasks = after;
+  }
+  return out;
+}
+
+/**
+ * Dò tệp kế hoạch của giáo viên. KHÔNG tạo kế hoạch nào – chỉ trả về các phần
+ * đọc được để màn hình hỏi lại loại và khối của từng phần.
+ */
+export async function analyzeTeacherPlanFile(
+  file: File,
+  opts: { grade: 10 | 11 | 12 },
+): Promise<TeacherPlanAnalysis> {
+  const { readPlanGrids } = await import('./planImport');
+  const { splitIntoParts } = await import('./teacherPlanSplit');
+  const { grids, text, source, notes } = await readPlanGrids(file);
+  const parts = splitIntoParts(grids, detectGrade(text) || opts.grade);
+  const info = readPersonalInfo(text);
+  return { source, notes, parts, ...info };
 }

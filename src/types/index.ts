@@ -332,8 +332,11 @@ export interface PlanCoreLine {
   periodCount: number;
   content: string;
   requirements: string;
-  /** Thiết bị dạy học và định hướng tích hợp năng lực số, giáo dục AI */
+  /** Thiết bị dạy học và định hướng tích hợp năng lực số, giáo dục AI.
+   *  Với kế hoạch giáo dục hòa nhập, cột này là "Đồ dùng trực quan và phương pháp hỗ trợ". */
   digitalAi: string;
+  /** Ghi chú – chỉ dùng ở kế hoạch giáo dục học sinh hòa nhập */
+  note?: string;
 }
 
 /** Dòng chuyên đề học tập lựa chọn: Tuần | Tiết | Nội dung chuyên đề | Yêu cầu cần đạt và sản phẩm gợi ý */
@@ -378,6 +381,21 @@ export interface PlanAssessmentLine {
 
 /** 'core' = môn học theo khối; 'experience' = hoạt động trải nghiệm, hướng nghiệp */
 export type PlanSectionKind = 'core' | 'experience';
+
+/**
+ * Loại kế hoạch giáo dục của giáo viên. Mỗi loại là một hồ sơ riêng, lọc riêng
+ * trong phân hệ 3 để dễ quản lý:
+ *   teaching   – Kế hoạch giảng dạy môn học
+ *   experience – Hoạt động trải nghiệm, hướng nghiệp
+ *   inclusive  – Giáo dục học sinh hòa nhập
+ */
+export type TeacherPlanKind = 'teaching' | 'experience' | 'inclusive';
+
+export const TEACHER_PLAN_KINDS: { value: TeacherPlanKind; label: string; short: string }[] = [
+  { value: 'teaching', label: 'Kế hoạch giảng dạy', short: 'Giảng dạy' },
+  { value: 'experience', label: 'Hoạt động trải nghiệm, hướng nghiệp', short: 'Trải nghiệm, hướng nghiệp' },
+  { value: 'inclusive', label: 'Giáo dục học sinh hòa nhập', short: 'Hòa nhập' },
+];
 
 /**
  * Một phần của kế hoạch giảng dạy, tương ứng một khối lớp hoặc một hoạt động giáo dục.
@@ -432,6 +450,9 @@ export interface TeacherPlan {
   status: 'draft' | 'submitted' | 'approved' | 'returned';
   version: number;
   updatedAt: string;
+
+  /** Loại kế hoạch; bản ghi cũ không có trường này thì hiểu là 'teaching' */
+  planKind?: TeacherPlanKind;
 
   /** MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC */
   subject?: string;

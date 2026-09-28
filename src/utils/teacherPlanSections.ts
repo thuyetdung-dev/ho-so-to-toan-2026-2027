@@ -8,6 +8,7 @@
  */
 import { newId } from './ids';
 import type {
+  TeacherPlanKind,
   PlanAssessmentLine,
   PlanCoreLine,
   PlanExperienceLine,
@@ -241,3 +242,44 @@ export function withSections(plan: TeacherPlan): TeacherPlan {
     otherTasks: plan.otherTasks?.trim() ? plan.otherTasks : prose,
   };
 }
+
+// ---------- Phần kế hoạch dò được từ tệp nhập ----------
+
+/** Bảng nào trong một phần */
+export type TableRole = 'core' | 'topic' | 'experience' | 'assessment';
+
+export interface DetectedPart {
+  id: string;
+  /** Loại kế hoạch phần mềm đoán được – người dùng sửa được */
+  planKind: TeacherPlanKind;
+  /** Khối lớp phần mềm đoán được – người dùng sửa được */
+  grade: 10 | 11 | 12;
+  /** Chữ đứng trước bảng, để người dùng đối chiếu xem phần mềm tách có đúng không */
+  heading: string;
+  coreLines: PlanCoreLine[];
+  topicLines: PlanTopicLine[];
+  experienceLines: PlanExperienceLine[];
+  assessments: PlanAssessmentLine[];
+}
+
+/** Tổng số dòng đọc được của một phần */
+export const partSize = (p: DetectedPart) =>
+  p.coreLines.length + p.topicLines.length + p.experienceLines.length + p.assessments.length;
+
+/** Dựng phần nội dung của kế hoạch từ một phần đã dò được */
+export function partToSection(part: DetectedPart) {
+  const kind = part.planKind === 'experience' ? 'experience' : 'core';
+  const s = emptySection(1, kind, part.grade);
+  s.coreLines = part.coreLines;
+  s.topicLines = part.topicLines;
+  s.experienceLines = part.experienceLines;
+  if (part.assessments.length) s.assessments = part.assessments;
+  s.title =
+    part.planKind === 'experience'
+      ? `Hoạt động trải nghiệm, hướng nghiệp lớp ${part.grade}`
+      : part.planKind === 'inclusive'
+        ? `Giáo dục hòa nhập khối ${part.grade}`
+        : `Khối ${part.grade}`;
+  return s;
+}
+

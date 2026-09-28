@@ -217,6 +217,41 @@ firebase deploy --only firestore:rules
 - Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
 - Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
 
+### Bản 2.12 – Ba loại kế hoạch riêng, nhập tệp gộp thì phần mềm hỏi rồi tự tách
+
+**Ba loại kế hoạch.** Phân hệ 3 nay lọc theo *loại kế hoạch* trước khi lọc theo khối:
+
+| Loại | Bảng phân phối |
+| --- | --- |
+| Kế hoạch giảng dạy | Tuần \| Tiết PPCT \| Nội dung \| Yêu cầu cần đạt \| Thiết bị và định hướng năng lực số, AI |
+| Hoạt động trải nghiệm, hướng nghiệp | thêm cột *Tích hợp NLS, giáo dục AI* và *Quy mô / Địa điểm* |
+| Giáo dục học sinh hòa nhập | *Nội dung có điều chỉnh cho HSHN* \| *Mức độ điều chỉnh* \| *Đồ dùng trực quan và phương pháp hỗ trợ* \| *Ghi chú* |
+
+Mỗi loại có đủ ba khối, nên tổ có tối đa chín hồ sơ độc lập thay vì gộp chung một chỗ.
+Kế hoạch lập từ bản 2.11 trở về trước không có trường loại thì hiểu là *Kế hoạch giảng dạy*.
+
+**Nhập tệp gộp nhiều phần.** Bản Word của tổ thường gộp cả khối 10, khối 11, hoạt động trải nghiệm
+và giáo dục hòa nhập trong một tệp. Nút "Nhập từ Word / Excel / PDF" nay **không tạo kế hoạch ngay**:
+
+1. Phần mềm dò từng bảng trong tệp, dựa vào chữ đứng ngay phía trên bảng để đoán loại và khối.
+2. Hiện hộp thoại liệt kê từng phần: dòng chữ nhận ra được, loại kế hoạch, khối, và đọc được bao nhiêu dòng.
+3. Thầy/cô sửa loại hoặc khối nếu phần mềm đoán sai, bỏ qua phần không cần, rồi bấm xác nhận.
+4. Phần mềm tách thành từng kế hoạch riêng. Hai phần cùng loại và cùng khối được gộp làm một.
+
+- **Nhớ ngữ cảnh giữa các bảng.** Trong tệp thật chỉ bảng đầu của mỗi phần mới có dòng "Khối 10" phía trên;
+  các bảng sau ("III. Chuyên đề lựa chọn", "2. Kiểm tra, đánh giá") không ghi lại khối. Bộ dò nhớ loại và khối
+  của bảng liền trước, nếu không thì bảng chuyên đề của khối 10 sẽ rơi sang khối khác (đã có kiểm thử cho ca này).
+- Dấu hiệu "hòa nhập" được xét trước "trải nghiệm", nên dòng "Hoạt động trải nghiệm cho học sinh hòa nhập"
+  vào đúng kế hoạch hòa nhập.
+- Dòng gộp ô kiểu "HỌC KÌ I" trải hết chiều ngang và dòng rỗng bị bỏ qua, không thành dòng phân phối rác.
+- Mục **Thông tin cá nhân** ở đầu tệp (họ tên, lớp được phân công, nhiệm vụ kiêm nhiệm) được đọc và điền
+  vào tất cả kế hoạch tách ra.
+- Phần nào không đọc được dòng nào thì không tạo hồ sơ rỗng.
+
+**Dọn mã:** tách `readPlanGrids` khỏi `importPlanFile` để phần nhập kế hoạch của giáo viên dùng lại được
+`context` của từng bảng; `splitGrid` giữ thêm nguyên văn hàng tiêu đề để đọc lại nhãn cột.
+`teacherPlanSplit.ts` được nạp động nên bộ đọc bảng không nằm trong gói khởi động.
+
 ### Bản 2.11 – Kế hoạch giảng dạy dựng theo đúng bản Word tổ đang dùng
 
 Bản 2.10 dựng theo khung Phụ lục III trần. Bản Word thật của tổ (kế hoạch giảng dạy của

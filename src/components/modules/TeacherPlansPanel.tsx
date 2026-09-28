@@ -2,7 +2,8 @@ import React, { useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId } from '../../utils/ids';
-import { importTeacherPlanFile } from '../../utils/teacherPlanImport';
+import { analyzeTeacherPlanFile, type TeacherPlanAnalysis } from '../../utils/teacherPlanImport';
+
 import { departmentHead } from '../../utils/leaders';
 import {
   DEFAULT_HK1_WEEKS,
@@ -11,11 +12,14 @@ import {
   emptyExperienceLine,
   emptySection,
   emptyTopicLine,
+  partSize,
+  partToSection,
+  type DetectedPart,
   linePeriods,
   withSections,
   workload,
 } from '../../utils/teacherPlanSections';
-import type { TeacherPlan, TeacherPlanSection } from '../../types';
+import { TEACHER_PLAN_KINDS, type TeacherPlan, type TeacherPlanKind, type TeacherPlanSection } from '../../types';
 import {
   Plus,
   Edit3,
@@ -32,6 +36,7 @@ import {
   MessageSquare,
   User as UserIcon,
   Layers,
+  ListChecks,
 } from 'lucide-react';
 
 const STATUS_BADGE: Record<TeacherPlan['status'], { label: string; cls: string }> = {
@@ -75,6 +80,16 @@ const EXPERIENCE_COLS: Col[] = [
   { key: 'requirements', label: 'Yêu cầu cần đạt', width: 'min-w-56', area: true },
   { key: 'digitalAi', label: 'Tích hợp năng lực số, giáo dục AI', width: 'min-w-48', area: true },
   { key: 'venue', label: 'Quy mô / Địa điểm', width: 'w-36', area: true },
+];
+
+/** Bảng phân phối của kế hoạch giáo dục hòa nhập: như bảng cốt lõi, thêm cột Ghi chú */
+const INCLUSIVE_COLS: Col[] = [
+  { key: 'week', label: 'Tuần', width: 'w-24' },
+  { key: 'periods', label: 'Tiết PPCT', width: 'w-20' },
+  { key: 'content', label: 'Nội dung dạy học (điều chỉnh cho HSHN)', width: 'min-w-56', area: true },
+  { key: 'requirements', label: 'Yêu cầu cần đạt (mức độ điều chỉnh)', width: 'min-w-56', area: true },
+  { key: 'digitalAi', label: 'Đồ dùng trực quan và phương pháp hỗ trợ', width: 'min-w-48', area: true },
+  { key: 'note', label: 'Ghi chú', width: 'w-28', area: true },
 ];
 
 const ASSESSMENT_COLS: Col[] = [
@@ -166,6 +181,8 @@ export const TeacherPlansPanel: React.FC = () => {
 
   const isLeader = permissions.isLeader;
   const [gradeFilter, setGradeFilter] = useState<'all' | 10 | 11 | 12>('all');
+  const [kindFilter, setKindFilter] = useState<'all' | TeacherPlanKind>('all');
+  const [analysis, setAnalysis] = useState<TeacherPlanAnalysis | null>(null);
   const [onlyMine, setOnlyMine] = useState(!isLeader);
   const [editing, setEditing] = useState<{ plan: TeacherPlan; isNew: boolean } | null>(null);
   const [activeSection, setActiveSection] = useState(0);
@@ -185,9 +202,10 @@ export const TeacherPlansPanel: React.FC = () => {
       teacherPlans
         .filter(p => p.academicYear === config.academicYear)
         .filter(p => (gradeFilter === 'all' ? true : p.grade === gradeFilter))
+        .filter(p => (kindFilter === 'all' ? true : (p.planKind || 'teaching') === kindFilter))
         .filter(p => (onlyMine ? isMe(p.teacherId) : true))
         .sort((a, b) => a.teacherName.localeCompare(b.teacherName, 'vi') || a.grade - b.grade),
-    [teacherPlans, config.academicYear, gradeFilter, onlyMine, isMe],
+    [teacherPlans, config.academicYear, gradeFilter, kindFilter, onlyMine, isMe],
   );
 
   const canEdit = (p: TeacherPlan) => isLeader || (isMe(p.teacherId) && (p.status === 'draft' || p.status === 'returned'));
@@ -200,19 +218,24 @@ export const TeacherPlansPanel: React.FC = () => {
     setActiveSection(0);
   };
 
-  const blankPlan = (grade: 10 | 11 | 12, owner: { id: string; displayName: string }): TeacherPlan => ({
+  const blankPlan = (
+    grade: 10 | 11 | 12,
+    owner: { id: string; displayName: string },
+    planKind: TeacherPlanKind = 'teaching',
+  ): TeacherPlan => ({
     id: newId('tplan'),
     teacherId: owner.id,
     teacherName: owner.displayName,
     grade,
     academicYear: config.academicYear,
-    title: `Kế hoạch giảng dạy – ${owner.displayName} – Năm học ${config.academicYear}`,
+    planKind,
+    title: `${TEACHER_PLAN_KINDS.find(k => k.value === planKind)?.label || 'Kế hoạch giảng dạy'} – Khối ${grade} – ${owner.displayName} – Năm học ${config.academicYear}`,
     status: 'draft',
     version: 1,
     subject: 'Toán',
     className: '',
     otherTasks: '',
-    sections: [emptySection(1, 'core', grade)],
+    sections: [emptySection(1, planKind === 'experience' ? 'experience' : 'core', grade)],
     comments: [],
     updatedAt: new Date().toISOString(),
   });
@@ -231,7 +254,10 @@ export const TeacherPlansPanel: React.FC = () => {
     if (!owner) return;
     setImportNotes([]);
     setActiveSection(0);
-    setEditing({ isNew: true, plan: blankPlan(gradeFilter === 'all' ? 10 : gradeFilter, owner) });
+    setEditing({
+      isNew: true,
+      plan: blankPlan(gradeFilter === 'all' ? 10 : gradeFilter, owner, kindFilter === 'all' ? 'teaching' : kindFilter),
+    });
   };
 
   const openEdit = (p: TeacherPlan) => {
@@ -246,6 +272,10 @@ export const TeacherPlansPanel: React.FC = () => {
     setEditing({ isNew: false, plan: migrated });
   };
 
+  /**
+   * Nhập tệp: chỉ DÒ rồi mở hộp thoại hỏi lại từng phần.
+   * Không tạo kế hoạch nào cho tới khi thầy/cô bấm xác nhận.
+   */
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -254,57 +284,64 @@ export const TeacherPlansPanel: React.FC = () => {
       setNotification({ message: 'Tệp lớn hơn 25 MB, hãy tách nhỏ hoặc lưu lại gọn hơn.', type: 'error' });
       return;
     }
-    const owner = ownerOrWarn();
-    if (!owner) return;
+    if (!ownerOrWarn()) return;
 
     setImporting(true);
     try {
       const grade = gradeFilter === 'all' ? 10 : gradeFilter;
-      const r = await importTeacherPlanFile(file, { grade, weeksCount: config.weeksCount || 35 });
-      const notes = [...r.notes];
-      if (!r.recognized) {
-        notes.unshift('Không đọc được bảng phân phối chương trình nào trong tệp. Thầy/cô nhập tay hoặc kiểm tra lại định dạng bảng.');
+      const r = await analyzeTeacherPlanFile(file, { grade });
+      if (!r.parts.length) {
+        setNotification({
+          message: 'Không đọc được bảng phân phối chương trình nào trong tệp. Thầy/cô kiểm tra lại định dạng bảng, hoặc nhập tay.',
+          type: 'error',
+        });
+        return;
       }
-      const base = blankPlan(r.grade || grade, owner);
-      const section = emptySection(1, 'core', r.grade || grade);
-      section.coreLines = r.distribution.map((l, i) => ({
-        id: newId('cl'),
-        order: i + 1,
-        week: l.timing || '',
-        periods: '',
-        periodCount: Number(l.periods) || 0,
-        content: l.lesson || '',
-        requirements: '',
-        digitalAi: [l.equipment, l.location].filter(Boolean).join(' · '),
-      }));
-      section.topicLines = r.specialTopics.map((l, i) => ({
-        id: newId('tl'),
-        order: i + 1,
-        week: l.timing || '',
-        periods: '',
-        periodCount: Number(l.periods) || 0,
-        content: l.lesson || '',
-        requirements: '',
-      }));
-      setImportNotes(notes);
-      setActiveSection(0);
-      setEditing({
-        isNew: true,
-        plan: {
-          ...base,
-          title: r.title?.slice(0, 200) || base.title,
-          subject: r.subject || base.subject,
-          className: r.className || '',
-          otherTasks: r.otherTasks,
-          sections: [section],
-        },
-      });
-      setNotification({ message: `Đã đọc tệp ${r.source}. Kiểm tra lại nội dung rồi bấm Lưu.`, type: 'info' });
+      setAnalysis(r);
     } catch (err) {
       setNotification({ message: err instanceof Error ? err.message : 'Không đọc được tệp này.', type: 'error' });
     } finally {
       setImporting(false);
     }
+  };
+
+  const setPart = (id: string, patch: Partial<DetectedPart>) =>
+    setAnalysis(cur => (cur ? { ...cur, parts: cur.parts.map(p => (p.id === id ? { ...p, ...patch } : p)) } : cur));
+
+  const dropPart = (id: string) =>
+    setAnalysis(cur => (cur ? { ...cur, parts: cur.parts.filter(p => p.id !== id) } : cur));
+
+  /** Tạo mỗi phần thành một kế hoạch riêng theo loại và khối đã xác nhận */
+  const confirmImport = async () => {
+    if (!analysis) return;
+    const owner = ownerOrWarn();
+    if (!owner) return;
+    const teacherName = analysis.teacherName?.trim() || owner.displayName;
+
+    // Thầy/cô có thể đổi ô chọn cho hai phần trùng loại và khối → gộp thành một kế hoạch
+    const groups = new Map<string, DetectedPart[]>();
+    for (const part of analysis.parts) {
+      const key = `${part.planKind}|${part.grade}`;
+      groups.set(key, [...(groups.get(key) || []), part]);
+    }
+
+    for (const list of groups.values()) {
+      const first = list[0];
+      const plan = blankPlan(first.grade, owner, first.planKind);
+      await saveTeacherPlan({
+        ...plan,
+        teacherName,
+        className: analysis.className || '',
+        otherTasks: analysis.assignedTasks || '',
+        sections: list.map((part, i) => ({ ...partToSection(part), order: i + 1 })),
+      });
+    }
+    const created = groups.size;
+    setAnalysis(null);
+    setNotification({
+      message: `Đã đọc tệp ${analysis.source} và tách thành ${created} kế hoạch. Mở từng kế hoạch để kiểm tra lại rồi nộp.`,
+      type: 'success',
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -573,6 +610,25 @@ export const TeacherPlansPanel: React.FC = () => {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 text-xs print:hidden">
+        <span className="font-semibold text-slate-600">Loại kế hoạch:</span>
+        <button
+          onClick={() => setKindFilter('all')}
+          className={`px-2.5 py-1 rounded-lg font-medium border ${kindFilter === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
+        >
+          Tất cả
+        </button>
+        {TEACHER_PLAN_KINDS.map(k => (
+          <button
+            key={k.value}
+            onClick={() => setKindFilter(k.value)}
+            className={`px-2.5 py-1 rounded-lg font-medium border ${kindFilter === k.value ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
+          >
+            {k.short}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-center gap-3 text-xs print:hidden">
         <span className="font-semibold text-slate-600">Khối:</span>
         <div className="flex gap-1">
@@ -615,9 +671,15 @@ export const TeacherPlansPanel: React.FC = () => {
                 </div>
 
                 <div className="text-center space-y-0.5">
-                  <h3 className="text-sm font-bold text-slate-900 uppercase">Kế hoạch giảng dạy</h3>
+                  <h3 className="text-sm font-bold text-slate-900 uppercase">
+                    {TEACHER_PLAN_KINDS.find(k => k.value === (p.planKind || 'teaching'))?.label}
+                  </h3>
                   <div className="text-xs italic text-slate-500">(Năm học {p.academicYear})</div>
                   <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      {TEACHER_PLAN_KINDS.find(k => k.value === (p.planKind || 'teaching'))?.short}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200">Khối {p.grade}</span>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badge.cls}`}>{badge.label}</span>
                     <span className="text-[10px] text-slate-400 font-mono">v{p.version || 1}</span>
                     {p.updatedAt && <span className="text-[10px] text-slate-400">cập nhật {new Date(p.updatedAt).toLocaleDateString('vi-VN')}</span>}
@@ -677,13 +739,17 @@ export const TeacherPlansPanel: React.FC = () => {
                       {s.kind === 'core' ? (
                         <>
                           <div className="space-y-1">
-                            <div className="text-[11px] font-semibold text-slate-800">II. Phân phối phần nội dung cốt lõi</div>
-                            <ReadTable cols={CORE_COLS} rows={s.coreLines as unknown as AnyLine[]} />
+                            <div className="text-[11px] font-semibold text-slate-800">
+                              {p.planKind === 'inclusive' ? 'II. Phân phối chương trình có điều chỉnh' : 'II. Phân phối phần nội dung cốt lõi'}
+                            </div>
+                            <ReadTable cols={p.planKind === 'inclusive' ? INCLUSIVE_COLS : CORE_COLS} rows={s.coreLines as unknown as AnyLine[]} />
                           </div>
-                          <div className="space-y-1">
-                            <div className="text-[11px] font-semibold text-slate-800">III. Phân phối chuyên đề học tập lựa chọn</div>
-                            <ReadTable cols={TOPIC_COLS} rows={s.topicLines as unknown as AnyLine[]} />
-                          </div>
+                          {p.planKind !== 'inclusive' && (
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-semibold text-slate-800">III. Phân phối chuyên đề học tập lựa chọn</div>
+                              <ReadTable cols={TOPIC_COLS} rows={s.topicLines as unknown as AnyLine[]} />
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="space-y-1">
@@ -880,13 +946,17 @@ export const TeacherPlansPanel: React.FC = () => {
                       {s.kind === 'core' ? (
                         <>
                           <div className="space-y-1">
-                            <div className="font-semibold text-slate-600">II. Phân phối phần nội dung cốt lõi</div>
-                            <EditTable sIdx={sIdx} keyName="coreLines" cols={CORE_COLS} />
+                            <div className="font-semibold text-slate-600">
+                              {editing.plan.planKind === 'inclusive' ? 'II. Phân phối chương trình có điều chỉnh' : 'II. Phân phối phần nội dung cốt lõi'}
+                            </div>
+                            <EditTable sIdx={sIdx} keyName="coreLines" cols={editing.plan.planKind === 'inclusive' ? INCLUSIVE_COLS : CORE_COLS} />
                           </div>
-                          <div className="space-y-1">
-                            <div className="font-semibold text-slate-600">III. Phân phối chuyên đề học tập lựa chọn</div>
-                            <EditTable sIdx={sIdx} keyName="topicLines" cols={TOPIC_COLS} />
-                          </div>
+                          {editing.plan.planKind !== 'inclusive' && (
+                            <div className="space-y-1">
+                              <div className="font-semibold text-slate-600">III. Phân phối chuyên đề học tập lựa chọn</div>
+                              <EditTable sIdx={sIdx} keyName="topicLines" cols={TOPIC_COLS} />
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="space-y-1">
@@ -930,6 +1000,133 @@ export const TeacherPlansPanel: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ---------- Xác nhận nội dung đọc được từ tệp ---------- */}
+      {analysis && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-4xl my-4">
+            <div className="p-4 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <ListChecks className="w-4 h-4 text-blue-600" />
+                Phần mềm đọc được {analysis.parts.length} phần trong tệp {analysis.source}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Mỗi phần sẽ thành một kế hoạch riêng. Thầy/cô kiểm tra lại loại kế hoạch và khối của từng phần
+                — phần mềm chỉ đoán theo chữ đứng trước bảng nên có thể đoán sai.
+              </p>
+            </div>
+
+            <div className="p-4 space-y-2 text-xs">
+              {(analysis.className || analysis.assignedTasks || analysis.teacherName) && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-0.5 text-slate-700">
+                  <div className="font-semibold text-slate-800">Thông tin cá nhân đọc được</div>
+                  {analysis.teacherName && <div>- Họ và tên: {analysis.teacherName}</div>}
+                  {analysis.className && <div>- Lớp được phân công: {analysis.className}</div>}
+                  {analysis.assignedTasks && <div>- Nhiệm vụ kiêm nhiệm: {analysis.assignedTasks}</div>}
+                </div>
+              )}
+
+              {!!analysis.notes.length && (
+                <ul className="list-disc pl-5 text-slate-500 space-y-0.5">
+                  {analysis.notes.map((n, i) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-100 text-slate-700 font-semibold">
+                    <tr>
+                      <th className="p-2 w-8">TT</th>
+                      <th className="p-2 min-w-48">Nhận ra từ dòng chữ</th>
+                      <th className="p-2 w-52">Đưa vào loại kế hoạch</th>
+                      <th className="p-2 w-24">Khối</th>
+                      <th className="p-2 w-40">Đọc được</th>
+                      <th className="p-2 w-8" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {analysis.parts.map((part, i) => (
+                      <tr key={part.id} className="align-top">
+                        <td className="p-2 text-slate-400">{i + 1}</td>
+                        <td className="p-2 text-slate-700">{part.heading || <span className="italic text-slate-400">không có tiêu đề</span>}</td>
+                        <td className="p-2">
+                          <select
+                            value={part.planKind}
+                            onChange={e => setPart(part.id, { planKind: e.target.value as TeacherPlanKind })}
+                            aria-label={`Loại kế hoạch của phần ${i + 1}`}
+                            className="w-full px-2 py-1 border border-slate-300 rounded"
+                          >
+                            {TEACHER_PLAN_KINDS.map(k => (
+                              <option key={k.value} value={k.value}>
+                                {k.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <select
+                            value={part.grade}
+                            onChange={e => setPart(part.id, { grade: Number(e.target.value) as 10 | 11 | 12 })}
+                            aria-label={`Khối của phần ${i + 1}`}
+                            className="w-full px-2 py-1 border border-slate-300 rounded"
+                          >
+                            {GRADES.map(g => (
+                              <option key={g} value={g}>
+                                Khối {g}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-2 text-slate-600">
+                          {[
+                            part.coreLines.length && `${part.coreLines.length} dòng phân phối`,
+                            part.topicLines.length && `${part.topicLines.length} chuyên đề`,
+                            part.experienceLines.length && `${part.experienceLines.length} hoạt động`,
+                            part.assessments.length && `${part.assessments.length} bài kiểm tra`,
+                          ]
+                            .filter(Boolean)
+                            .join(', ')}
+                        </td>
+                        <td className="p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => dropPart(part.id)}
+                            aria-label={`Bỏ qua phần ${i + 1}`}
+                            title="Không nhập phần này"
+                            className="text-rose-500 hover:bg-rose-50 rounded p-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Hai phần cùng loại và cùng khối sẽ được gộp thành một kế hoạch. Tổng cộng{' '}
+                <strong>{analysis.parts.reduce((n, p) => n + partSize(p), 0)}</strong> dòng.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 p-4 border-t border-slate-200">
+              <button onClick={() => setAnalysis(null)} className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">
+                Hủy
+              </button>
+              <button
+                onClick={confirmImport}
+                disabled={!analysis.parts.length}
+                className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
+              >
+                Tạo {analysis.parts.length} kế hoạch
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

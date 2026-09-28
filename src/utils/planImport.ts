@@ -195,8 +195,10 @@ function evalWeekFromName(name: string, weeksCount: number): number {
 // ---------------------------------------------------------------------------
 // Lưới → bảng → kế hoạch
 // ---------------------------------------------------------------------------
-interface FoundTable {
+export interface FoundTable {
   header: Header;
+  /** Nguyên văn hàng tiêu đề – phần nhập kế hoạch của giáo viên cần đọc lại nhãn cột */
+  headerCells: string[];
   rows: string[][];
   context: string;
 }
@@ -211,7 +213,7 @@ export function splitGrid(grid: Grid): FoundTable[] {
     if (h) {
       // Tiêu đề lặp lại (bảng sang trang mới) → bỏ qua
       if (cur && cur.header.kind === h.kind && JSON.stringify(cur.header.map) === JSON.stringify(h.map)) continue;
-      cur = { header: h, rows: [], context };
+      cur = { header: h, headerCells: row, rows: [], context };
       tables.push(cur);
       continue;
     }
@@ -687,14 +689,27 @@ export function pdfPagesToGrids(pages: PdfTextItem[][]): { grids: Grid[]; text: 
 // ---------------------------------------------------------------------------
 // Tệp → kết quả (chạy trên trình duyệt)
 // ---------------------------------------------------------------------------
-export async function importPlanFile(file: File, opts: PlanImportOptions): Promise<PlanImportResult & { source: string }> {
+/** Lưới bảng đọc được từ tệp, kèm toàn văn – dùng chung cho Phụ lục I và kế hoạch của giáo viên */
+export interface ReadGridsResult {
+  grids: Grid[];
+  text: string;
+  source: string;
+  notes: string[];
+}
+
+/**
+ * Đọc tệp thành các lưới bảng, chưa diễn giải gì.
+ * Tách riêng khỏi `importPlanFile` để phần nhập kế hoạch của giáo viên dùng lại
+ * được `context` (chữ đứng trước mỗi bảng) mà tự tách theo khối và theo loại kế hoạch.
+ */
+export async function readPlanGrids(file: File): Promise<ReadGridsResult> {
   const name = file.name.toLowerCase();
   const buffer = await file.arrayBuffer();
+  const notes: string[] = [];
+
   if (/\.(xlsx|xlsm|xls|ods|csv)$/.test(name)) {
     const XLSX = (await import('@e965/xlsx')) as unknown as XLSXLike;
-    const grids = workbookToGrids(XLSX, buffer);
-    const r = parsePlanGrids(grids, '', opts);
-    return { ...r, source: 'Excel' };
+    return { grids: workbookToGrids(XLSX, buffer), text: '', source: 'Excel', notes };
   }
   if (name.endsWith('.docx')) {
     const { readDocx } = await import('./docxReader');
@@ -704,9 +719,8 @@ export async function importPlanFile(file: File, opts: PlanImportOptions): Promi
       const prevEnd = i > 0 ? d.tables[i - 1].lineIndex : 0;
       return { rows: t.rows, context: lines.slice(Math.max(prevEnd, t.lineIndex - 12), t.lineIndex).join('\n') };
     });
-    const r = parsePlanGrids(grids, d.text, opts);
-    if (d.equations) r.notes.push(`${d.equations} công thức được giữ dạng LaTeX`);
-    return { ...r, source: 'Word' };
+    if (d.equations) notes.push(`${d.equations} công thức được giữ dạng LaTeX`);
+    return { grids, text: d.text, source: 'Word', notes };
   }
   if (name.endsWith('.pdf')) {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -718,12 +732,18 @@ export async function importPlanFile(file: File, opts: PlanImportOptions): Promi
     for (let p = 1; p <= pdf.numPages; p++) pages.push((await (await pdf.getPage(p)).getTextContent()).items as PdfTextItem[]);
     await task.destroy();
     const { grids, text } = pdfPagesToGrids(pages);
-    const r = parsePlanGrids(grids, text, opts);
-    r.notes.push('PDF được dựng lại bảng theo vị trí chữ – nên xem kỹ trước khi lưu');
-    return { ...r, source: 'PDF' };
+    notes.push('PDF được dựng lại bảng theo vị trí chữ – nên xem kỹ trước khi lưu');
+    return { grids, text, source: 'PDF', notes };
   }
   if (name.endsWith('.doc')) throw new Error('Tệp .doc (Word 97-2003) không đọc được. Hãy mở bằng Word và "Lưu thành" .docx rồi nhập lại.');
   throw new Error('Chỉ hỗ trợ Word (.docx), PDF (.pdf) hoặc Excel (.xlsx, .xls).');
+}
+
+export async function importPlanFile(file: File, opts: PlanImportOptions): Promise<PlanImportResult & { source: string }> {
+  const { grids, text, source, notes } = await readPlanGrids(file);
+  const r = parsePlanGrids(grids, text, opts);
+  r.notes.push(...notes);
+  return { ...r, source };
 }
 
 /** Tải tệp Excel mẫu cho kế hoạch dạy học */
