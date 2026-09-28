@@ -717,7 +717,7 @@ export async function readPlanGrids(file: File): Promise<ReadGridsResult> {
     const lines = d.text.split('\n');
     const grids = d.tables.map((t, i) => {
       const prevEnd = i > 0 ? d.tables[i - 1].lineIndex : 0;
-      return { rows: t.rows, context: lines.slice(Math.max(prevEnd, t.lineIndex - 12), t.lineIndex).join('\n') };
+      return { rows: t.rows, context: t.context ?? lines.slice(Math.max(prevEnd, t.lineIndex - 12), t.lineIndex).join('\n') };
     });
     if (d.equations) notes.push(`${d.equations} công thức được giữ dạng LaTeX`);
     return { grids, text: d.text, source: 'Word', notes };

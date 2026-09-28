@@ -33,6 +33,8 @@ export interface DocxReadResult {
 export interface DocxTable {
   rows: string[][];
   lineIndex: number;
+  /** Chỉ các đoạn văn giữa bảng này và bảng trước; không gồm văn bản trong ô. */
+  context?: string;
 }
 
 export interface DocxReadOptions {
@@ -197,7 +199,8 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
 
   const lines: string[] = [];
   const tables: DocxTable[] = [];
-  const block = async (node: Element) => {
+  let precedingParagraphs: string[] = [];
+  const block = async (node: Element, inTable = false) => {
     for (const c of elementChildren(node)) {
       if (c.namespaceURI !== W) {
         if (c.localName === 'AlternateContent') await block(c);
@@ -213,10 +216,14 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
         displayPara = false;
         text.split('\n').forEach((l, i) => {
           const t = l.trim();
-          if (t) lines.push(i === 0 && isList && !/^[-+•]|^[a-zđ]\)|^\d+[.)]|^[IVX]+\./i.test(t) ? `- ${t}` : t);
+          if (t) {
+            lines.push(i === 0 && isList && !/^[-+•]|^[a-zđ]\)|^\d+[.)]|^[IVX]+\./i.test(t) ? `- ${t}` : t);
+            if (!inTable) precedingParagraphs.push(t);
+          }
         });
       } else if (c.localName === 'tbl') {
-        const table: DocxTable = { rows: [], lineIndex: lines.length };
+        const table: DocxTable = { rows: [], lineIndex: lines.length, context: precedingParagraphs.join('\n') };
+        if (!inTable) precedingParagraphs = [];
         const above: string[] = []; // giá trị theo cột lưới của hàng trên (cho ô gộp dọc)
         for (const tr of elementChildren(c).filter(x => x.localName === 'tr')) {
           const row: string[] = [];
@@ -230,7 +237,7 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
             const span = Math.max(1, spanEl ? Number(attrW(spanEl, 'val')) || 1 : 1);
             const vMerge = tcPr && elementChildren(tcPr).find(x => x.localName === 'vMerge');
             const start = lines.length;
-            await block(tc);
+            await block(tc, true);
             let text = lines.slice(start).join('\n');
             if (vMerge && attrW(vMerge, 'val') !== 'restart') text = above[col] ?? '';
             row[col] = text;
@@ -245,7 +252,7 @@ export async function readDocx(buffer: ArrayBuffer, opts: DocxReadOptions = {}):
         }
         tables.push(table);
       } else if (c.localName === 'sdt' || c.localName === 'sdtContent' || c.localName === 'body' || c.localName === 'customXml') {
-        await block(c);
+        await block(c, inTable);
       }
     }
   };

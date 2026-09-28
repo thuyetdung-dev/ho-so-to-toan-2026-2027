@@ -1111,6 +1111,7 @@ export const TeacherPlansPanel: React.FC = () => {
               <p className="text-[11px] text-slate-500">
                 Hai phần cùng loại và cùng khối sẽ được gộp thành một kế hoạch. Tổng cộng{' '}
                 <strong>{analysis.parts.reduce((n, p) => n + partSize(p), 0)}</strong> dòng.
+                {' '}Nếu đổi loại kế hoạch, hãy mở hồ sơ sau khi nhập để kiểm tra các dòng đã được xếp vào đúng bảng.
               </p>
             </div>
 
@@ -1123,7 +1124,7 @@ export const TeacherPlansPanel: React.FC = () => {
                 disabled={!analysis.parts.length}
                 className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
               >
-                Tạo {analysis.parts.length} kế hoạch
+                Tạo {new Set(analysis.parts.map(p => `${p.planKind}|${p.grade}`)).size} kế hoạch
               </button>
             </div>
           </div>

@@ -255,7 +255,10 @@ export async function analyzeTeacherPlanFile(
   const { readPlanGrids } = await import('./planImport');
   const { splitIntoParts } = await import('./teacherPlanSplit');
   const { grids, text, source, notes } = await readPlanGrids(file);
-  const parts = splitIntoParts(grids, detectGrade(text) || opts.grade);
+  const detected = splitIntoParts(grids, detectGrade(text) || opts.grade);
+  const parts = detected.filter(p => p.coreLines.length + p.topicLines.length + p.experienceLines.length > 0);
+  const skipped = detected.filter(p => !parts.includes(p));
+  if (skipped.length) notes.push(`${skipped.length} nhóm chỉ có bảng kiểm tra, chưa có bảng phân phối được bỏ qua. Hãy đối chiếu phần kiểm tra trong tệp gốc.`);
   const info = readPersonalInfo(text);
   return { source, notes, parts, ...info };
 }

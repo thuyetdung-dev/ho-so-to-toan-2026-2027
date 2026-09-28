@@ -11,6 +11,28 @@ import { partSize, partToSection } from '../src/utils/teacherPlanSections.ts';
 import { readPersonalInfo } from '../src/utils/teacherPlanImport.ts';
 import type { Grid } from '../src/utils/planImport.ts';
 
+test('tiêu đề gần bảng nhất quyết định loại và khối dù phần căn cứ nhắc loại khác', () => {
+  const ctx = 'Khối 10\nChuyên đề học tập: 35 tiết\nHoạt động trải nghiệm theo kế hoạch trường\nII. Phân phối phần Toán cốt lõi';
+  assert.equal(detectPlanKind(ctx), 'teaching');
+  assert.equal(detectPartGrade('Lớp 10C7 được phân công\nKhối 11\nII. Phân phối phần Toán cốt lõi', 10), 11);
+  assert.equal(detectTableRole('IV. Phân phối chi tiết nội dung cốt lõi (Hòa nhập)', 'inclusive',
+    ['Tuần', 'Tiết PPCT', 'Nội dung dạy học', 'Yêu cầu cần đạt']), 'core');
+});
+
+test('bảng trải nghiệm có ô tuần trống kế thừa tuần trước, không nhận dòng chủ đề làm tiết', () => {
+  const grids: Grid[] = [{ context: 'Hoạt động trải nghiệm và hướng nghiệp lớp 11', rows: [
+    ['Tuần', 'TT tiết', 'Chủ đề/ Bài học', 'Yêu cầu cần đạt'],
+    ['20', '59', 'Sinh hoạt lớp', 'Hợp tác'],
+    ['CHỦ ĐỀ 6', '', '', ''],
+    ['', '60', 'Bảo tồn cảnh quan', 'Trách nhiệm'],
+    ['21', '61', 'Tổng kết', 'Tự đánh giá'],
+  ] }];
+  const [part] = splitIntoParts(grids, 10);
+  assert.equal(part.experienceLines.length, 3);
+  assert.equal(part.experienceLines[1].week, '20');
+  assert.equal(part.grade, 11);
+});
+
 test('nhận ra loại kế hoạch từ chữ đứng trước bảng', () => {
   assert.equal(detectPlanKind('3. Kế hoạch giáo dục học sinh hòa nhập'), 'inclusive');
   assert.equal(detectPlanKind('IV. PHÂN PHỐI CHI TIẾT 105 TIẾT NỘI DUNG CỐT LÕI MÔN TOÁN 10 (HÒA NHẬP)'), 'inclusive');

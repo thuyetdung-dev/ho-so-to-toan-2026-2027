@@ -22,10 +22,13 @@ import type { TeacherPlanKind } from '../types';
  * loại của bảng liền trước chứ không được mặc định về "giảng dạy".
  */
 export function detectPlanKindStrict(context: string): TeacherPlanKind | null {
-  const f = fold(context);
-  if (/hoa nhap|khuyet tat|hshn/.test(f)) return 'inclusive';
-  if (/trai nghiem|huong nghiep|hdtn/.test(f)) return 'experience';
-  if (/chuyen de|phan phoi|ke hoach day hoc|cot loi|mon /.test(f)) return 'teaching';
+  // Dùng tiêu đề gần bảng nhất. Phần căn cứ có thể nhắc cả chuyên đề lẫn trải nghiệm.
+  for (const line of context.split('\n').reverse()) {
+    const f = fold(line);
+    if (/hoa nhap|khuyet tat|hshn|hoc sinh hn\b/.test(f)) return 'inclusive';
+    if (/trai nghiem|huong nghiep|hdtn/.test(f)) return 'experience';
+    if (/^khoi\s*(10|11|12)\b|^ii\.\s*phan phoi phan toan cot loi|^iii\.\s*phan phoi chuyen de|^ke hoach giang day/.test(f)) return 'teaching';
+  }
   return null;
 }
 
@@ -35,14 +38,22 @@ export function detectPlanKind(context: string, fallback: TeacherPlanKind = 'tea
 
 /** Đoán khối lớp từ chữ đứng trước bảng */
 export function detectPartGrade(context: string, fallback: 10 | 11 | 12): 10 | 11 | 12 {
-  const m = fold(context).match(/(?:khoi|lop|toan)\s*(10|11|12)\b/);
-  return m ? (Number(m[1]) as 10 | 11 | 12) : fallback;
+  for (const line of context.split('\n').reverse()) {
+    const m = fold(line).match(/(?:khoi|lop|toan)\s*(10|11|12)\b/);
+    if (m) return Number(m[1]) as 10 | 11 | 12;
+  }
+  return fallback;
 }
 
 /** Bảng này là bảng gì: phân phối, chuyên đề, trải nghiệm hay kiểm tra đánh giá */
-export function detectTableRole(context: string, planKind: TeacherPlanKind): TableRole {
+export function detectTableRole(context: string, planKind: TeacherPlanKind, header: string[] = []): TableRole {
+  const h = header.map(fold);
+  if (h.some(c => /bai kiem tra|danh gia/.test(c)) && h.some(c => /thoi diem|thoi gian/.test(c))) return 'assessment';
+  if (h.some(c => /noi dung chuyen de/.test(c))) return 'topic';
+  if (h.some(c => /noi dung day hoc/.test(c))) return 'core';
+  if (planKind === 'experience' && h.some(c => /chu de|bai hoc/.test(c))) return 'experience';
   const f = fold(context);
-  if (/kiem tra|danh gia dinh ky|bai kiem tra/.test(f)) return 'assessment';
+  if (/kiem tra|danh gia dinh ky|bai kiem tra/.test(f.split('\n').slice(-2).join(' '))) return 'assessment';
   if (planKind === 'experience') return 'experience';
   if (/chuyen de/.test(f)) return 'topic';
   return 'core';
@@ -146,7 +157,8 @@ export function splitIntoParts(grids: Grid[], fallbackGrade: 10 | 11 | 12): Dete
       const grade = detectPartGrade(ctx, lastGrade);
       lastKind = planKind;
       lastGrade = grade;
-      const role = detectTableRole(ctx, planKind);
+      const headerCells = table.headerCells || [];
+      const role = detectTableRole(ctx, planKind, headerCells);
       const key = `${planKind}|${grade}`;
 
       let part = parts.get(key);
@@ -165,10 +177,12 @@ export function splitIntoParts(grids: Grid[], fallbackGrade: 10 | 11 | 12): Dete
       }
 
       // `splitGrid` đã nhận ra dòng tiêu đề; đọc lại nhãn cột từ chính dòng đó
-      const headerCells = table.headerCells || [];
       const cols = mapColumns(headerCells, role);
       if (cols.content === undefined && role !== 'assessment') continue;
+      // Bảng tổng hợp chủ đề theo STT không phải bảng phân phối theo tuần.
+      if (role !== 'assessment' && cols.week === undefined) continue;
 
+      let previousWeek = '';
       for (const row of table.rows) {
         if (isNoise(row)) continue;
         const content = at(row, cols.content);
@@ -187,9 +201,15 @@ export function splitIntoParts(grids: Grid[], fallbackGrade: 10 | 11 | 12): Dete
           continue;
         }
         if (!content) continue;
+        const rawWeek = at(row, cols.week);
+        const periods = at(row, cols.periods);
+        if (!periods || !/^\d+(?:\s*[-–—]\s*\d+)?$/.test(periods)) continue;
+        const week = /^\d{1,2}(?:\b|\s|\n)/.test(rawWeek) ? rawWeek : (!rawWeek ? previousWeek : '');
+        if (!week) continue;
+        previousWeek = week;
         const base = {
-          week: at(row, cols.week),
-          periods: at(row, cols.periods),
+          week,
+          periods,
           periodCount: 0,
           content,
           requirements: at(row, cols.requirements),
