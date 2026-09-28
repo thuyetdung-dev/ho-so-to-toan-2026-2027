@@ -244,6 +244,11 @@ thì thiếu. Bản 2.10 dựng lại đúng khung:
   `(1)…(5)`, dòng chấm lửng và phần ký tên của khung mẫu.
 - Nhập từ tệp nay đổ thẳng vào **hai bảng**, không còn đổ vào ô văn xuôi.
 - `planImport.ts` được nạp động, không kéo vào gói khởi động.
+- **Sửa tên người ký ô "TỔ TRƯỞNG".** Ô này đang lấy `planApprover(config)` — tức người ký duyệt
+  của Phụ lục I, thường là Phó hiệu trưởng phụ trách chuyên môn — nên in ra tên Ban giám hiệu.
+  Phụ lục III do **tổ trưởng của chính tổ** ký. Nay dùng `departmentHead(allMembers)`:
+  lấy thành viên có vai trò *Tổ trưởng*, nếu chưa gán thì lấy *Quản trị*, không có ai thì **để trống**
+  chứ không điền tên người khác.
 
 ### Bản 2.9 – Siết phân quyền, Kế hoạch cá nhân (Phụ lục III) và nhập từ Word/Excel/PDF
 

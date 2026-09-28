@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId } from '../../utils/ids';
 import { importTeacherPlanFile } from '../../utils/teacherPlanImport';
-import { planApprover } from '../../utils/leaders';
+import { departmentHead } from '../../utils/leaders';
 import type { TeacherPlan, TeacherPlanLine } from '../../types';
 import {
   Plus,
@@ -70,7 +70,7 @@ export const TeacherPlansPanel: React.FC = () => {
     setNotification,
   } = useApp();
   const confirm = useConfirm();
-  const approver = planApprover(config);
+  const head = departmentHead(allMembers);
 
   const isLeader = permissions.isLeader;
   const [gradeFilter, setGradeFilter] = useState<'all' | 10 | 11 | 12>('all');
@@ -522,7 +522,7 @@ export const TeacherPlansPanel: React.FC = () => {
                     <div className="font-bold text-slate-800">TỔ TRƯỞNG</div>
                     <div className="text-[11px] italic text-slate-500">(Ký và ghi rõ họ tên)</div>
                     <div className="h-10" />
-                    <div className="font-semibold text-slate-800">{approver?.name || ''}</div>
+                    <div className="font-semibold text-slate-800">{head?.displayName || ''}</div>
                   </div>
                   <div>
                     <div className="text-[11px] italic text-slate-500">… ngày … tháng … năm ……</div>
