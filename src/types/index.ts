@@ -317,11 +317,110 @@ export interface TeacherPlanLine {
 }
 
 /**
- * Kế hoạch giáo dục của giáo viên – theo đúng Phụ lục III Công văn 5512/BGDĐT-GDTrH.
+ * Dòng phân phối chương trình phần nội dung cốt lõi.
+ * Năm cột đúng như bảng của tổ: Tuần | Tiết PPCT | Nội dung dạy học |
+ * Yêu cầu cần đạt trọng tâm | Thiết bị và định hướng năng lực số, AI.
+ */
+export interface PlanCoreLine {
+  id: string;
+  order: number;
+  /** Tuần, kèm khoảng ngày nếu có: "1 (07/09 – 12/09)" */
+  week: string;
+  /** Tiết theo phân phối chương trình, thường là khoảng: "1-3" */
+  periods: string;
+  /** Số tiết của dòng, dùng để cộng tổng thời lượng */
+  periodCount: number;
+  content: string;
+  requirements: string;
+  /** Thiết bị dạy học và định hướng tích hợp năng lực số, giáo dục AI */
+  digitalAi: string;
+}
+
+/** Dòng chuyên đề học tập lựa chọn: Tuần | Tiết | Nội dung chuyên đề | Yêu cầu cần đạt và sản phẩm gợi ý */
+export interface PlanTopicLine {
+  id: string;
+  order: number;
+  week: string;
+  periods: string;
+  periodCount: number;
+  content: string;
+  requirements: string;
+}
+
+/**
+ * Dòng hoạt động trải nghiệm, hướng nghiệp.
+ * Sáu cột: Tuần | TT tiết | Chủ đề/Bài học | Yêu cầu cần đạt |
+ * Tích hợp năng lực số, giáo dục AI | Quy mô, địa điểm.
+ */
+export interface PlanExperienceLine {
+  id: string;
+  order: number;
+  week: string;
+  periods: string;
+  periodCount: number;
+  content: string;
+  requirements: string;
+  digitalAi: string;
+  /** Quy mô tổ chức và địa điểm: lớp học, sân trường, hội trường... */
+  venue: string;
+}
+
+/** Dòng kiểm tra, đánh giá định kỳ: Bài kiểm tra | Thời gian (1) | Thời điểm (2) | Yêu cầu cần đạt (3) | Hình thức (4) */
+export interface PlanAssessmentLine {
+  id: string;
+  order: number;
+  name: string;
+  duration: string;
+  timing: string;
+  requirements: string;
+  form: string;
+}
+
+/** 'core' = môn học theo khối; 'experience' = hoạt động trải nghiệm, hướng nghiệp */
+export type PlanSectionKind = 'core' | 'experience';
+
+/**
+ * Một phần của kế hoạch giảng dạy, tương ứng một khối lớp hoặc một hoạt động giáo dục.
+ * Giáo viên dạy nhiều khối thì kế hoạch có nhiều phần, đúng như bản Word của tổ.
+ */
+export interface TeacherPlanSection {
+  id: string;
+  order: number;
+  kind: PlanSectionKind;
+  /** Tiêu đề phần: "Khối 10", "Hoạt động trải nghiệm, hướng nghiệp lớp 11" */
+  title: string;
+  grade?: 10 | 11 | 12;
+  /** I. Căn cứ và nguyên tắc xây dựng – mỗi dòng một căn cứ */
+  basis: string;
+  /** II. Phân phối phần nội dung cốt lõi (phần kind='core') */
+  coreLines: PlanCoreLine[];
+  /** III. Phân phối chuyên đề học tập lựa chọn (phần kind='core') */
+  topicLines: PlanTopicLine[];
+  /** Phân phối chương trình hoạt động trải nghiệm (phần kind='experience') */
+  experienceLines: PlanExperienceLine[];
+  /** Kiểm tra, đánh giá định kỳ */
+  assessments: PlanAssessmentLine[];
+  /** V. Tổ chức thực hiện – mỗi dòng một ý */
+  implementation: string;
+  /** Số tuần của học kỳ I, dùng để tách IV. Tổng hợp thời lượng theo học kỳ */
+  hk1Weeks: number;
+}
+
+/**
+ * Kế hoạch giảng dạy của giáo viên, theo đúng cấu trúc bản Word tổ Toán đang dùng
+ * (Phụ lục III Công văn 5512/BGDĐT-GDTrH, có thêm phần tích hợp năng lực số và AI):
  *
- * Bản 2.8 dùng ba ô văn xuôi (teachingTasks / selfStudyPlan / expectedResults) không có
- * trong khung chính thức. Ba trường đó được giữ lại dạng tùy chọn để không mất dữ liệu
- * thầy cô đã nhập; giao diện gom chúng vào mục "II. Nhiệm vụ khác".
+ *   1. Thông tin cá nhân
+ *   2. Kế hoạch dạy học – mỗi khối lớp là một phần gồm:
+ *      I. Căn cứ và nguyên tắc xây dựng
+ *      II. Phân phối phần nội dung cốt lõi
+ *      III. Phân phối chuyên đề học tập lựa chọn
+ *      IV. Tổng hợp thời lượng (phần mềm tự cộng)
+ *      Kiểm tra, đánh giá định kỳ
+ *      V. Tổ chức thực hiện
+ *
+ * Các trường của bản 2.8 và 2.10 được giữ lại dạng tùy chọn để không mất dữ liệu cũ;
+ * giao diện tự chuyển chúng sang cấu trúc mới khi mở chỉnh sửa.
  */
 export interface TeacherPlan {
   id: string;
@@ -334,27 +433,29 @@ export interface TeacherPlan {
   version: number;
   updatedAt: string;
 
-  /** MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC – đầu trang Phụ lục III */
+  /** MÔN HỌC/HOẠT ĐỘNG GIÁO DỤC */
   subject?: string;
-  /** LỚP – đầu trang Phụ lục III (ví dụ "12A1, 12A2") */
+  /** 1. Thông tin cá nhân – lớp được phân công giảng dạy: "10C7, 10C11, 11B14" */
   className?: string;
-
-  /** I.1. Phân phối chương trình */
-  distribution?: TeacherPlanLine[];
-  /** I.2. Chuyên đề lựa chọn (đối với cấp trung học phổ thông) */
-  specialTopics?: TeacherPlanLine[];
-  /** II. Nhiệm vụ khác (nếu có): bồi dưỡng học sinh giỏi, tổ chức hoạt động giáo dục... */
+  /** 1. Thông tin cá nhân – nhiệm vụ khác được phân công kiêm nhiệm */
   otherTasks?: string;
+
+  /** 2. Kế hoạch dạy học – các phần theo khối lớp và hoạt động giáo dục */
+  sections?: TeacherPlanSection[];
 
   /** Ý kiến của tổ trưởng khi duyệt hoặc trả lại */
   comments?: PlanReviewComment[];
 
-  // ----- Trường của bản 2.8, không thuộc khung chính thức; chỉ đọc để chuyển tiếp dữ liệu cũ -----
-  /** @deprecated Bản cũ – nội dung được gom vào otherTasks khi mở chỉnh sửa */
+  // ----- Trường của các bản trước; chỉ đọc để chuyển tiếp dữ liệu cũ -----
+  /** @deprecated Bản 2.10 – được chuyển thành coreLines của phần đầu tiên */
+  distribution?: TeacherPlanLine[];
+  /** @deprecated Bản 2.10 – được chuyển thành topicLines của phần đầu tiên */
+  specialTopics?: TeacherPlanLine[];
+  /** @deprecated Bản 2.8 – được gom vào ô nhiệm vụ kiêm nhiệm */
   teachingTasks?: string;
-  /** @deprecated Bản cũ */
+  /** @deprecated Bản 2.8 */
   selfStudyPlan?: string;
-  /** @deprecated Bản cũ */
+  /** @deprecated Bản 2.8 */
   expectedResults?: string;
 }
 

@@ -217,6 +217,56 @@ firebase deploy --only firestore:rules
 - Nếu một email gắn với nhiều hồ sơ (VD: hồ sơ nhập từ Excel và hồ sơ tạo khi đăng nhập), phần mềm nhận **tất cả** là của mình: giáo án, tài liệu, phiếu dự giờ… ghi dưới hồ sơ cũ vẫn hiện đủ nút **Soạn/Sửa, Trình duyệt, Xóa**.
 - Không thể lỡ tay tự hạ vai trò của chính mình khi sửa hồ sơ.
 
+### Bản 2.11 – Kế hoạch giảng dạy dựng theo đúng bản Word tổ đang dùng
+
+Bản 2.10 dựng theo khung Phụ lục III trần. Bản Word thật của tổ (kế hoạch giảng dạy của
+thầy Đặng Quang Vinh, năm học 2026-2027) cho thấy tổ dùng một khung **rộng hơn** khung trần:
+một giáo viên dạy nhiều khối thì kế hoạch có nhiều phần, mỗi phần có căn cứ xây dựng, hai bảng
+phân phối, bảng tổng hợp thời lượng, bảng kiểm tra đánh giá và phần tổ chức thực hiện riêng.
+
+**Cấu trúc mới của phân hệ 3 – thẻ Kế hoạch cá nhân:**
+
+```
+1. Thông tin cá nhân
+   - Họ và tên giáo viên
+   - Lớp được phân công giảng dạy
+   - Nhiệm vụ khác được phân công kiêm nhiệm
+2. Kế hoạch dạy học  → mỗi khối lớp là một phần:
+   I.   Căn cứ và nguyên tắc xây dựng
+   II.  Phân phối phần nội dung cốt lõi
+        Tuần | Tiết PPCT | Nội dung dạy học | Yêu cầu cần đạt trọng tâm | Thiết bị và định hướng năng lực số, AI
+   III. Phân phối chuyên đề học tập lựa chọn
+        Tuần | Tiết | Nội dung chuyên đề | Yêu cầu cần đạt và sản phẩm gợi ý
+   IV.  Tổng hợp thời lượng            (phần mềm tự cộng, không nhập tay)
+        Kiểm tra, đánh giá định kỳ
+        Bài kiểm tra | Thời gian (1) | Thời điểm (2) | Yêu cầu cần đạt (3) | Hình thức (4)
+   V.   Tổ chức thực hiện
+TỔ TRƯỞNG CHUYÊN MÔN DUYỆT   |   ... ngày ... tháng ... năm ... GIÁO VIÊN (Ghi rõ họ tên, ký tên)
+```
+
+- **Nhiều phần trong một kế hoạch.** Thầy/cô dạy khối 10 và khối 11 thì bấm "Thêm khối" để có
+  hai phần, không phải lập hai kế hoạch rời. Có thêm loại phần **Hoạt động trải nghiệm, hướng nghiệp**
+  với bảng sáu cột riêng (thêm cột *Tích hợp năng lực số, giáo dục AI* và *Quy mô / Địa điểm*).
+- **Cột "Tiết PPCT" nhận khoảng tiết** ("1-3", "4–6"). Phần mềm tự suy ra số tiết của dòng nên
+  không phải gõ thêm cột số tiết; ô ghi ngược ("9-3") thì tính 0 chứ không ra số âm.
+- **IV. Tổng hợp thời lượng do phần mềm cộng**, tách học kỳ theo ô "Học kỳ I kết thúc ở tuần"
+  (mặc định tuần 18). Dòng chưa ghi tuần vẫn được cộng vào tổng cả năm để không âm thầm bỏ sót.
+- **Bảng kiểm tra, đánh giá định kỳ** có sẵn bốn dòng Giữa/Cuối học kỳ I và II.
+- **Không mất dữ liệu cũ.** Kế hoạch lập bằng bản 2.10 được chuyển thành một phần khối;
+  cột *Thiết bị* và *Địa điểm* của bản cũ gộp vào cột *Thiết bị và định hướng năng lực số, AI*,
+  và màn hình báo rõ điều đó bằng dải màu vàng. Kế hoạch bản 2.8 vẫn gom ba ô văn xuôi vào
+  mục nhiệm vụ kiêm nhiệm như bản 2.10.
+- Mục ký đổi thành **"TỔ TRƯỞNG CHUYÊN MÔN DUYỆT"** và **"GIÁO VIÊN (Ghi rõ họ tên, ký tên)"**
+  đúng như bản Word.
+
+**Chưa có trong bản này** (có trong bản Word nhưng là phân hệ riêng, cần làm tiếp):
+- **Kế hoạch giáo dục học sinh hòa nhập**: đặc điểm tình hình, danh sách học sinh khuyết tật,
+  mục tiêu từng học kỳ, kế hoạch từng tháng (9 bảng), phân phối 105 tiết có điều chỉnh,
+  nhận xét cuối năm. Đây là một hồ sơ riêng, không phải một mục của kế hoạch giảng dạy.
+- **Kế hoạch giáo dục của tổ (Phụ lục I và Phụ lục II)** vẫn chưa được đối chiếu với biểu mẫu
+  chính thức, vì tệp gửi sang là kế hoạch của *giáo viên*. Phụ lục I hiện thừa cột *Thiết bị*,
+  *Địa điểm* và thiếu bảng *Chuyên đề lựa chọn*; Phụ lục II chưa có.
+
 ### Bản 2.10 – Kế hoạch cá nhân dựng lại đúng khung Phụ lục III (CV 5512)
 
 **Sửa sai của bản 2.9.** Màn hình Kế hoạch cá nhân ở bản 2.9 gồm ba mục
