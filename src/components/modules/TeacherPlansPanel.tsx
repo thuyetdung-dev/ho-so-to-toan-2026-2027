@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId } from '../../utils/ids';
@@ -180,10 +180,9 @@ export const TeacherPlansPanel: React.FC = () => {
   const head = departmentHead(allMembers);
 
   const isLeader = permissions.isLeader;
-  const [gradeFilter, setGradeFilter] = useState<'all' | 10 | 11 | 12>('all');
+  const [teacherFilter, setTeacherFilter] = useState<string>(isLeader ? 'all' : activeMember.id);
   const [kindFilter, setKindFilter] = useState<'all' | TeacherPlanKind>('all');
   const [analysis, setAnalysis] = useState<TeacherPlanAnalysis | null>(null);
-  const [onlyMine, setOnlyMine] = useState(!isLeader);
   const [editing, setEditing] = useState<{ plan: TeacherPlan; isNew: boolean } | null>(null);
   const [activeSection, setActiveSection] = useState(0);
   const [reviewing, setReviewing] = useState<{ plan: TeacherPlan; action: 'approve' | 'return' } | null>(null);
@@ -197,15 +196,27 @@ export const TeacherPlansPanel: React.FC = () => {
     [isLeader, allMembers, isMe],
   );
 
+  const teacherOptions = useMemo(
+    () => allMembers.filter(m => m.role !== 'principal').sort((a, b) => a.displayName.localeCompare(b.displayName, 'vi')),
+    [allMembers],
+  );
+  useEffect(() => {
+    if (teacherFilter !== 'all' && !teacherOptions.some(m => m.id === teacherFilter)) {
+      setTeacherFilter(isLeader ? 'all' : activeMember.id);
+    }
+  }, [teacherFilter, teacherOptions, isLeader, activeMember.id]);
+  const selectedTeacher = teacherOptions.find(m => m.id === teacherFilter);
+  const plansForYearAndKind = useMemo(
+    () => teacherPlans
+      .filter(p => p.academicYear === config.academicYear)
+      .filter(p => kindFilter === 'all' || (p.planKind || 'teaching') === kindFilter),
+    [teacherPlans, config.academicYear, kindFilter],
+  );
   const visiblePlans = useMemo(
-    () =>
-      teacherPlans
-        .filter(p => p.academicYear === config.academicYear)
-        .filter(p => (gradeFilter === 'all' ? true : p.grade === gradeFilter))
-        .filter(p => (kindFilter === 'all' ? true : (p.planKind || 'teaching') === kindFilter))
-        .filter(p => (onlyMine ? isMe(p.teacherId) : true))
-        .sort((a, b) => a.teacherName.localeCompare(b.teacherName, 'vi') || a.grade - b.grade),
-    [teacherPlans, config.academicYear, gradeFilter, kindFilter, onlyMine, isMe],
+    () => plansForYearAndKind
+      .filter(p => teacherFilter === 'all' || p.teacherId === teacherFilter)
+      .sort((a, b) => a.teacherName.localeCompare(b.teacherName, 'vi') || a.grade - b.grade),
+    [plansForYearAndKind, teacherFilter],
   );
 
   const canEdit = (p: TeacherPlan) => isLeader || (isMe(p.teacherId) && (p.status === 'draft' || p.status === 'returned'));
@@ -241,7 +252,7 @@ export const TeacherPlansPanel: React.FC = () => {
   });
 
   const ownerOrWarn = () => {
-    const owner = selectableTeachers.find(m => isMe(m.id)) || selectableTeachers[0];
+    const owner = selectableTeachers.find(m => m.id === teacherFilter) || selectableTeachers.find(m => isMe(m.id)) || selectableTeachers[0];
     if (!owner) {
       setNotification({ message: 'Chưa có hồ sơ giáo viên nào để lập kế hoạch. Vào mục Thành viên & Phân công để thêm.', type: 'error' });
       return null;
@@ -256,7 +267,7 @@ export const TeacherPlansPanel: React.FC = () => {
     setActiveSection(0);
     setEditing({
       isNew: true,
-      plan: blankPlan(gradeFilter === 'all' ? 10 : gradeFilter, owner, kindFilter === 'all' ? 'teaching' : kindFilter),
+      plan: blankPlan(10, owner, kindFilter === 'all' ? 'teaching' : kindFilter),
     });
   };
 
@@ -288,7 +299,7 @@ export const TeacherPlansPanel: React.FC = () => {
 
     setImporting(true);
     try {
-      const grade = gradeFilter === 'all' ? 10 : gradeFilter;
+      const grade = 10;
       const r = await analyzeTeacherPlanFile(file, { grade });
       if (!r.parts.length) {
         setNotification({
@@ -635,26 +646,44 @@ export const TeacherPlansPanel: React.FC = () => {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs print:hidden">
-        <span className="font-semibold text-slate-600">Khối:</span>
-        <div className="flex gap-1">
-          {(['all', ...GRADES] as const).map(g => (
-            <button key={g} onClick={() => setGradeFilter(g)} className={`px-2.5 py-1 rounded-lg font-medium border ${gradeFilter === g ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}>
-              {g === 'all' ? 'Tất cả' : `Khối ${g}`}
-            </button>
-          ))}
+      <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="font-semibold text-slate-700">Giáo viên ({teacherOptions.length})</span>
+          <span className="text-slate-500" role="status">
+            {selectedTeacher ? selectedTeacher.displayName : 'Tất cả giáo viên'} · {visiblePlans.length} kế hoạch
+          </span>
         </div>
-        <label className="flex items-center gap-1.5 text-slate-600 cursor-pointer">
-          <input type="checkbox" checked={onlyMine} onChange={e => setOnlyMine(e.target.checked)} />
-          Chỉ kế hoạch của tôi
-        </label>
-        <span className="text-slate-400">{visiblePlans.length} kế hoạch</span>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Chọn giáo viên để xem kế hoạch">
+          <button
+            type="button"
+            onClick={() => setTeacherFilter('all')}
+            aria-pressed={teacherFilter === 'all'}
+            className={`px-3 py-2 rounded-lg text-xs font-medium border ${teacherFilter === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-blue-50'}`}
+          >
+            Tất cả giáo viên
+          </button>
+          {teacherOptions.map(teacher => {
+            const count = plansForYearAndKind.filter(p => p.teacherId === teacher.id).length;
+            return (
+              <button
+                key={teacher.id}
+                type="button"
+                onClick={() => setTeacherFilter(teacher.id)}
+                aria-pressed={teacherFilter === teacher.id}
+                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${teacherFilter === teacher.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-blue-50'}`}
+              >
+                {teacher.displayName}
+                <span className="ml-1.5 opacity-75">({count})</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {visiblePlans.length === 0 ? (
         <div className="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center">
           <FileCheck className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-          <p className="text-sm font-semibold text-slate-600">Chưa có kế hoạch giảng dạy nào cho năm học {config.academicYear}</p>
+          <p className="text-sm font-semibold text-slate-600">Chưa có kế hoạch {kindFilter === 'all' ? '' : TEACHER_PLAN_KINDS.find(k => k.value === kindFilter)?.short.toLowerCase()} {selectedTeacher ? `của ${selectedTeacher.displayName}` : ''} cho năm học {config.academicYear}</p>
           <p className="text-xs text-slate-400 mt-1">Bấm "Thêm kế hoạch cá nhân", hoặc nhập từ tệp Word đã soạn sẵn.</p>
         </div>
       ) : (

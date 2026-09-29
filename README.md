@@ -1,3 +1,5 @@
+> **2.12.2:** danh sách tên giáo viên thay hàng lọc khối, xem kế hoạch bằng cách bấm tên. Xem HUONG-DAN-CAP-NHAT-2.12.2.md.
+
 > Bản sửa hiện tại: **2.12.1**. Đọc [hướng dẫn cập nhật và giới hạn](HUONG-DAN-CAP-NHAT-2.12.1.md) trước khi triển khai. Những thay đổi quyền ghi ở tài liệu này ưu tiên so với mô tả cũ bên dưới.
 
 # Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT
