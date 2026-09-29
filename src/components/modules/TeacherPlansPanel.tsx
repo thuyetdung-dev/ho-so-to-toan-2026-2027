@@ -325,18 +325,25 @@ export const TeacherPlansPanel: React.FC = () => {
       groups.set(key, [...(groups.get(key) || []), part]);
     }
 
+    let created = 0;
+    const failedParts: DetectedPart[] = [];
     for (const list of groups.values()) {
       const first = list[0];
       const plan = blankPlan(first.grade, owner, first.planKind);
-      await saveTeacherPlan({
+      const saved = await saveTeacherPlan({
         ...plan,
         teacherName,
         className: analysis.className || '',
         otherTasks: analysis.assignedTasks || '',
         sections: list.map((part, i) => ({ ...partToSection(part), order: i + 1 })),
       });
+      if (saved) created++; else failedParts.push(...list);
     }
-    const created = groups.size;
+    if (failedParts.length) {
+      setAnalysis({ ...analysis, parts: failedParts });
+      setNotification({ message: `Đã lưu ${created} kế hoạch; các phần chưa lưu được giữ lại để thử lại.`, type: 'error' });
+      return;
+    }
     setAnalysis(null);
     setNotification({
       message: `Đã đọc tệp ${analysis.source} và tách thành ${created} kế hoạch. Mở từng kế hoạch để kiểm tra lại rồi nộp.`,
@@ -365,8 +372,7 @@ export const TeacherPlansPanel: React.FC = () => {
       setNotification({ message: 'Hãy nhập ít nhất một dòng phân phối chương trình, hoặc điền nhiệm vụ kiêm nhiệm.', type: 'error' });
       return;
     }
-    await saveTeacherPlan({ ...p, sections, distribution: [], specialTopics: [] });
-    closeEditor();
+    if (await saveTeacherPlan({ ...p, sections, distribution: [], specialTopics: [] })) closeEditor();
   };
 
   const handleSubmit = async (p: TeacherPlan) => {
@@ -400,7 +406,7 @@ export const TeacherPlansPanel: React.FC = () => {
           },
         ]
       : plan.comments || [];
-    await saveTeacherPlan({ ...plan, status: action === 'approve' ? 'approved' : 'returned', comments: comment });
+    if (!await saveTeacherPlan({ ...plan, status: action === 'approve' ? 'approved' : 'returned', comments: comment })) return;
     setReviewing(null);
     setReviewNote('');
   };

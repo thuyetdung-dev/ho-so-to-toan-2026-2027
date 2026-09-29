@@ -13,6 +13,7 @@ class FakeDb {
   docs = new Map<string, Data>();
   cache = new Map<string, Data>();
   role: 'teacher' | 'leader' = 'teacher';
+  memberId = 'gv-1';
   serverReads = 0;
   serverBytes = 0;
   imageWrites = 0;
@@ -23,14 +24,15 @@ const denied = () => Object.assign(new Error('Missing or insufficient permission
 function checkRules(db: FakeDb, ref: Ref, op: 'write' | 'delete', data?: Data) {
   const leader = db.role === 'leader';
   const plan = (id: string) => db.docs.get(`lessonPlans/${id}`);
-  const canEdit = (id: string) => leader || (!!plan(id) && ['draft', 'returned'].includes(plan(id)!.status));
-  const canClean = (id: string) => leader || !plan(id) || ['draft', 'returned'].includes(plan(id)!.status);
+  const owns = (id: string) => plan(id)?.teacherId === db.memberId;
+  const canEdit = (id: string) => leader || (owns(id) && ['draft', 'returned'].includes(plan(id)!.status));
+  const canClean = canEdit;
   const existing = db.docs.get(ref.path);
   switch (ref.col) {
     case 'lessonPlans':
-      if (op === 'delete') return leader || existing?.status === 'draft';
-      if (!existing) return leader || data!.status === 'draft';
-      return leader || ['draft', 'submitted'].includes(data!.status) || data!.status === existing.status;
+      if (op === 'delete') return leader || (owns(ref.id) && existing?.status === 'draft');
+      if (!existing) return leader || (data!.teacherId === db.memberId && data!.status === 'draft');
+      return leader || (owns(ref.id) && data!.teacherId === existing.teacherId && ['draft', 'returned'].includes(existing.status) && (['draft', 'submitted'].includes(data!.status) || data!.status === existing.status));
     case 'lessonPlanContent':
       if (op === 'delete') return canClean(ref.id);
       return data!.planId === ref.id && canEdit(ref.id);
@@ -40,7 +42,7 @@ function checkRules(db: FakeDb, ref: Ref, op: 'write' | 'delete', data?: Data) {
     case 'lessonPlanVersions':
       if (op === 'delete') return canClean(existing?.planId);
       if (ref.id !== `${data!.planId}__v${data!.index}`) return false;
-      return existing ? canEdit(data!.planId) : !!plan(data!.planId);
+      return canEdit(data!.planId);
   }
   return false;
 }
@@ -279,4 +281,30 @@ test('nộp lại sau khi mất mạng giữa chừng: ghi đè phiên bản khi
     store.writeLessonPlan(db, { ...lightOf(fdb, 'lp-1'), versionHistory: [light.versionHistory![0], { ...entry, dataSnapshot: { title: 'sửa lịch sử', activities: [] } }] }, { isNew: false }),
     /permission/i,
   );
+});
+
+test('xóa thất bại giữ lại bản tóm tắt; xóa thành công dọn cả ảnh ngoài danh sách', async () => {
+  const db = new FakeDb() as never as import('firebase/firestore').Firestore;
+  const fdb = db as unknown as FakeDb;
+  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  const light = lightOf(fdb, 'lp-1');
+  fdb.docs.get('lessonPlans/lp-1')!.status = 'approved';
+  await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
+  assert.ok(fdb.docs.has('lessonPlans/lp-1'));
+  fdb.role = 'leader';
+  fdb.docs.set('lessonPlanImages/lp-1__orphan', { planId: 'lp-1', imageId: 'orphan', data: 'x' });
+  await store.deleteLessonPlanDeep(db, light);
+  assert.equal([...fdb.docs.values()].some(d => d.planId === 'lp-1'), false);
+  assert.equal(fdb.docs.has('lessonPlans/lp-1'), false);
+});
+
+ test('giáo viên khác không sửa, nộp, xóa giáo án của đồng nghiệp (mô phỏng)', async () => {
+  const db = new FakeDb() as never as import('firebase/firestore').Firestore;
+  const fdb = db as unknown as FakeDb;
+  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  const light = lightOf(fdb, 'lp-1');
+  fdb.memberId = 'gv-2';
+  await assert.rejects(store.writeLessonPlan(db, { ...light, status: 'submitted' }, { isNew: false }), /permission/i);
+  await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
+  assert.equal(fdb.docs.get('lessonPlans/lp-1')!.status, 'draft');
 });

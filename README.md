@@ -1,3 +1,5 @@
+> Bản sửa hiện tại: **2.12.1**. Đọc [hướng dẫn cập nhật và giới hạn](HUONG-DAN-CAP-NHAT-2.12.1.md) trước khi triển khai. Những thay đổi quyền ghi ở tài liệu này ưu tiên so với mô tả cũ bên dưới.
+
 # Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT
 
 Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGDĐT-GDTrH và Chương trình GDPT 2018.

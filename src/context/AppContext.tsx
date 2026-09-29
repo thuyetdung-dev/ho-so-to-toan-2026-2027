@@ -158,7 +158,7 @@ interface AppContextType {
   updatePlanDistributionStatus: (planId: string, itemId: string, status: 'planned' | 'in_progress' | 'completed' | 'delayed' | 'make_up', dateTaught?: string) => Promise<void>;
 
   teacherPlans: TeacherPlan[];
-  saveTeacherPlan: (plan: TeacherPlan) => Promise<void>;
+  saveTeacherPlan: (plan: TeacherPlan) => Promise<boolean>;
   deleteTeacherPlan: (id: string) => Promise<void>;
   lessonPlans: LessonPlan[];
   saveLessonPlan: (plan: LessonPlan, options?: { silent?: boolean }) => Promise<boolean>;
@@ -281,7 +281,7 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 /** Các collection được sao lưu/phục hồi/xóa (không gồm members/auditLogs). */
 const CONTENT_COLLECTIONS = [
   'classes', 'assignments', 'departmentPlans', 'teacherPlans', 'lessonPlans',
-  'meetings', 'observations', 'questions', 'examBlueprints', 'exams', 'examResults',
+  'meetings', 'observations',
   'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots',
 ] as const;
 /** Các bảng chứa nội dung/hình/phiên bản giáo án (lưu tách, bản 2.4) */
@@ -532,33 +532,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     subscribeList<Meeting>('meetings', setRealMeetings);
     subscribeList<ObservationRecord>('observations', setRealObservations);
-    subscribeList<Question>('questions', setRealQuestions);
-    subscribeList<ExamBlueprint>('examBlueprints', setRealExamBlueprints);
-    subscribeList<ExamResultRecord>('examResults', setRealExamResults);
     subscribeList<SpecialTopic>('specialTopics', setRealSpecialTopics);
     subscribeList<SkknTopic>('skknTopics', setRealSkknTopics);
     subscribeList<TrainingRecord>('trainings', setRealTrainings);
     subscribeList<InitiativeRecord>('initiatives', setRealInitiatives);
     subscribeList<SharedDocument>('documents', setRealDocuments);
     subscribeList<ReportSnapshot>('reportSnapshots', setRealReportSnapshots);
-
-    if (iAmLeader || myRole === 'principal') {
-      // Tổ trưởng/BGH xem toàn bộ đề (kể cả chưa công bố)
-      subscribeList<Exam>('exams', setRealExams);
-    } else {
-      // Giáo viên: rules chỉ cho đọc đề đã công bố hoặc đề của mình
-      const merge = new Map<string, Exam[]>();
-      const push = (key: string) => (snapshot: { docs: Array<{ id: string; data: () => unknown }> }) => {
-        merge.set(key, snapshot.docs.map(d => ({ ...(d.data() as object), id: d.id }) as Exam));
-        const all = new Map<string, Exam>();
-        merge.forEach(list => list.forEach(e => all.set(e.id, e)));
-        setRealExams([...all.values()]);
-      };
-      subscriptions.push(onSnapshot(query(collection(db, 'exams'), where('isPublished', '==', true)), push('pub'), onError('exams')));
-      if (currentUser) {
-        subscriptions.push(onSnapshot(query(collection(db, 'exams'), where('authorUid', '==', currentUser.uid)), push('mine'), onError('exams')));
-      }
-    }
 
     if (iAmLeader) {
       subscribeList<MemberInvitation>('invitations', setRealInvitations);
@@ -1232,6 +1211,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     status: 'planned' | 'in_progress' | 'completed' | 'delayed' | 'make_up',
     dateTaught?: string,
   ) => {
+    if (!permissions.isLeader && activeMember.role !== 'principal') {
+      setNotification({ message: 'Tiến độ kế hoạch tổ do tổ trưởng/tổ phó hoặc BGH cập nhật. Thầy/cô vui lòng gửi tiến độ cho tổ trưởng.', type: 'error' });
+      return;
+    }
     const plan = currentDeptPlans.find(p => p.id === planId);
     if (!plan) return;
     const updatedPlan: DepartmentPlan = {
@@ -1257,7 +1240,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const saveTeacherPlan = async (plan: TeacherPlan) => {
     const toSave: TeacherPlan = { ...plan, updatedAt: new Date().toISOString() };
     const ok = await upsertItem('teacherPlans', toSave, setDemoTeacherPlans, setRealTeacherPlans);
-    if (!ok) return;
+    if (!ok) return false;
     const STATUS_TEXT: Record<TeacherPlan['status'], string> = {
       draft: 'Bản nháp',
       submitted: 'Đã nộp, chờ duyệt',
@@ -1271,6 +1254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       toSave.id,
       `${toSave.teacherName} – Khối ${toSave.grade} – ${STATUS_TEXT[toSave.status]} (v${toSave.version})`,
     );
+    return true;
   };
 
   const deleteTeacherPlan = async (id: string) => {
@@ -1673,7 +1657,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Chuyên đề, SKKN, bồi dưỡng, tài liệu ----------
   const saveSpecialTopic = async (topic: SpecialTopic) => {
-    const ok = await upsertItem<SpecialTopic>('specialTopics', { ...topic, updatedAt: new Date().toISOString() }, setDemoSpecialTopics, setRealSpecialTopics, true);
+    const ok = await upsertItem<SpecialTopic>('specialTopics', { ...topic, authorId: currentSpecialTopics.some(item => item.id === topic.id) ? topic.authorId : activeMember.id, updatedAt: new Date().toISOString() }, setDemoSpecialTopics, setRealSpecialTopics, true);
     if (ok) {
       setNotification({ message: 'Đã lưu chuyên đề bồi dưỡng', type: 'success' });
       await logAction('Lưu chuyên đề', 'SpecialTopic', topic.id, topic.title);
@@ -1692,12 +1676,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const saveInitiative = async (init: InitiativeRecord) => {
-    const ok = await upsertItem('initiatives', init, setDemoInitiatives, setRealInitiatives);
+    const existing = currentInitiatives.find(item => item.id === init.id);
+    const owned: InitiativeRecord = { ...init, authorId: existing ? existing.authorId : activeMember.id };
+    const ok = await upsertItem('initiatives', owned, setDemoInitiatives, setRealInitiatives);
     if (ok) setNotification({ message: 'Đã lưu đăng ký sáng kiến kinh nghiệm', type: 'success' });
   };
 
   const saveDocument = async (docObj: SharedDocument) => {
-    const ok = await upsertItem<SharedDocument>('documents', { ...docObj, updatedAt: new Date().toISOString() }, setDemoDocuments, setRealDocuments, true);
+    const ok = await upsertItem<SharedDocument>('documents', { ...docObj, uploaderId: currentDocuments.some(item => item.id === docObj.id) ? docObj.uploaderId : activeMember.id, updatedAt: new Date().toISOString() }, setDemoDocuments, setRealDocuments, true);
     if (ok) {
       setNotification({ message: 'Đã lưu tài liệu dùng chung', type: 'success' });
       await logAction('Lưu tài liệu', 'SharedDocument', docObj.id, docObj.title);
@@ -1870,9 +1856,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsLoading(false);
       }
     }
+    if (lessonPlansFull.some(p => p.contentState === 'light')) {
+      setNotification({ message: 'Không thể sao lưu: có giáo án thiếu nội dung. Hãy kiểm tra dữ liệu và thử lại.', type: 'error' });
+      return;
+    }
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.4',
+      version: '2.12.1',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
@@ -1882,15 +1872,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       departmentPlans: currentDeptPlans,
       teacherPlans: currentTeacherPlans,
       lessonPlans: lessonPlansFull
-        .filter(p => p.contentState !== 'light') // (không xảy ra) – không xuất giáo án thiếu nội dung
         .map(asFullForRewrite)
         .map(({ contentState: _c, imageIds: _i, versionBytes: _v, contentBytes: _cb, imageBytes: _ib, ...p }) => p),
       meetings: currentMeetings,
       observations: currentObservations,
-      questions: currentQuestions,
-      examBlueprints: currentExamBlueprints,
-      exams: currentExams,
-      examResults: currentExamResults,
       specialTopics: currentSpecialTopics,
       skknTopics: currentSkknTopics,
       trainings: currentTrainings,
@@ -1922,17 +1907,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const v = data[key];
       if (v === undefined) return [];
       if (!Array.isArray(v)) throw new Error(`Mục "${key}" trong tệp sao lưu không phải danh sách.`);
-      return v.filter(item => item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && (item as { id: string }).id.length > 0 && !(item as { id: string }).id.includes('/'));
+      const ids = new Set<string>();
+      for (const item of v) {
+        const id = item?.id;
+        if (typeof id !== 'string' || !/^[a-zA-Z0-9_@.+\-]{1,160}$/.test(id) || ids.has(id)) {
+          throw new Error(`Mục ${key} chứa mã không hợp lệ hoặc trùng mã. Chưa ghi dữ liệu.`);
+        }
+        ids.add(id);
+      }
+      return v;
     };
+    if (!isDemoMode && ['questions', 'examBlueprints', 'exams', 'examResults'].some(key => listOf(key).length > 0)) {
+      throw new Error('Tệp chứa ngân hàng câu hỏi/đề/kết quả thuộc công cụ cũ. Chưa ghi dữ liệu. Hãy lưu giữ tệp gốc và chuyển các mục này sang công cụ ngoài trước khi phục hồi.');
+    }
     const byKey: Record<string, Array<{ id: string }>> = {};
     for (const key of [...CONTENT_COLLECTIONS, 'members']) byKey[key] = listOf(key);
 
     // Không cho phục hồi đè vai trò Quản trị nếu người thao tác không phải Quản trị
     if (!permissions.isAdmin) {
-      byKey.members = (byKey.members as Member[]).map(m => (m.role === 'admin' ? { ...m, role: 'head' as UserRole } : m));
+      if ((byKey.members as Member[]).some(m => m.role === 'admin')) throw new Error('Tệp chứa hồ sơ Quản trị. Cần Quản trị viên phục hồi; không tự đổi vai trò.');
     }
     const cfg = { ...(data.config as DepartmentConfig), id: isDemoMode ? demoConfig.id : realConfig.id };
 
+    if (!isDemoMode && !permissions.isAdmin && cfg.academicYear !== currentConfig.academicYear) throw new Error('Chỉ Quản trị viên được phục hồi sang năm học khác.');
+    if ((byKey.members as Member[]).some(m => !['admin', 'head', 'deputy', 'teacher', 'principal'].includes(m.role))) throw new Error('Tệp chứa vai trò thành viên không hợp lệ.');
     if (isDemoMode) {
       setDemoConfig(cfg);
       if (data.members) setDemoMembers(byKey.members as Member[]);
@@ -1943,10 +1941,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDemoLessonPlans(byKey.lessonPlans as LessonPlan[]);
       setDemoMeetings(byKey.meetings as Meeting[]);
       setDemoObservations(byKey.observations as ObservationRecord[]);
-      setDemoQuestions(byKey.questions as Question[]);
-      setDemoExamBlueprints(byKey.examBlueprints as ExamBlueprint[]);
-      setDemoExams(byKey.exams as Exam[]);
-      setDemoExamResults(byKey.examResults as ExamResultRecord[]);
+      setDemoQuestions(listOf('questions') as Question[]);
+      setDemoExamBlueprints(listOf('examBlueprints') as ExamBlueprint[]);
+      setDemoExams(listOf('exams') as Exam[]);
+      setDemoExamResults(listOf('examResults') as ExamResultRecord[]);
       setDemoSpecialTopics(byKey.specialTopics as SpecialTopic[]);
       setDemoSkknTopics(byKey.skknTopics as SkknTopic[]);
       setDemoTrainings(byKey.trainings as TrainingRecord[]);
@@ -1960,7 +1958,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Kiểm tra giáo án trước khi ghi bất cứ thứ gì (tránh phục hồi dở dang)
     const badPlans = (byKey.lessonPlans as LessonPlan[]).filter(lp => checkLimits(splitLessonPlan(asFullForRewrite(lp))));
     if (badPlans.length) {
-      byKey.lessonPlans = (byKey.lessonPlans as LessonPlan[]).filter(lp => !badPlans.includes(lp));
+      throw new Error(`${badPlans.length} giáo án vượt giới hạn dung lượng. Chưa ghi dữ liệu; hãy điều chỉnh tệp sao lưu.`);
     }
     setIsLoading(true);
     try {

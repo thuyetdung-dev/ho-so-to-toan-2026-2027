@@ -301,10 +301,11 @@ export async function loadVersionHistory(db: Firestore, plan: LessonPlan): Promi
 /** Xóa giáo án cùng nội dung, hình, phiên bản (bản ghi tóm tắt xóa sau cùng) */
 export async function deleteLessonPlanDeep(db: Firestore, plan: LessonPlan) {
   if (plan.storage === 'split') {
-    for (const id of plan.imageIds || []) await deleteDoc(doc(db, 'lessonPlanImages', imageDocId(plan.id, id))).catch(() => undefined);
-    const versions = await getDocs(query(collection(db, 'lessonPlanVersions'), where('planId', '==', plan.id))).catch(() => null);
-    if (versions) for (const v of versions.docs) await deleteDoc(v.ref).catch(() => undefined);
-    await deleteDoc(doc(db, 'lessonPlanContent', plan.id)).catch(() => undefined);
+    const images = await getDocs(query(collection(db, 'lessonPlanImages'), where('planId', '==', plan.id)));
+    const versions = await getDocs(query(collection(db, 'lessonPlanVersions'), where('planId', '==', plan.id)));
+    for (const image of images.docs) await deleteDoc(image.ref);
+    for (const version of versions.docs) await deleteDoc(version.ref);
+    await deleteDoc(doc(db, 'lessonPlanContent', plan.id));
   }
   await deleteDoc(doc(db, 'lessonPlans', plan.id));
 }

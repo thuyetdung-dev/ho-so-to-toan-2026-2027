@@ -28,7 +28,7 @@ interface Res {
   setHeader: (name: string, value: string) => void;
 }
 
-const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'ho-so-to-toan-2026-2027';
+const projectId = () => process.env.FIREBASE_PROJECT_ID || 'ho-so-to-toan-2026-2027';
 const WINDOW_MS = 10 * 60 * 1000;
 
 const JWKS = createRemoteJWKSet(
@@ -113,16 +113,25 @@ export default async function handler(req: Req, res: Res) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return res.status(401).json({ error: 'Cần đăng nhập Google để dùng Trợ lý AI.' });
   let uid: string;
+  let email: string;
+  let verified: boolean;
   try {
     const { payload } = await jwtVerify(token, JWKS, {
-      issuer: `https://securetoken.google.com/${PROJECT_ID}`,
-      audience: PROJECT_ID,
+      issuer: `https://securetoken.google.com/${projectId()}`,
+      audience: projectId(),
     });
     if (!payload.sub) throw new Error('missing sub');
     uid = payload.sub;
+    email = typeof payload.email === 'string' ? payload.email.toLowerCase() : '';
+    verified = payload.email_verified === true;
   } catch {
     return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Hãy tải lại trang.' });
   }
+
+  const membership = await checkAiMembership(token, email, verified);
+  if (membership !== 200) return res.status(membership).json({ error: membership === 403
+    ? 'Tài khoản chưa được cấp quyền sử dụng phần mềm.'
+    : 'Chưa kiểm tra được quyền truy cập. Vui lòng thử lại sau.' });
 
   if (!allow(uid)) {
     return res.status(429).json({ error: `Bạn đã dùng quá ${process.env.AI_RATE_LIMIT || 30} lượt trong 10 phút. Vui lòng thử lại sau.` });
@@ -173,4 +182,19 @@ export default async function handler(req: Req, res: Res) {
     }
     return res.status(502).json({ error: 'Không gọi được dịch vụ AI. Vui lòng thử lại sau.' });
   }
+}
+
+/** Kiểm tra quyền bằng chính ID token; Firestore rules bảo vệ việc đọc chỉ mục. */
+export async function checkAiMembership(token: string, email: string, verified: boolean): Promise<200 | 403 | 503> {
+  if (!verified || !email) return 403;
+  if (email === 'thuyetdung@gmail.com') return 200;
+  try {
+    const response = await fetch(`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId())}/databases/(default)/documents/accessIndex/${encodeURIComponent(email)}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000),
+    });
+    if ([401, 403, 404].includes(response.status)) return 403;
+    if (!response.ok) return 503;
+    const data = await response.json();
+    return ['admin', 'head', 'deputy', 'teacher', 'principal'].includes(data?.fields?.role?.stringValue) ? 200 : 403;
+  } catch { return 503; }
 }

@@ -661,6 +661,7 @@ export interface TrainingRecord {
 }
 
 export interface InitiativeRecord {
+  authorId?: string;
   id: string;
   teacherName: string;
   title: string;

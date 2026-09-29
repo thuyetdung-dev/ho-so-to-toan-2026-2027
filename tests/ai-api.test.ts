@@ -33,3 +33,21 @@ test('POST token giả → 401', async () => {
   const r = await call({ method: 'POST', headers: { authorization: 'Bearer abc.def.ghi' }, body: { prompt: 'hi' } });
   assert.equal(r.code, 401);
 });
+
+test('AI kiểm tra thành viên, email xác minh và lỗi dịch vụ quyền', async () => {
+  const { checkAiMembership } = await import('../api/ai.ts');
+  const original = globalThis.fetch;
+  let calls = 0;
+  try {
+    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ fields: { role: { stringValue: 'teacher' } } }), { status: 200 }); };
+    assert.equal(await checkAiMembership('token', 'teacher@example.com', false), 403);
+    assert.equal(calls, 0);
+    assert.equal(await checkAiMembership('token', 'teacher@example.com', true), 200);
+    globalThis.fetch = async () => new Response('{}', { status: 404 });
+    assert.equal(await checkAiMembership('token', 'teacher@example.com', true), 403);
+    globalThis.fetch = async () => new Response(JSON.stringify({ fields: { role: { stringValue: 'unknown' } } }));
+    assert.equal(await checkAiMembership('token', 'teacher@example.com', true), 403);
+    globalThis.fetch = async () => { throw new Error('offline'); };
+    assert.equal(await checkAiMembership('token', 'teacher@example.com', true), 503);
+  } finally { globalThis.fetch = original; }
+});
