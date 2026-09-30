@@ -145,7 +145,7 @@ const MainLayout: React.FC = () => {
         className="px-3.5 py-1.5 font-semibold text-indigo-700 hover:bg-indigo-50 border border-indigo-200 rounded-lg flex items-center gap-1.5"
       >
         <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-        <span>Chuyển sang Chế độ Demo</span>
+        <span>Xem dữ liệu mẫu (không lưu chính thức)</span>
       </button>
     </div>
   );
@@ -290,7 +290,7 @@ const MainLayout: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div>Sổ Sinh Hoạt Chuyên Môn Số – Tổ Toán THPT (GDPT 2018 & CV 5512/BGDĐT-GDTrH)</div>
           <div className="flex items-center gap-4 text-[11px]">
-            <span>Hỗ trợ KaTeX & GeoGebra</span>
+            <span>Phiên bản 2.13.0 • Hỗ trợ KaTeX & GeoGebra</span>
             <span>•</span>
             <span>Định dạng đề thi từ 2025</span>
           </div>

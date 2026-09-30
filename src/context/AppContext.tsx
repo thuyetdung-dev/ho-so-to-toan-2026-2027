@@ -1,3 +1,4 @@
+import { canUpdatePlan } from '../utils/workflow';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Member,
@@ -52,6 +53,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  serverTimestamp,
   deleteDoc,
   onSnapshot,
   getDoc,
@@ -290,9 +292,9 @@ const LESSON_PLAN_PART_COLLECTIONS = ['lessonPlanContent', 'lessonPlanImages', '
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('to-toan-data-mode') !== 'real';
+      return localStorage.getItem('to-toan-data-mode') === 'demo';
     } catch {
-      return true;
+      return false;
     }
   });
   const [activeTabState, setActiveTabState] = useState<ActiveModule>(() => {
@@ -789,9 +791,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (authStatus !== 'authorized') return;
     setRealAuditLogs(prev => [newLog, ...prev]);
     try {
-      await setDoc(doc(db, 'auditLogs', newLog.id), newLog);
+      await setDoc(doc(db, 'auditLogs', newLog.id), {...newLog, actorUid: currentUser?.uid, actorEmail: userEmail, recordedAt: serverTimestamp()});
     } catch (e) {
       console.warn('Audit log write error:', e);
+      setNotification({message: 'Thao tác đã thực hiện nhưng chưa ghi được nhật ký. Hãy kiểm tra kết nối/quy tắc dữ liệu.', type: 'error'});
     }
   };
 
@@ -1111,6 +1114,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Kế hoạch tổ ----------
   const saveDepartmentPlan = async (plan: DepartmentPlan, options: { silent?: boolean } = {}) => {
+    const before = currentDeptPlans.find(p => p.id === plan.id);
+    if (!canUpdatePlan(before, plan, activeMember.role, isMe(plan.createdById) || plan.createdBy === activeMember.displayName, true)) {
+      setNotification({message: 'Không có quyền thay đổi nội dung hoặc trạng thái kế hoạch tổ.', type: 'error'}); return false;
+    }
     // Lịch sử phiên bản không được làm bản ghi vượt 1 MB: bỏ nội dung các phiên bản cũ nhất nếu cần
     const updatedPlan: DepartmentPlan = trimHistoryToFit({ ...plan, updatedAt: new Date().toISOString() });
     const ok = await upsertItem('departmentPlans', updatedPlan, setDemoDeptPlans, setRealDeptPlans);
@@ -1238,6 +1245,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const saveTeacherPlan = async (plan: TeacherPlan) => {
+    const before = currentTeacherPlans.find(p => p.id === plan.id);
+    if (!canUpdatePlan(before, plan, activeMember.role, isMe(plan.teacherId))) {
+      setNotification({message: 'Không được tự duyệt hoặc sửa hồ sơ đã trình/đã duyệt.', type: 'error'}); return false;
+    }
     const toSave: TeacherPlan = { ...plan, updatedAt: new Date().toISOString() };
     const ok = await upsertItem('teacherPlans', toSave, setDemoTeacherPlans, setRealTeacherPlans);
     if (!ok) return false;
@@ -1267,6 +1278,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Kế hoạch bài dạy ----------
   const saveLessonPlan = async (plan: LessonPlan, options: { silent?: boolean } = {}) => {
+    const before = currentLessonPlans.find(p => p.id === plan.id);
+    if (!canUpdatePlan(before, plan, activeMember.role, isMe(plan.teacherId))) {
+      setNotification({message: 'Không được tự duyệt hoặc sửa nội dung hồ sơ đã trình/đã duyệt.', type: 'error'}); return false;
+    }
     const updatedPlan: LessonPlan = { ...plan, updatedAt: new Date().toISOString() };
     if (isDemoMode) {
       setDemoLessonPlans(prev => upsertById(prev, { ...updatedPlan, contentState: 'full' }, true));
@@ -1361,25 +1376,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           changeSummary: 'Nộp kế hoạch bài dạy lên Tổ trưởng chuyên môn',
           status: 'submitted',
           comment: comment || 'Kính gửi Tổ trưởng phê duyệt kế hoạch bài dạy.',
-          dataSnapshot: snap,
         },
       ],
     };
-    if (await saveLessonPlan(updatedPlan, { silent: true })) {
+    // Chỉ cập nhật phần phê duyệt; không ghi lại nội dung/hình của giáo án tách.
+    const ok = isDemoMode
+      ? (setDemoLessonPlans(prev => upsertById(prev, updatedPlan, true)), true)
+      : await persist(() => updateDoc(doc(db, 'lessonPlans', planId), {
+          status: updatedPlan.status, approvedBy: updatedPlan.approvedBy || '',
+          updatedAt: now, comments: updatedPlan.comments, versionHistory: updatedPlan.versionHistory,
+        }));
+    if (ok) {
+      if (!isDemoMode) setRealLessonPlans(prev => upsertById(prev, updatedPlan, true));
       setNotification({ message: 'Đã nộp kế hoạch bài dạy lên Tổ chuyên môn duyệt!', type: 'success' });
       await logAction('Nộp kế hoạch bài dạy', 'LessonPlan', planId, `v${nextVersion}`);
     }
   };
 
   const reviewLessonPlan = async (planId: string, action: 'approve' | 'returned', note: string) => {
-    if (!permissions.isLeader) {
-      setNotification({ message: 'Chỉ Tổ trưởng/Tổ phó được duyệt kế hoạch bài dạy.', type: 'error' });
+    if (!permissions.isLeader && activeMember.role !== 'principal') {
+      setNotification({ message: 'Chỉ lãnh đạo hoặc BGH được duyệt kế hoạch bài dạy.', type: 'error' });
       return;
     }
     const plan = currentLessonPlans.find(p => p.id === planId);
     if (!plan) return;
-    const snap = await snapshotOf(plan);
-    if (snap === null) return;
+    if (plan.status !== 'submitted' || isMe(plan.teacherId)) { setNotification({message: 'Không được tự duyệt; chỉ duyệt hồ sơ đang chờ.', type: 'error'}); return; }
+    if (action === 'returned' && !note.trim()) {setNotification({message: 'Hãy ghi lý do trả lại.', type: 'error'}); return;}
     const isApprove = action === 'approve';
     const nextStatus = isApprove ? ('approved' as const) : ('returned' as const);
     const now = new Date().toISOString();
@@ -1397,7 +1419,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           changeSummary: isApprove ? 'Tổ chuyên môn phê duyệt kế hoạch bài dạy' : 'Yêu cầu chỉnh sửa, bổ sung giáo án',
           status: nextStatus,
           comment: note,
-          dataSnapshot: snap,
         },
       ],
       comments: note
@@ -1415,7 +1436,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ]
         : plan.comments || [],
     };
-    if (await saveLessonPlan(updatedPlan, { silent: true })) {
+    // Chỉ cập nhật phần phê duyệt; không ghi lại nội dung/hình của giáo án tách.
+    const ok = isDemoMode
+      ? (setDemoLessonPlans(prev => upsertById(prev, updatedPlan, true)), true)
+      : await persist(() => updateDoc(doc(db, 'lessonPlans', planId), {
+          status: updatedPlan.status, approvedBy: updatedPlan.approvedBy || '',
+          updatedAt: now, comments: updatedPlan.comments, versionHistory: updatedPlan.versionHistory,
+        }));
+    if (ok) {
+      if (!isDemoMode) setRealLessonPlans(prev => upsertById(prev, updatedPlan, true));
       setNotification({
         message: isApprove ? 'Đã phê duyệt kế hoạch bài dạy!' : 'Đã trả lại kế hoạch bài dạy kèm góp ý.',
         type: isApprove ? 'success' : 'info',
@@ -1440,7 +1469,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       taughtDate: isCompleted ? taughtDate || new Date().toISOString().split('T')[0] : undefined,
       taughtClasses: classes || plan.taughtClasses || plan.classNames,
     };
-    if (await saveLessonPlan(updatedPlan, { silent: true })) {
+    if (!isMe(plan.teacherId)) {setNotification({message: 'Chỉ người dạy cập nhật trạng thái thực dạy.', type:'error'}); return;}
+    const fields = {teachingStatus: status, isTaught: isCompleted, taughtDate: updatedPlan.taughtDate || '', taughtClasses: updatedPlan.taughtClasses, updatedAt: new Date().toISOString()};
+    const ok = isDemoMode
+      ? (setDemoLessonPlans(prev => upsertById(prev, {...updatedPlan,...fields}, true)), true)
+      : await persist(() => updateDoc(doc(db, 'lessonPlans', planId), fields));
+    if (ok) {
+      if (!isDemoMode) setRealLessonPlans(prev => upsertById(prev, updatedPlan, true));
       setNotification({ message: 'Đã cập nhật trạng thái thực dạy của giáo án!', type: 'success' });
     }
   };
@@ -1641,7 +1676,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const saveReportSnapshot = async (snapshot: ReportSnapshot) => {
     const existing = currentReportSnapshots.find(s => s.id === snapshot.id);
-    if (existing?.isLocked && !permissions.isAdminOrHead) {
+    if (!permissions.isLeader) {setNotification({message: 'Chỉ lãnh đạo được lưu báo cáo.', type: 'error'}); return false;}
+    if (existing?.isLocked && !(permissions.isAdminOrHead && !snapshot.isLocked && JSON.stringify({...existing,isLocked:false}) === JSON.stringify(snapshot))) {
       setNotification({ message: 'Báo cáo đã chốt, chỉ Tổ trưởng/Quản trị được mở khóa.', type: 'error' });
       return false;
     }
@@ -1862,7 +1898,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.12.1',
+      version: '2.13.0',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
@@ -1953,6 +1989,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDemoReportSnapshots(byKey.reportSnapshots as ReportSnapshot[]);
       setNotification({ message: 'Đã nạp tệp sao lưu vào chế độ dữ liệu mẫu (không ảnh hưởng dữ liệu thật).', type: 'success' });
       return;
+    }
+
+    // Không để phục hồi ghi dở dang khi gặp hồ sơ bị khóa bởi quy trình duyệt.
+    for (const key of ['departmentPlans', 'teacherPlans', 'lessonPlans']) {
+      const existing = key === 'departmentPlans' ? currentDeptPlans : key === 'teacherPlans' ? currentTeacherPlans : currentLessonPlans;
+      if ((byKey[key] as Array<{id:string;status?:string}>).some(p => p.status !== 'draft' || existing.some(old => old.id === p.id && ['submitted','approved'].includes(old.status)))) {
+        throw new Error('Tệp có kế hoạch đang chờ/đã duyệt hoặc đè lên hồ sơ bị khóa. Chưa ghi dữ liệu. Có thể nạp vào demo để đối chiếu; phục hồi chính thức chỉ nhận kế hoạch nháp.');
+      }
+    }
+    if (byKey.reportSnapshots.some(p => currentReportSnapshots.some(old => old.id === p.id && old.isLocked))) {
+      throw new Error('Tệp ghi đè báo cáo đã chốt. Chưa ghi dữ liệu; cần mở khóa riêng trước khi phục hồi.');
     }
 
     // Kiểm tra giáo án trước khi ghi bất cứ thứ gì (tránh phục hồi dở dang)

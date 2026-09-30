@@ -97,7 +97,7 @@ export const PlansModule: React.FC = () => {
         generalSituation: '',
         distribution: [],
         periodicEvaluations: [],
-        createdBy: activeMember.displayName,
+        createdBy: activeMember.displayName, createdById: activeMember.id,
         createdAt: now,
         updatedAt: now,
         versionHistory: [],

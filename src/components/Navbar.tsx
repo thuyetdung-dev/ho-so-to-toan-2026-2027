@@ -60,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs print:hidden">
+    <><header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs print:hidden">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 flex items-center justify-between h-16">
         {/* Left: Mobile Menu Toggle & Brand */}
         <div className="flex items-center gap-3">
@@ -202,5 +202,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
         </div>
       </div>
     </header>
+    {isDemoMode && <div role="status" className="bg-amber-100 border-b border-amber-300 px-4 py-3 text-sm font-semibold text-amber-900 print:hidden">DỮ LIỆU MẪU — thay đổi chỉ lưu trong phiên này, tải lại trang sẽ mất. <button className="underline ml-2" onClick={toggleDemoMode}>Đăng nhập để làm việc chính thức</button></div>}
+    </>
   );
 };

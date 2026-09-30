@@ -21,6 +21,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { exportToExcel } from '../../utils/excel';
+import { Booklet } from './Booklet';
+import { reportRange, reportData, validRange } from '../../utils/reporting';
 import { newId } from '../../utils/ids';
 import { findDuplicateAssignments, summarizeTeacher, teacherComparator } from '../../utils/assignments';
 
@@ -58,20 +60,31 @@ export const ReportsModule: React.FC = () => {
   const [isLocked, setIsLocked] = useState(false);
   const [finalizedBy, setFinalizedBy] = useState('');
 
+  const [reportYear, setReportYear] = useState(config.academicYear);
+  const initialRange = reportRange(config.academicYear, 'Giữa HK1');
+  const [startDate, setStartDate] = useState(initialRange.startDate);
+  const [endDate, setEndDate] = useState(initialRange.endDate);
+  const [savedMetrics, setSavedMetrics] = useState<ReportSnapshot['metrics'] | null>(null);
+  const [evidence, setEvidence] = useState<ReportSnapshot['evidence']>();
+  const [rangeDirty, setRangeDirty] = useState(false);
+  const scoped = reportData({ meetings, observations, lessonPlans, specialTopics }, startDate, endDate);
   // Live aggregated metrics
-  const lessonStudyMeetingsCount = meetings.filter(m => m.type === 'lesson_study').length;
+  const lessonStudyMeetingsCount = scoped.meetings.filter(m => m.type === 'lesson_study').length;
   const activeTeachers = allMembers.filter(m => m.status === 'active' && m.role !== 'principal');
-  const assignedTeacherIds = new Set(assignments.map(a => a.teacherId));
+  const assignedTeacherIds = new Set(assignments.filter(a => a.academicYear === reportYear).map(a => a.teacherId));
   const assignedPct = activeTeachers.length ? Math.round((activeTeachers.filter(m => assignedTeacherIds.has(m.id)).length / activeTeachers.length) * 100) : 0;
 
   const calculateLiveMetrics = () => ({
     membersCount: allMembers.length,
-    meetingsCount: meetings.length,
+    meetingsCount: scoped.meetings.length,
     lessonStudyCount: lessonStudyMeetingsCount,
-    observationsCount: observations.length,
-    plansCount: lessonPlans.length,
-    specialTopicsCount: specialTopics.length,
+    observationsCount: scoped.observations.length,
+    plansCount: scoped.lessonPlans.length,
+    approvedPlansCount: scoped.lessonPlans.filter(p => p.status === 'approved').length,
+    specialTopicsCount: scoped.specialTopics.length,
   });
+
+  const shownMetrics = savedMetrics || calculateLiveMetrics();
 
   // Generate live default narrative strictly based on actual numbers
   const generateLiveNarrative = (term = 'Giữa HK1') => {
@@ -85,10 +98,10 @@ export const ReportsModule: React.FC = () => {
       : 'chưa có dữ liệu dự giờ';
 
     return {
-      title: `Báo cáo sơ kết hoạt động chuyên môn ${term} – Năm học ${config.academicYear}`,
-      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${config.academicYear}: ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${lessonPlans.length} kế hoạch bài dạy được lưu (${lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${specialTopics.length} chuyên đề bồi dưỡng, ${skknTopics.length} đề tài SKKN.`,
+      title: `Báo cáo sơ kết hoạt động chuyên môn ${term} – Năm học ${reportYear}`,
+      summary: `Tổ chuyên môn gồm ${live.membersCount} thành viên. Trong kỳ ${term} năm học ${reportYear} (${startDate} đến ${endDate}): ${assignedPct}% giáo viên đã được phân công giảng dạy (chuẩn gợi ý ${config.standardPeriods || 17} tiết/tuần); ${meetingsText}; ${observationsText}; ${live.plansCount} kế hoạch bài dạy được lưu (${scoped.lessonPlans.filter(p => p.status === 'approved').length} đã duyệt); ${live.specialTopicsCount} chuyên đề bồi dưỡng, ${skknTopics.filter(p => p.academicYear === reportYear).length} đề tài SKKN trong năm học.`,
       adv: `1. (Tổ trưởng điền) Việc chấp hành quy chế chuyên môn, thực hiện chương trình GDPT 2018.\n2. (Tổ trưởng điền) Ứng dụng CNTT, đổi mới phương pháp dạy học.\n3. (Tổ trưởng điền) Kết quả kiểm tra, đánh giá.`,
-      lim: `1. (Tổ trưởng điền) Những hạn chế trong thực hiện chương trình, kiểm tra đánh giá.\n2. ${live.observationsCount < 4 ? 'Hoạt động dự giờ chéo giữa các đồng nghiệp trong tổ cần được đẩy mạnh theo đúng kế hoạch.' : 'Hoạt động viết sáng kiến kinh nghiệm cấp cơ sở cần đẩy nhanh tiến độ thử nghiệm thực tiễn.'}`,
+      lim: `1. (Tổ trưởng điền) Những hạn chế trong thực hiện chương trình, kiểm tra đánh giá.\n2. Chưa đủ dữ liệu chỉ tiêu và minh chứng để tự đánh giá mức độ hoàn thành; tổ trưởng bổ sung nhận xét.`,
       dir: `1. Tiếp tục đổi mới kiểm tra, đánh giá theo định hướng phát triển năng lực, bám sát định dạng đề thi tốt nghiệp THPT.\n2. Tổ chức chuyên đề sinh hoạt chuyên môn theo hướng nghiên cứu bài học tập trung vào các dạng bài toán ứng dụng thực tế.\n3. Duy trì kế hoạch phụ đạo học sinh có kết quả kiểm tra dưới trung bình và bồi dưỡng học sinh khá giỏi.`,
     };
   };
@@ -97,6 +110,10 @@ export const ReportsModule: React.FC = () => {
   useEffect(() => {
     const found = reportSnapshots.find(s => s.id === selectedSnapshotId);
     if (found) {
+      setReportYear(found.academicYear);
+      const range = reportRange(found.academicYear, found.term);
+      setStartDate(found.startDate || range.startDate); setEndDate(found.endDate || range.endDate);
+      setSavedMetrics(found.metrics); setEvidence(found.evidence); setRangeDirty(false);
       setReportTitle(found.title);
       setReportTerm(found.term);
       setExecutiveSummary(found.executiveSummary);
@@ -106,11 +123,14 @@ export const ReportsModule: React.FC = () => {
       setIsLocked(found.isLocked);
       setFinalizedBy(found.finalizedBy);
     } else {
+      setReportYear(config.academicYear); setSavedMetrics(null); setEvidence(undefined); setRangeDirty(true);
+      const range = reportRange(config.academicYear, 'Giữa HK1'); setStartDate(range.startDate); setEndDate(range.endDate);
       // Default to live metrics
       const def = generateLiveNarrative('Giữa HK1');
       setReportTitle(def.title);
       setReportTerm('Giữa HK1');
-      setExecutiveSummary(def.summary);
+      setReportTitle(def.title);
+    setExecutiveSummary(def.summary);
       setAdvantages(def.adv);
       setLimitations(def.lim);
       setFutureDirections(def.dir);
@@ -125,37 +145,38 @@ export const ReportsModule: React.FC = () => {
       setNotification({ message: 'Báo cáo đã chốt và khóa, không thể ghi đè dữ liệu trực tiếp!', type: 'error' });
       return;
     }
+    if (!validRange(startDate, endDate)) { setNotification({message: 'Khoảng ngày báo cáo không hợp lệ.', type: 'error'}); return; }
+    setSavedMetrics(calculateLiveMetrics()); setRangeDirty(false);
+    setEvidence({meetings:scoped.meetings.map(p => p.id), observations:scoped.observations.map(p => p.id), lessonPlans:scoped.lessonPlans.map(p => p.id), specialTopics:scoped.specialTopics.map(p => p.id)});
     const def = generateLiveNarrative(reportTerm);
+    setReportTitle(def.title);
     setExecutiveSummary(def.summary);
     setNotification({ message: 'Đã đồng bộ số liệu thời gian thực từ hệ thống vào báo cáo!', type: 'success' });
   };
 
   // Save or Update Snapshot
   const handleSaveSnapshot = async (lock = false) => {
-    const live = calculateLiveMetrics();
+    const live = savedMetrics || calculateLiveMetrics();
+    if (isLocked || rangeDirty || !validRange(startDate, endDate)) { setNotification({message: 'Hãy đồng bộ số liệu trước khi lưu. Bản đã chốt cần mở khóa riêng.', type: 'error'}); return; }
     if (!isLeader) {
       setNotification({ message: 'Chỉ Tổ trưởng/Tổ phó được lưu và chốt báo cáo.', type: 'error' });
       return;
     }
     const snapshotId = selectedSnapshotId === 'snap-current' ? newId('snap') : selectedSnapshotId;
     const previous = reportSnapshots.find(s => s.id === snapshotId);
-    const author = isLeader ? `${activeMember.displayName} (Tổ trưởng)` : activeMember.displayName;
+    const author = activeMember.displayName;
 
     const newSnapshot: ReportSnapshot = {
       id: snapshotId,
-      title: reportTitle || `Báo cáo sơ kết ${reportTerm} – Năm học ${config.academicYear}`,
-      academicYear: config.academicYear,
+      title: reportTitle || `Báo cáo sơ kết ${reportTerm} – Năm học ${reportYear}`,
+      academicYear: reportYear,
+      startDate, endDate, evidence,
       term: reportTerm,
       periodLabel: `Sơ kết ${reportTerm}`,
       createdAt: previous?.createdAt || new Date().toISOString(),
       finalizedBy: lock ? author : (finalizedBy || author),
       isLocked: lock,
-      sectionsIncluded: [
-        'Thực hiện quy chế chuyên môn',
-        'Sinh hoạt chuyên môn theo NCBH',
-        'Kiểm tra đánh giá theo định dạng 2025',
-        'Phân tích phổ điểm và Item Analysis',
-      ],
+      sectionsIncluded: ['Tổng quan', 'Ưu điểm', 'Hạn chế', 'Phương hướng'],
       metrics: live,
       executiveSummary,
       advantages,
@@ -171,12 +192,12 @@ export const ReportsModule: React.FC = () => {
 
   // Member stats aggregation
   // Số tiết: học kỳ hiện tại, không cộng dòng phân công trùng (tên môn viết khác)
-  const effectiveAssignments = findDuplicateAssignments(assignments).keep.filter(a => a.term === config.currentTerm);
+  const effectiveAssignments = findDuplicateAssignments(assignments).keep.filter(a => a.term === config.currentTerm && a.academicYear === reportYear);
   const teacherStats = [...allMembers].sort((x, y) => teacherComparator(allMembers)(x.id, x.displayName, y.id, y.displayName)).map(member => {
     const asgs = effectiveAssignments.filter(a => a.teacherId === member.id);
     const periods = summarizeTeacher(asgs).total; // tiết theo TKB + tiết quy đổi nhiệm vụ, chủ nhiệm
-    const obsDone = observations.filter(o => o.observerId === member.id).length;
-    const obsReceived = observations.filter(o => o.teacherId === member.id).length;
+    const obsDone = scoped.observations.filter(o => o.observerId === member.id).length;
+    const obsReceived = scoped.observations.filter(o => o.teacherId === member.id).length;
 
     return {
       id: member.id,
@@ -189,16 +210,14 @@ export const ReportsModule: React.FC = () => {
     };
   });
 
-  const handlePrintBooklet = () => {
-    window.print();
-  };
-
   const handleExportReportExcel = () => {
-    const live = calculateLiveMetrics();
+    if (rangeDirty) { setNotification({message: 'Hãy đồng bộ số liệu trước khi xuất.', type: 'error'}); return; }
+    const live = savedMetrics || calculateLiveMetrics();
     const rows = [
       { 'Mục': 'Tiêu đề báo cáo', 'Nội dung': reportTitle },
       { 'Mục': 'Học kỳ / Giai đoạn', 'Nội dung': reportTerm },
-      { 'Mục': 'Năm học', 'Nội dung': config.academicYear },
+      { 'Mục': 'Năm học', 'Nội dung': reportYear },
+      { 'Mục': 'Khoảng ngày', 'Nội dung': reportSnapshots.some(s => s.id === selectedSnapshotId && !s.startDate) ? 'Báo cáo cũ chưa lưu khoảng ngày' : `${startDate} – ${endDate}` },
       { 'Mục': 'Trạng thái', 'Nội dung': isLocked ? 'Đã chốt & Khóa' : 'Bản nháp' },
       { 'Mục': 'Người lập / chốt', 'Nội dung': finalizedBy || activeMember.displayName },
       { 'Mục': 'Số thành viên tổ', 'Nội dung': live.membersCount },
@@ -211,7 +230,7 @@ export const ReportsModule: React.FC = () => {
       { 'Mục': 'Tồn tại & Hạn chế', 'Nội dung': limitations },
       { 'Mục': 'Phương hướng nhiệm vụ kỳ tới', 'Nội dung': futureDirections },
     ];
-    exportToExcel([{ name: 'BaoCaoSoKet', data: rows }], `Bao_Cao_So_Ket_${reportTerm.replace(/\s+/g, '_')}_${config.academicYear}`);
+    exportToExcel([{ name: 'BaoCaoSoKet', data: rows }], `Bao_Cao_So_Ket_${reportTerm.replace(/\s+/g, '_')}_${reportYear}`);
   };
 
   const handleExportTeacherStats = () => {
@@ -223,7 +242,7 @@ export const ReportsModule: React.FC = () => {
       'Số tiết dự giờ đồng nghiệp': t.obsDone,
       'Số tiết được dự': t.obsReceived,
     }));
-    exportToExcel([{ name: 'ThongKeGiaoVien', data: rows }], `Thong_Ke_Tien_Do_To_Toan_${config.academicYear}`);
+    exportToExcel([{ name: 'ThongKeGiaoVien', data: rows }], `Thong_Ke_Tien_Do_To_Toan_${reportYear}`);
   };
 
   return (
@@ -276,33 +295,42 @@ export const ReportsModule: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <div className="text-xs text-slate-500 font-medium">Thành viên tổ</div>
-              <div className="text-2xl font-bold text-blue-700 mt-1">{allMembers.length}</div>
+              <div className="text-2xl font-bold text-blue-700 mt-1">{shownMetrics.membersCount}</div>
               <div className="text-[11px] text-slate-400 mt-0.5">Giáo viên Toán THPT</div>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <div className="text-xs text-slate-500 font-medium">Buổi họp tổ đã tổ chức</div>
-              <div className="text-2xl font-bold text-emerald-600 mt-1">{meetings.length}</div>
+              <div className="text-2xl font-bold text-emerald-600 mt-1">{shownMetrics.meetingsCount}</div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {lessonStudyMeetingsCount} buổi theo NCBH
+                {shownMetrics.lessonStudyCount} buổi theo NCBH
               </div>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <div className="text-xs text-slate-500 font-medium">Tiết dự giờ đã thực hiện</div>
-              <div className="text-2xl font-bold text-indigo-600 mt-1">{observations.length}</div>
+              <div className="text-2xl font-bold text-indigo-600 mt-1">{shownMetrics.observationsCount}</div>
               <div className="text-[11px] text-slate-400 mt-0.5">Theo tiêu chí CV 5512</div>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <div className="text-xs text-slate-500 font-medium">Kế hoạch bài dạy</div>
-              <div className="text-2xl font-bold text-purple-600 mt-1">{lessonPlans.length}</div>
+              <div className="text-2xl font-bold text-purple-600 mt-1">{shownMetrics.plansCount ?? 0}</div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {lessonPlans.filter(p => p.status === 'approved').length} giáo án đã duyệt
+                {shownMetrics.approvedPlansCount ?? 'Chưa lưu số'} giáo án đã duyệt
               </div>
             </div>
           </div>
 
+          <details className="bg-white rounded border p-3 text-xs">
+            <summary className="cursor-pointer font-bold">Minh chứng số liệu {savedMetrics ? '(bản đã lưu/đồng bộ)' : '(theo khoảng ngày đang chọn)'}</summary>
+            {(['meetings','observations','lessonPlans','specialTopics'] as const).map(kind => <div key={kind} className="mt-3"><strong>{{meetings:'Biên bản họp',observations:'Phiếu dự giờ',lessonPlans:'Giáo án',specialTopics:'Chuyên đề'}[kind]}</strong><ul>{(evidence?.[kind] || (savedMetrics ? [] : scoped[kind].map(p => p.id))).map(id => {
+              const item = [...meetings,...observations,...lessonPlans,...specialTopics].find(p => p.id === id) as any;
+              return <li key={id}>{item?.title || item?.lessonName || `Hồ sơ ${id} (không còn trong dữ liệu hiện tại)`}</li>;
+            })}</ul></div>)}
+            {savedMetrics && !evidence && <p>Báo cáo phiên bản cũ chưa lưu danh sách minh chứng. Số liệu được giữ nguyên từ bản đã lưu.</p>}
+            <p className="mt-2">Họp chưa chốt/tương lai trong khoảng ngày hiện tại: {scoped.pendingMeetings.length}. Chuyên đề thiếu ngày không được tự tính. Thành viên là danh sách hiện tại tại thời điểm đồng bộ.</p>
+          </details>
           {/* Sơ kết chuyên môn (Dynamic Report with Snapshots) */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-5">
             {/* Top Toolbar for Snapshot Selection & Actions */}
@@ -327,8 +355,10 @@ export const ReportsModule: React.FC = () => {
                   onChange={e => {
                     const newTerm = e.target.value;
                     setReportTerm(newTerm);
+                    const range = reportRange(reportYear, newTerm);
+                    setStartDate(range.startDate); setEndDate(range.endDate); setRangeDirty(true);
                     if (!isLocked) {
-                      setReportTitle(`Báo cáo sơ kết hoạt động chuyên môn ${newTerm} – Năm học ${config.academicYear}`);
+                      setReportTitle(`Báo cáo sơ kết hoạt động chuyên môn ${newTerm} – Năm học ${reportYear}`);
                     }
                   }}
                   disabled={isLocked}
@@ -341,6 +371,12 @@ export const ReportsModule: React.FC = () => {
                 </select>
               </div>
 
+              <div className="flex flex-wrap gap-2 text-xs">
+                <label>Năm học <input aria-label="Năm học báo cáo" disabled={isLocked} value={reportYear} onChange={e => {setReportYear(e.target.value); setRangeDirty(true);}} className="border rounded p-1 w-24" /></label>
+                <label>Từ ngày <input type="date" disabled={isLocked} value={startDate} onChange={e => {setStartDate(e.target.value); setRangeDirty(true);}} className="border rounded p-1" /></label>
+                <label>Đến ngày <input type="date" disabled={isLocked} value={endDate} onChange={e => {setEndDate(e.target.value); setRangeDirty(true);}} className="border rounded p-1" /></label>
+                <p className="w-full text-amber-700">{reportSnapshots.some(s => s.id === selectedSnapshotId && !s.startDate) ? 'Báo cáo cũ chưa lưu khoảng ngày; các mốc hiển thị chỉ là gợi ý. ' : ''}Mốc ngày gợi ý cần đối chiếu lịch trường. Chỉ tính họp đã chốt và hoạt động đã đến ngày; giáo án tính theo ngày tạo (bản cũ dùng ngày cập nhật). {rangeDirty ? 'Hãy bấm Đồng bộ số liệu.' : ''}</p>
+              </div>
               <div className="flex items-center gap-2">
                 {!isLocked && (
                   <button
@@ -349,7 +385,7 @@ export const ReportsModule: React.FC = () => {
                     title="Cập nhật lại số liệu từ các mô đun chuyên môn"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Làm mới số liệu</span>
+                    <span>Đồng bộ số liệu</span>
                   </button>
                 )}
 
@@ -376,9 +412,12 @@ export const ReportsModule: React.FC = () => {
                       <Lock className="w-3.5 h-3.5 text-emerald-700" />
                       <span>Đã chốt & Khóa</span>
                     </span>
-                    {isLeader && (
+                    {permissions.isAdminOrHead && (
                       <button
-                        onClick={() => setIsLocked(false)}
+                        onClick={async () => {
+                          const original = reportSnapshots.find(s => s.id === selectedSnapshotId);
+                          if (original && window.confirm('Mở khóa bản báo cáo đã chốt để chỉnh sửa?')) await saveReportSnapshot({...original,isLocked:false});
+                        }}
                         className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-800 underline"
                       >
                         Mở khóa sửa
@@ -400,7 +439,7 @@ export const ReportsModule: React.FC = () => {
             {/* Status & Metadata banner */}
             <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div className="flex items-center gap-3">
-                <span>Năm học: <strong className="text-slate-800">{config.academicYear}</strong></span>
+                <span>Năm học: <strong className="text-slate-800">{reportYear}</strong></span>
                 <span>•</span>
                 <span>Giai đoạn: <strong className="text-blue-700">{reportTerm}</strong></span>
                 {finalizedBy && (
@@ -541,80 +580,7 @@ export const ReportsModule: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 3: Complete Booklet A4 Print */}
-      {activeReportTab === 'so_sinh_hoat' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-xs print:hidden">
-            <div>
-              <div className="text-xs font-bold text-slate-900">Sổ Sinh Hoạt Chuyên Môn Số (Đóng cuốn A4)</div>
-              <div className="text-[11px] text-slate-500">
-                Tài liệu tổng hợp đầy đủ danh sách phân công, kế hoạch dạy học, biên bản họp và phiếu dự giờ để nộp BGH / Sở GD&ĐT
-              </div>
-            </div>
-            <button
-              onClick={handlePrintBooklet}
-              className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>In toàn bộ sổ (A4 / PDF)</span>
-            </button>
-          </div>
-
-          {/* Printable Booklet Mock */}
-          <div className="bg-white border border-slate-300 rounded-xl p-8 shadow-sm space-y-8 print:p-0 print:border-none print:shadow-none">
-            {/* Trang bìa */}
-            <div className="text-center py-12 border-2 border-slate-800 rounded-xl space-y-4 print:border-2">
-              <div className="text-xs font-bold uppercase tracking-widest text-slate-700">
-                SỞ GIÁO DỤC VÀ ĐÀO TẠO – {config.schoolName.toUpperCase()}
-              </div>
-              <div className="pt-10">
-                <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">
-                  SỔ SINH HOẠT CHUYÊN MÔN
-                </h1>
-                <h2 className="text-lg font-semibold uppercase text-blue-900 mt-2">
-                  TỔ: {config.departmentName.toUpperCase()}
-                </h2>
-              </div>
-              <div className="text-sm font-medium text-slate-600 pt-8">
-                NĂM HỌC: {config.academicYear}
-              </div>
-              <div className="pt-12 text-xs text-slate-500">
-                Tổ trưởng chuyên môn: <strong>{allMembers.find(m => m.role === 'head')?.displayName || 'ThS. Lê Quốc Dũng'}</strong>
-              </div>
-            </div>
-
-            {/* Mục lục tóm tắt */}
-            <div className="pt-6 border-t border-slate-200 space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                Mục lục các phần trong sổ:
-              </h3>
-              <div className="text-xs space-y-1.5 text-slate-700 font-mono">
-                <div className="flex justify-between border-b border-dashed border-slate-200 pb-1">
-                  <span>Phần I: Danh sách thành viên và Bảng phân công chuyên môn</span>
-                  <span>Trang 02</span>
-                </div>
-                <div className="flex justify-between border-b border-dashed border-slate-200 pb-1">
-                  <span>Phần II: Kế hoạch dạy học của Tổ chuyên môn (Phụ lục I CV 5512)</span>
-                  <span>Trang 05</span>
-                </div>
-                <div className="flex justify-between border-b border-dashed border-slate-200 pb-1">
-                  <span>Phần III: Biên bản các kỳ sinh hoạt theo Nghiên cứu bài học</span>
-                  <span>Trang 12</span>
-                </div>
-                <div className="flex justify-between border-b border-dashed border-slate-200 pb-1">
-                  <span>Phần IV: Tổng hợp phiếu dự giờ và phân tích hoạt động học sinh</span>
-                  <span>Trang 24</span>
-                </div>
-                <div className="flex justify-between border-b border-dashed border-slate-200 pb-1">
-                  <span>Phần V: Báo cáo sơ kết và phân tích phổ điểm các đợt kiểm tra</span>
-                  <span>Trang 30</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeReportTab === 'so_sinh_hoat' && <Booklet />}
     </div>
   );
 };
-

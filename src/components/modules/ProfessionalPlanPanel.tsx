@@ -21,7 +21,7 @@ export const ProfessionalPlanPanel: React.FC = () => {
     title: `Kế hoạch chuyên môn tổ Toán – Năm học ${config.academicYear}`,
     status: 'draft', version: 1, distribution: [], periodicEvaluations: [],
     generalSituation: 'I. CĂN CỨ XÂY DỰNG KẾ HOẠCH\n\nII. ĐẶC ĐIỂM TÌNH HÌNH\n\nIII. MỤC TIÊU VÀ CHỈ TIÊU\n\nIV. NHIỆM VỤ VÀ GIẢI PHÁP\n\nV. KẾ HOẠCH HOẠT ĐỘNG THEO THÁNG\n\nVI. PHÂN CÔNG VÀ TỔ CHỨC THỰC HIỆN\n\nVII. KIỂM TRA, ĐÁNH GIÁ VÀ ĐIỀU CHỈNH',
-    createdBy: activeMember.displayName, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    createdBy: activeMember.displayName, createdById: activeMember.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     comments: [], versionHistory: [],
   };
   const begin = () => { setDraft(makeDraft()); setSourceName(''); };
@@ -82,7 +82,7 @@ export const ProfessionalPlanPanel: React.FC = () => {
     if (await persist(draft, sourceName ? `Nhập kế hoạch chuyên môn từ ${sourceName}` : 'Lưu kế hoạch chuyên môn của tổ')) { setDraft(null); setSourceName(''); }
   };
   const review = async (status: 'approved' | 'returned') => {
-    if (!plan || !permissions.canApproveDeptPlan || plan.status !== 'submitted') return;
+    if (!plan || !permissions.canApproveDeptPlan || plan.status !== 'submitted' || plan.createdBy === activeMember.displayName) return;
     const note = window.prompt(status === 'approved' ? 'Ý kiến phê duyệt (có thể bỏ trống):' : 'Lý do trả lại:');
     if (note === null) return;
     if (status === 'returned' && !note.trim()) { setNotification({message: 'Hãy nhập lý do trả lại.', type: 'error'}); return; }
@@ -105,7 +105,7 @@ export const ProfessionalPlanPanel: React.FC = () => {
         {canEdit && <button disabled={busy} onClick={begin} className="px-3 py-2 bg-blue-600 text-white rounded-lg">{plan ? 'Sửa kế hoạch' : 'Thêm kế hoạch chuyên môn'}</button>}
         {plan && <button onClick={() => window.print()} className="px-3 py-2 border rounded-lg">In / Xuất PDF</button>}
         {plan && canEdit && !draft && <button disabled={busy} onClick={() => persist({ ...plan, status: 'submitted' }, 'Trình duyệt kế hoạch chuyên môn')} className="px-3 py-2 bg-amber-500 text-white rounded-lg">Trình duyệt</button>}
-        {plan?.status === 'submitted' && permissions.canApproveDeptPlan && <>
+        {plan?.status === 'submitted' && plan.createdBy !== activeMember.displayName && permissions.canApproveDeptPlan && <>
           <button disabled={busy} onClick={() => review('approved')} className="px-3 py-2 bg-emerald-600 text-white rounded-lg">Phê duyệt</button>
           <button disabled={busy} onClick={() => review('returned')} className="px-3 py-2 border rounded-lg">Trả lại</button>
         </>}

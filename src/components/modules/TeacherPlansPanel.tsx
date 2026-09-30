@@ -180,7 +180,7 @@ export const TeacherPlansPanel: React.FC = () => {
   const head = departmentHead(allMembers);
 
   const isLeader = permissions.isLeader;
-  const [teacherFilter, setTeacherFilter] = useState<string>(isLeader ? 'all' : activeMember.id);
+  const [teacherFilter, setTeacherFilter] = useState<string>(isLeader || activeMember.role === 'principal' ? 'all' : activeMember.id);
   const [kindFilter, setKindFilter] = useState<'all' | TeacherPlanKind>('all');
   const [analysis, setAnalysis] = useState<TeacherPlanAnalysis | null>(null);
   const [editing, setEditing] = useState<{ plan: TeacherPlan; isNew: boolean } | null>(null);
@@ -202,7 +202,7 @@ export const TeacherPlansPanel: React.FC = () => {
   );
   useEffect(() => {
     if (teacherFilter !== 'all' && !teacherOptions.some(m => m.id === teacherFilter)) {
-      setTeacherFilter(isLeader ? 'all' : activeMember.id);
+      setTeacherFilter(isLeader || activeMember.role === 'principal' ? 'all' : activeMember.id);
     }
   }, [teacherFilter, teacherOptions, isLeader, activeMember.id]);
   const selectedTeacher = teacherOptions.find(m => m.id === teacherFilter);
@@ -219,9 +219,9 @@ export const TeacherPlansPanel: React.FC = () => {
     [plansForYearAndKind, teacherFilter],
   );
 
-  const canEdit = (p: TeacherPlan) => isLeader || (isMe(p.teacherId) && (p.status === 'draft' || p.status === 'returned'));
+  const canEdit = (p: TeacherPlan) => (isLeader || isMe(p.teacherId)) && (p.status === 'draft' || p.status === 'returned');
   const canSubmit = (p: TeacherPlan) => isMe(p.teacherId) && (p.status === 'draft' || p.status === 'returned');
-  const canReview = (p: TeacherPlan) => isLeader && p.status === 'submitted';
+  const canReview = (p: TeacherPlan) => (isLeader || activeMember.role === 'principal') && !isMe(p.teacherId) && p.status === 'submitted';
 
   const closeEditor = () => {
     setEditing(null);
@@ -400,6 +400,7 @@ export const TeacherPlansPanel: React.FC = () => {
     e.preventDefault();
     if (!reviewing) return;
     const { plan, action } = reviewing;
+    if (!canReview(plan)) return;
     if (action === 'return' && !reviewNote.trim()) {
       setNotification({ message: 'Hãy ghi lý do trả lại để giáo viên biết cần điều chỉnh gì.', type: 'error' });
       return;
@@ -742,7 +743,7 @@ export const TeacherPlansPanel: React.FC = () => {
                       </button>
                     </>
                   )}
-                  {isLeader && (
+                  {permissions.isAdminOrHead && p.status !== 'approved' && (
                     <button onClick={() => handleDelete(p)} className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-rose-50 text-rose-600 rounded-lg border border-rose-200 flex items-center gap-1">
                       <Trash2 className="w-3 h-3" /> Xóa
                     </button>

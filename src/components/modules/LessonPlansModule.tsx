@@ -152,13 +152,13 @@ export const LessonPlansModule: React.FC = () => {
   const canEdit = !!selectedPlan && permissions.canContribute && (isOwner || isLeader) && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   const canSubmit = !!selectedPlan && isOwner && (selectedPlan.status === 'draft' || selectedPlan.status === 'returned');
   // Tổ trưởng/tổ phó được sửa lỗi công thức cả khi giáo án đang chờ duyệt / đã duyệt
-  const canFixFormula = canEdit || (!!selectedPlan && isLeader && permissions.canContribute);
+  const canFixFormula = canEdit;
   const formulaIssues = useMemo(
     () => (fullPlan ? countFormulaIssues(fullPlan) : { errors: 0, suggestions: 0 }),
     [fullPlan],
   );
   const [doctorOpen, setDoctorOpen] = useState(false);
-  const canDelete = !!selectedPlan && ((isOwner && selectedPlan.status === 'draft') || permissions.isAdminOrHead);
+  const canDelete = !!selectedPlan && ((isOwner && selectedPlan.status === 'draft') || (permissions.isAdminOrHead && selectedPlan.status !== 'approved'));
 
   const handleDelete = async () => {
     if (!selectedPlan) return;
@@ -714,7 +714,7 @@ export const LessonPlansModule: React.FC = () => {
                   </button>
 
                   {/* Approval controls for Leader */}
-                  {isLeader && selectedPlan.status === 'submitted' && (!isOwner || permissions.isAdminOrHead) && (
+                  {(isLeader || activeMember.role === 'principal') && selectedPlan.status === 'submitted' && !isOwner && (
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => {

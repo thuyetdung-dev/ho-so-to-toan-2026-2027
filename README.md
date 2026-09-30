@@ -1,3 +1,5 @@
+> **2.13.0:** cải thiện báo cáo theo kỳ, đóng cuốn sổ, phân quyền duyệt và đăng nhập/demo. **Cần cập nhật Firestore rules.** Xem [HUONG-DAN-CAP-NHAT-2.13.0.md](HUONG-DAN-CAP-NHAT-2.13.0.md).
+
 > **2.12.6:** thêm nhập Word/Excel/PDF vào Kế hoạch chuyên môn tổ Toán. Xem HUONG-DAN-CAP-NHAT-2.12.6.md.
 
 > **2.12.3:** bổ sung mục Kế hoạch chuyên môn tổ Toán. Xem HUONG-DAN-CAP-NHAT-2.12.3.md.

@@ -290,6 +290,7 @@ export interface DepartmentPlan {
     format: string; // Trắc nghiệm + Tự luận
   }[];
   createdBy: string;
+  createdById?: string;
   approvedBy?: string;
   createdAt?: string;
   updatedAt: string;
@@ -627,6 +628,9 @@ export interface ObservationRecord {
 }
 
 export interface ReportSnapshot {
+  evidence?: { meetings: string[]; observations: string[]; lessonPlans: string[]; specialTopics: string[] };
+  startDate?: string;
+  endDate?: string;
   id: string;
   title: string;
   academicYear: string;
@@ -642,6 +646,7 @@ export interface ReportSnapshot {
     lessonStudyCount: number;
     observationsCount: number;
     plansCount?: number;
+    approvedPlansCount?: number;
     specialTopicsCount?: number;
   };
   executiveSummary: string;
@@ -708,6 +713,8 @@ export interface SkknTopic {
 }
 
 export interface AuditLog {
+  actorUid?: string;
+  actorEmail?: string;
   id: string;
   action: string;
   actorId: string;
