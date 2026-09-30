@@ -290,7 +290,7 @@ const MainLayout: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div>Sổ Sinh Hoạt Chuyên Môn Số – Tổ Toán THPT (GDPT 2018 & CV 5512/BGDĐT-GDTrH)</div>
           <div className="flex items-center gap-4 text-[11px]">
-            <span>Phiên bản 2.13.0 • Hỗ trợ KaTeX & GeoGebra</span>
+            <span>Phiên bản 2.14.0 • Hỗ trợ KaTeX & GeoGebra</span>
             <span>•</span>
             <span>Định dạng đề thi từ 2025</span>
           </div>

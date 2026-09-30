@@ -340,6 +340,21 @@ service cloud.firestore {
     }
 
     // ---------- Nhật ký: chỉ ghi thêm, không sửa/xóa ----------
+    // Quota khóa AI chung: tăng đơn điệu; không cho tự đặt lại cửa sổ trong 10 phút.
+    match /aiUsage/{uid} {
+      function ownQuota() { return isMember() && request.auth.uid == uid; }
+      function shape() { return request.resource.data.keys().hasOnly(['count','windowStart'])
+        && request.resource.data.count is int && request.resource.data.count >= 1 && request.resource.data.count <= 60
+        && request.resource.data.windowStart is timestamp; }
+      allow get: if ownQuota();
+      allow list, delete: if false;
+      allow create: if ownQuota() && shape() && request.resource.data.count == 1 && request.resource.data.windowStart == request.time;
+      allow update: if ownQuota() && shape() && ((request.resource.data.windowStart == resource.data.windowStart
+        && request.resource.data.count == resource.data.count + 1)
+        || (request.time >= resource.data.windowStart + duration.value(10,'m')
+        && request.resource.data.count == 1 && request.resource.data.windowStart == request.time));
+    }
+
     match /auditLogs/{logId} {
       allow read: if isLeader() || isPrincipal();
       allow create: if isMember() && validId(logId)

@@ -21,6 +21,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { exportToExcel } from '../../utils/excel';
+import { DocumentExportDialog } from '../common/DocumentExportDialog';
+import { reportDocument } from '../../utils/documentModel';
 import { Booklet } from './Booklet';
 import { reportRange, reportData, validRange } from '../../utils/reporting';
 import { newId } from '../../utils/ids';
@@ -43,6 +45,7 @@ export const ReportsModule: React.FC = () => {
     skknTopics,
   } = useApp();
 
+  const [exportOpen,setExportOpen] = useState(false);
   const isLeader = permissions.isLeader;
 
   const [activeReportTab, setActiveReportTab] = useState<'summary' | 'teacher_stats' | 'so_sinh_hoat'>('summary');
@@ -247,6 +250,8 @@ export const ReportsModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {exportOpen && <DocumentExportDialog model={reportDocument({title:reportTitle || `Báo cáo ${reportTerm}`,academicYear:reportYear,startDate,endDate,isLocked,metrics:shownMetrics,executiveSummary,advantages,limitations,futureDirections,finalizedBy,evidence},config)} onClose={() => setExportOpen(false)} />}
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
@@ -389,6 +394,7 @@ export const ReportsModule: React.FC = () => {
                   </button>
                 )}
 
+                <button disabled={rangeDirty} onClick={() => setExportOpen(true)} className="px-3 py-2 border rounded-lg text-xs disabled:opacity-40">Xuất Word / PDF</button>
                 <button
                   onClick={handleExportReportExcel}
                   className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5"

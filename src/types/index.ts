@@ -272,7 +272,12 @@ export interface PlanReviewComment {
   createdAt: string;
 }
 
+export interface ImportProvenance { fileName: string; table: number; row: number; }
+export interface ProfessionalTask { id: string; title: string; category: string; assignee: string; deadline: string; deadlineText?: string; product: string; evidence: string; status: 'pending' | 'in_progress' | 'completed'; source?: ImportProvenance; }
+export interface ProfessionalIndicator { id: string; title: string; target: string; actual: string; unit: string; evidence: string; source?: ImportProvenance; }
 export interface DepartmentPlan {
+  tasks?: ProfessionalTask[];
+  indicators?: ProfessionalIndicator[];
   id: string;
   /** Bỏ trống khối đối với kế hoạch chuyên môn chung của tổ. */
   grade?: 10 | 11 | 12;

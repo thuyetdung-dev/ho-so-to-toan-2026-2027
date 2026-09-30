@@ -1,7 +1,7 @@
 {
   "name": "so-sinh-hoat-chuyen-mon-to-toan",
   "private": true,
-  "version": "2.13.0",
+  "version": "2.14.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -17,7 +17,10 @@
     "@e965/xlsx": "^0.20.3",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/vie": "^1.0.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "docx": "^9.8.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.19.0",
@@ -30,6 +33,7 @@
     "pdfjs-dist": "^6.3.289",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "tesseract.js": "^7.0.0",
     "tsx": "^4.21.0",
     "vite": "^8.3.0"
   },

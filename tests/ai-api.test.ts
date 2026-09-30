@@ -51,3 +51,16 @@ test('AI kiểm tra thành viên, email xác minh và lỗi dịch vụ quyền'
     assert.equal(await checkAiMembership('token', 'teacher@example.com', true), 503);
   } finally { globalThis.fetch = original; }
 });
+
+test('quota dùng giao dịch chung, từ chối đầy, retry xung đột và không bỏ qua lỗi quyền',async()=>{
+ const {consumeAiQuota}=await import('../api/ai.ts');const original=globalThis.fetch;const originalLimit=process.env.AI_RATE_LIMIT;let commits=0;let mode='conflict';const writes:any[]=[];
+ try{
+  process.env.AI_RATE_LIMIT='2';globalThis.fetch=async(url,init)=>{const u=String(url);if(u.endsWith(':beginTransaction'))return new Response(JSON.stringify({transaction:'TX'}));if(u.endsWith(':rollback'))return new Response('{}');if(u.includes('/aiUsage/'))return new Response(JSON.stringify({fields:{count:{integerValue:mode==='full'?'2':'1'},windowStart:{timestampValue:new Date().toISOString()}}}));if(u.endsWith(':commit')){commits++;writes.push(JSON.parse(String(init?.body)));if(mode==='deny')return new Response('{}',{status:403});if(commits===1&&mode==='conflict')return new Response(JSON.stringify({error:{status:'ABORTED'}}),{status:409});return new Response('{}');}throw Error('Unexpected URL');};
+  assert.equal(await consumeAiQuota('token','uid'),'allowed');assert.equal(commits,2);assert.equal(writes[0].writes[0].update.fields.count.integerValue,'2');assert.equal(writes[0].transaction,'TX');mode='full';assert.equal(await consumeAiQuota('token','uid'),'limited');assert.equal(commits,2);mode='deny';assert.equal(await consumeAiQuota('token','uid'),'unavailable');
+  globalThis.fetch=async()=>{throw Error('offline');};assert.equal(await consumeAiQuota('token','uid'),'unavailable');
+ }finally{globalThis.fetch=original;if(originalLimit===undefined)delete process.env.AI_RATE_LIMIT;else process.env.AI_RATE_LIMIT=originalLimit;}
+});
+
+test('mô hình máy chủ đọc danh sách thực tế và ưu tiên cấu hình',async()=>{
+ const {resolveServerModel}=await import('../api/ai.ts');const fetchOriginal=globalThis.fetch;const envModel=process.env.GEMINI_MODEL;try{delete process.env.GEMINI_MODEL;globalThis.fetch=async()=>new Response(JSON.stringify({models:[{name:'models/gemini-9.1-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-10-pro-preview',supportedGenerationMethods:['generateContent']},{name:'models/gemini-11-image',supportedGenerationMethods:['generateContent']}]}));assert.equal(await resolveServerModel(),'gemini-9.1-flash');process.env.GEMINI_MODEL='configured-model';assert.equal(await resolveServerModel(),'configured-model');}finally{globalThis.fetch=fetchOriginal;if(envModel===undefined)delete process.env.GEMINI_MODEL;else process.env.GEMINI_MODEL=envModel;}
+});

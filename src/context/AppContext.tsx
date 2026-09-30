@@ -1,3 +1,4 @@
+import { asyncCache } from '../utils/asyncCache';
 import { canUpdatePlan } from '../utils/workflow';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -311,6 +312,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [notification, setNotificationState] = useState<Notice | null>(null);
+  const lessonContentCache = useRef(asyncCache<LessonPlan>(5,120000));
+  useEffect(()=>{lessonContentCache.current.clear();},[isDemoMode,currentUser?.uid]);
   const noticeTimer = useRef<number | undefined>(undefined);
 
   const setNotification = useCallback((notif: Notice | null) => {
@@ -1120,6 +1123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     // Lịch sử phiên bản không được làm bản ghi vượt 1 MB: bỏ nội dung các phiên bản cũ nhất nếu cần
     const updatedPlan: DepartmentPlan = trimHistoryToFit({ ...plan, updatedAt: new Date().toISOString() });
+    if(bytesOf(updatedPlan)>MAX_DOC_BYTES){setNotification({message:'Kế hoạch vượt giới hạn lưu trữ một hồ sơ. Hãy giảm nội dung hoặc tách bảng trước khi lưu.',type:'error'});return false;}
     const ok = await upsertItem('departmentPlans', updatedPlan, setDemoDeptPlans, setRealDeptPlans);
     if (!ok) return false;
     if (!options.silent) {
@@ -1335,10 +1339,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const plan = typeof planOrId === 'string' ? currentLessonPlans.find(p => p.id === planOrId) : planOrId;
     if (!plan) return null;
     if (isDemoMode || plan.contentState !== 'light') return plan;
-    const content = await getLessonPlanContent(db, plan.id);
-    if (!content) throw new Error('Không tìm thấy nội dung giáo án trên máy chủ.');
-    const images = await loadLessonPlanImages(db, plan.id, content.imageIds || []);
-    return mergeLessonPlan(plan, content, images);
+    return lessonContentCache.current.get(`${currentUser?.uid}|${plan.id}|${plan.version}|${plan.updatedAt}`,async()=>{
+      const content = await getLessonPlanContent(db, plan.id);
+      if (!content) throw new Error('Không tìm thấy nội dung giáo án trên máy chủ.');
+      const images = await loadLessonPlanImages(db, plan.id, content.imageIds || []);
+      if((content.imageIds || []).some(id=>!images[id]))throw new Error('Chưa tải đủ hình của giáo án. Hãy kiểm tra kết nối rồi thử lại.');
+      return mergeLessonPlan(plan, content, images);
+    });
   };
 
   const loadLessonPlanHistory = async (plan: LessonPlan) =>
@@ -1898,7 +1905,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.13.0',
+      version: '2.14.0',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
@@ -2152,6 +2159,8 @@ export function planSnapshot(plan: DepartmentPlan) {
   return {
     title: plan.title,
     generalSituation: plan.generalSituation,
+    tasks: plan.tasks || [],
+    indicators: plan.indicators || [],
     distribution: plan.distribution.map(({ id, order, week, topicTitle, periods, objectives, equipment }) => ({
       id,
       order,

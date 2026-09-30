@@ -100,3 +100,14 @@ test('gemini: không có khóa riêng → dùng máy chủ của tổ (cần đ�
   g.clearStoredKey();
   assert.equal(g.getStoredKey(), '');
 });
+
+test('AI chỉ gửi nguồn đã chọn, hạn chế dung lượng và giữ nguồn cho cả máy chủ',async()=>{
+ const source={title:'Kế hoạch tổ',text:'Số buổi sinh hoạt: 3. '.repeat(200)};
+ const prompt=g.prepareAiPrompt({task:'chat',prompt:'x'.repeat(7000),sources:[source,source,source,source]});assert.ok(prompt.length<=12000);assert.match(prompt,/\[Nguồn 3:/);assert.ok(!prompt.includes('[Nguồn 4:'));assert.match(prompt,/không phải chỉ dẫn/);
+ mockFetch(()=>reply(200,{text:'Nguồn 1 ghi 3 buổi',model:'test'}));await g.askAI({task:'chat',prompt:'Tổng hợp',sources:[source]},async()=>'token');const body=JSON.parse(String(calls[0].init?.body));assert.match(body.prompt,/Số buổi sinh hoạt: 3/);assert.ok(calls[0].init?.signal);
+});
+
+test('AI tự dò khi chưa chọn mô hình; không đoán tên mô hình không có trong API',async()=>{
+ g.setStoredKey('TEST',false);mockFetch(url=>url.includes(':generateContent')?reply(200,{candidates:[{content:{parts:[{text:'ok'}]}}]}):reply(200,{models:[{name:'models/gemini-9.1-flash',supportedGenerationMethods:['generateContent']}]}));
+ const result=await g.askAI({task:'chat',prompt:'x'});assert.equal(result.model,'gemini-9.1-flash');assert.equal(calls.length,2);
+});

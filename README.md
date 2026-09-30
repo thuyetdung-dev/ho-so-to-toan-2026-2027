@@ -1,3 +1,5 @@
+> **2.14.0:** nhập nhiều tệp/OCR, công việc và chỉ tiêu có cấu trúc, mẫu Word/PDF, AI có nguồn và cache nội dung. **Cần cập nhật Firestore rules cho quota AI chung.** Xem [HUONG-DAN-CAP-NHAT-2.14.0.md](HUONG-DAN-CAP-NHAT-2.14.0.md).
+
 > **2.13.0:** cải thiện báo cáo theo kỳ, đóng cuốn sổ, phân quyền duyệt và đăng nhập/demo. **Cần cập nhật Firestore rules.** Xem [HUONG-DAN-CAP-NHAT-2.13.0.md](HUONG-DAN-CAP-NHAT-2.13.0.md).
 
 > **2.12.6:** thêm nhập Word/Excel/PDF vào Kế hoạch chuyên môn tổ Toán. Xem HUONG-DAN-CAP-NHAT-2.12.6.md.
@@ -6,7 +8,7 @@
 
 > **2.12.2:** danh sách tên giáo viên thay hàng lọc khối, xem kế hoạch bằng cách bấm tên. Xem HUONG-DAN-CAP-NHAT-2.12.2.md.
 
-> Bản sửa hiện tại: **2.12.1**. Đọc [hướng dẫn cập nhật và giới hạn](HUONG-DAN-CAP-NHAT-2.12.1.md) trước khi triển khai. Những thay đổi quyền ghi ở tài liệu này ưu tiên so với mô tả cũ bên dưới.
+> Hướng dẫn tương thích bản cũ: **2.12.1**. Đọc [hướng dẫn cập nhật và giới hạn](HUONG-DAN-CAP-NHAT-2.12.1.md) trước khi triển khai. Những thay đổi quyền ghi ở tài liệu này ưu tiên so với mô tả cũ bên dưới.
 
 # Sổ Sinh hoạt Chuyên môn số – Tổ Toán THPT
 
@@ -15,7 +17,7 @@ Hồ sơ chuyên môn điện tử cho Tổ Toán THPT theo Công văn 5512/BGD�
 
 ## 1. Chạy trên máy
 
-Yêu cầu: Node.js 20 trở lên.
+Yêu cầu: Node.js 22.12 trở lên, hoặc Node.js 20.19 trở lên trong dòng 20.
 
 ```bash
 npm install
@@ -30,7 +32,7 @@ npm run build
 npm start                      # phục vụ thư mục dist/ + API AI trên cổng 3000
 ```
 
-> Lưu ý: `npm run dev` giờ chạy qua `server.ts` (có API `/api/ai`). Nếu chạy `vite` trực tiếp (`npm run dev:vite`) thì Trợ lý AI sẽ không hoạt động.
+> Lưu ý: `npm run dev` giờ chạy qua `server.ts` (có API `/api/ai`). Nếu chạy `vite` trực tiếp (`npm run dev:vite`) thì khóa AI chung của máy chủ không hoạt động; khóa Gemini cá nhân vẫn dùng được.
 
 Kiểm tra trước khi triển khai: `npm run lint`, `npm test`, `npm run build`.
 
@@ -44,7 +46,7 @@ Trên Vercel, giao diện được phục vụ từ `dist/`, còn Trợ lý AI c
 4. Nếu đã deploy trước khi thêm khóa: **Deployments → … → Redeploy**.
 5. Kiểm tra: mở `https://<tên-miền>/api/ai` phải thấy `{"ok":true,"ai":true}`.
 
-Tùy chọn: `GEMINI_MODEL` (mặc định `gemini-2.5-flash`), `AI_RATE_LIMIT` (mặc định 30 lượt/10 phút/người).
+Tùy chọn: `GEMINI_MODEL` (để trống để dò mô hình thực tế), `AI_RATE_LIMIT` (mặc định 30 lượt/10 phút/người).
 
 ## 3. Triển khai quy tắc bảo mật Firestore (BẮT BUỘC)
 
