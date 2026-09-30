@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useApp, planSnapshot } from '../../context/AppContext';
 import { VersionDiffModal } from '../common/VersionDiffModal';
 import { PlanEditorModal } from './PlanEditorModal';
@@ -29,6 +29,7 @@ import {
   Calendar,
   X,
   Trash2,
+  FileUp,
 } from 'lucide-react';
 import { planApprover, signatureLines } from '../../utils/leaders';
 
@@ -53,7 +54,8 @@ export const PlansModule: React.FC = () => {
   const [activeView, setActiveView] = useState<'department' | 'teacher' | 'professional'>('department');
   const [showGradePicker, setShowGradePicker] = useState(false);
   const [selectedGrade, setSelectedGrade] = useState<10 | 11 | 12>(12);
-  const [editor, setEditor] = useState<{ plan: DepartmentPlan; isNew: boolean } | null>(null);
+  const [editor, setEditor] = useState<{ plan: DepartmentPlan; isNew: boolean; importFile?: File } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   // Workflow modals
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -80,10 +82,11 @@ export const PlansModule: React.FC = () => {
   const isPastYearPlan = !!currentPlan && currentPlan.academicYear !== config.academicYear;
   const canEditPlan = isLeader && !!currentPlan && (currentPlan.status === 'draft' || currentPlan.status === 'returned');
 
-  const openNewPlan = (grade: 10 | 11 | 12 = selectedGrade) => {
+  const openNewPlan = (grade: 10 | 11 | 12 = selectedGrade, importFile?: File) => {
     const now = new Date().toISOString();
     setEditor({
       isNew: true,
+      importFile,
       plan: {
         id: `dplan-${config.academicYear.replace(/[^0-9]/g, '')}-${grade}`,
         grade,
@@ -101,6 +104,17 @@ export const PlansModule: React.FC = () => {
         comments: [],
       },
     });
+  };
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; event.target.value = '';
+    if (!file || !isLeader) return;
+    if (!currentPlan || isPastYearPlan) { openNewPlan(selectedGrade, file); return; }
+    if (currentPlan.status === 'approved' || currentPlan.status === 'submitted') {
+      if (!await confirm({title: 'Mở bản nháp điều chỉnh?', message: 'Chỉ khi Lưu, kế hoạch mới chuyển thành bản nháp và cần trình duyệt lại. Phiên bản trước được giữ trong lịch sử. Hủy không thay đổi dữ liệu.', confirmText: 'Mở bản nháp'})) return;
+    }
+    setEditor({isNew: false, importFile: file, plan: {...currentPlan, status: 'draft', approvedBy: undefined, version: (currentPlan.version || 1) + 1,
+      versionHistory: [...(currentPlan.versionHistory || []), {version: currentPlan.version || 1, updatedAt: new Date().toISOString(), updatedBy: activeMember.displayName, status: currentPlan.status, changeSummary: `Trước khi nhập ${file.name}`, dataSnapshot: planSnapshot(currentPlan)}]}});
   };
 
   const handleSavePlan = async (plan: DepartmentPlan) => {
@@ -236,6 +250,12 @@ export const PlansModule: React.FC = () => {
               <span>Thêm kế hoạch tổ chuyên môn</span>
             </button>
           )}
+          {isLeader && <>
+            <input ref={importFileRef} type="file" accept=".docx,.pdf,.xlsx,.xls,.xlsm,.ods,.csv" className="hidden" onChange={handleImportFile} />
+            <button onClick={() => importFileRef.current?.click()} className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-200 flex items-center gap-1.5 shadow-xs">
+              <FileUp className="w-3.5 h-3.5" /><span>Nhập tệp Word / Excel / PDF</span>
+            </button>
+          </>}
           {canEditPlan && (
             <button
               onClick={() => currentPlan && setEditor({ plan: currentPlan, isNew: false })}
@@ -868,6 +888,7 @@ export const PlansModule: React.FC = () => {
         <PlanEditorModal
           initial={editor.plan}
           isNew={editor.isNew}
+          initialImportFile={editor.importFile}
           weeksCount={config.weeksCount || 35}
           onCancel={() => setEditor(null)}
           onSave={handleSavePlan}
