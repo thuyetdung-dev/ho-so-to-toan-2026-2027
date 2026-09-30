@@ -1,3 +1,5 @@
+> **2.12.6:** thêm nhập Word/Excel/PDF vào Kế hoạch chuyên môn tổ Toán. Xem HUONG-DAN-CAP-NHAT-2.12.6.md.
+
 > **2.12.3:** bổ sung mục Kế hoạch chuyên môn tổ Toán. Xem HUONG-DAN-CAP-NHAT-2.12.3.md.
 
 > **2.12.2:** danh sách tên giáo viên thay hàng lọc khối, xem kế hoạch bằng cách bấm tên. Xem HUONG-DAN-CAP-NHAT-2.12.2.md.
