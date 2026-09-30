@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Plus, Trash2, ArrowUp, ArrowDown, Save, FileUp, Loader2, Download, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { DepartmentPlan, PlanDistributionItem } from '../../types';
 import { newId } from '../../utils/ids';
@@ -7,6 +7,7 @@ import type { PlanImportResult } from '../../utils/planImport';
 interface Props {
   initial: DepartmentPlan;
   isNew: boolean;
+  initialImportFile?: File;
   weeksCount: number;
   onCancel: () => void;
   onSave: (plan: DepartmentPlan) => Promise<boolean>;
@@ -26,7 +27,7 @@ const emptyItem = (order: number, week: number): PlanDistributionItem => ({
 });
 
 /** Soạn/sửa Kế hoạch dạy học của tổ (Phụ lục I CV 5512). Bản cũ không có chức năng này. */
-export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, onCancel, onSave }) => {
+export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, initialImportFile, weeksCount, onCancel, onSave }) => {
   const [title, setTitle] = useState(initial.title);
   const [generalSituation, setGeneralSituation] = useState(initial.generalSituation);
   const [items, setItems] = useState<PlanDistributionItem[]>(initial.distribution.length ? initial.distribution : [emptyItem(1, 1)]);
@@ -41,10 +42,7 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
 
   const hasItems = items.some(i => i.topicTitle.trim());
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+  const readImportFile = async (file: File) => {
     if (file.size > 15 * 1024 * 1024) return setError('Tệp quá lớn (tối đa 15 MB).');
     setImporting(true);
     setError('');
@@ -67,6 +65,16 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
     }
   };
 
+  const consumedImport = useRef<File | undefined>(undefined);
+  useEffect(() => {
+    if (!initialImportFile || consumedImport.current === initialImportFile) return;
+    consumedImport.current = initialImportFile;
+    void readImportFile(initialImportFile);
+  }, [initialImportFile]);
+  const handleFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; event.target.value = '';
+    if (file) void readImportFile(file);
+  };
   const applyImport = (mode: 'replace' | 'append') => {
     if (!imported) return;
     const base = mode === 'append' ? items.filter(i => i.topicTitle.trim()) : [];
