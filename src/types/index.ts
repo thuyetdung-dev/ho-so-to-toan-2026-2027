@@ -274,7 +274,9 @@ export interface PlanReviewComment {
 
 export interface DepartmentPlan {
   id: string;
-  grade: 10 | 11 | 12;
+  /** Bỏ trống khối đối với kế hoạch chuyên môn chung của tổ. */
+  grade?: 10 | 11 | 12;
+  planKind?: 'teaching' | 'professional';
   academicYear: string;
   title: string;
   status: 'draft' | 'submitted' | 'approved' | 'returned';

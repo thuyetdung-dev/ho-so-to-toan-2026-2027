@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp, planSnapshot } from '../../context/AppContext';
 import { VersionDiffModal } from '../common/VersionDiffModal';
 import { PlanEditorModal } from './PlanEditorModal';
+import { ProfessionalPlanPanel } from './ProfessionalPlanPanel';
 import { TeacherPlansPanel } from './TeacherPlansPanel';
 import { useConfirm } from '../common/ConfirmDialog';
 import { todayISO } from '../../utils/ids';
@@ -49,7 +50,7 @@ export const PlansModule: React.FC = () => {
   const isLeader = permissions.isLeader;
   const canApprove = permissions.canApproveDeptPlan;
 
-  const [activeView, setActiveView] = useState<'department' | 'teacher'>('department');
+  const [activeView, setActiveView] = useState<'department' | 'teacher' | 'professional'>('department');
   const [showGradePicker, setShowGradePicker] = useState(false);
   const [selectedGrade, setSelectedGrade] = useState<10 | 11 | 12>(12);
   const [editor, setEditor] = useState<{ plan: DepartmentPlan; isNew: boolean } | null>(null);
@@ -72,7 +73,7 @@ export const PlansModule: React.FC = () => {
   const [itemDateTaught, setItemDateTaught] = useState<string>(todayISO());
 
   // Bản cũ: nếu khối chưa có kế hoạch thì hiện nhầm kế hoạch của khối khác (departmentPlans[0]).
-  const plansOfGrade = departmentPlans.filter(p => p.grade === selectedGrade);
+  const plansOfGrade = departmentPlans.filter(p => p.planKind !== 'professional' && p.grade === selectedGrade);
   const currentPlan =
     plansOfGrade.find(p => p.academicYear === config.academicYear) ||
     [...plansOfGrade].sort((a, b) => (b.academicYear || '').localeCompare(a.academicYear || ''))[0];
@@ -185,10 +186,10 @@ export const PlansModule: React.FC = () => {
           <button
             key={id}
             role="tab"
-            aria-selected={activeView === id}
+            aria-selected={activeView === id || (id === 'department' && activeView === 'professional')}
             onClick={() => setActiveView(id)}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-              activeView === id ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              (activeView === id || (id === 'department' && activeView === 'professional')) ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             {label}
@@ -197,6 +198,13 @@ export const PlansModule: React.FC = () => {
       </div>
 
       {activeView === 'teacher' && <TeacherPlansPanel />}
+      {activeView === 'professional' && <>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          {([10, 11, 12] as const).map(g => <button key={g} onClick={() => { setSelectedGrade(g); setActiveView('department'); }} className="px-3 py-1.5 text-xs font-bold rounded-lg border bg-slate-50 text-slate-700">Toán Khối {g}</button>)}
+          <button aria-pressed="true" className="px-3 py-1.5 text-xs font-bold rounded-lg border bg-blue-600 text-white">Kế hoạch chuyên môn tổ Toán</button>
+        </div>
+        <ProfessionalPlanPanel />
+      </>}
 
       {activeView === 'department' && (
       <div className="space-y-6">
@@ -277,8 +285,8 @@ export const PlansModule: React.FC = () => {
       {/* Grade Selector, Progress Stats & Approval Workflow Bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-700">Khối lớp:</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-slate-700">Kế hoạch:</span>
             {[10, 11, 12].map(g => (
               <button
                 key={g}
@@ -292,6 +300,7 @@ export const PlansModule: React.FC = () => {
                 Toán Khối {g}
               </button>
             ))}
+            <button onClick={() => setActiveView('professional')} className="px-3 py-1.5 text-xs font-bold rounded-lg border bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100">Kế hoạch chuyên môn tổ Toán</button>
           </div>
 
           {/* Workflow Status Badge & Action Controls (Lỗi 21) */}

@@ -51,7 +51,7 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
     setImportMsg('');
     try {
       const { importPlanFile } = await import('../../utils/planImport');
-      const r = await importPlanFile(file, { grade: initial.grade, weeksCount });
+      const r = await importPlanFile(file, { grade: initial.grade ?? 10, weeksCount });
       if (!r.distribution.length && !r.evaluations.length && !r.generalSituation) {
         setError(
           `Không tìm thấy bảng phân phối chương trình trong "${file.name}". Tệp cần có bảng với các cột như "Bài học", "Số tiết" (hoặc "Tuần", "Tiết", "Tên bài"). ` +
@@ -144,7 +144,7 @@ export const PlanEditorModal: React.FC<Props> = ({ initial, isNew, weeksCount, o
             </button>
             <button
               type="button"
-              onClick={async () => (await import('../../utils/planImport')).downloadPlanTemplate(initial.grade)}
+              onClick={async () => (await import('../../utils/planImport')).downloadPlanTemplate(initial.grade ?? 10)}
               className="px-2.5 py-1.5 text-xs font-semibold border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg flex items-center gap-1"
               title="Tải file Excel mẫu để điền kế hoạch rồi nhập lại"
             >
