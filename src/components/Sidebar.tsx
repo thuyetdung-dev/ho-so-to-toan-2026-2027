@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Library,
   HardDrive,
+  History,
 } from 'lucide-react';
 
 export const MODULE_IDS = [
@@ -30,6 +31,8 @@ export const MODULE_IDS = [
   'reports',
   'ai-assistant',
   'settings',
+  'teacher-360',
+  'audit-trail',
 ] as const;
 
 export type ActiveModule = (typeof MODULE_IDS)[number];
@@ -159,6 +162,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: '11. Cài đặt & Lưu trữ',
       desc: 'Sao lưu JSON, phân quyền, nhật ký',
       icon: Settings,
+      badge: null,
+    },
+    {
+      id: 'teacher-360' as ActiveModule,
+      label: '12. Hồ sơ 360° & KPI',
+      desc: 'Minh chứng, tiến độ từng giáo viên',
+      icon: Users,
+      badge: null,
+    },
+    {
+      id: 'audit-trail' as ActiveModule,
+      label: '13. Lịch sử & Audit',
+      desc: 'Phiên bản, dấu vết và deep-link',
+      icon: History,
       badge: null,
     },
   ];

@@ -428,3 +428,12 @@ src/components/modules/   Các phân hệ (Kế hoạch, Giáo án, Dự giờ, 
 src/utils/                mathviz (đồ thị), omml + docxReader (công thức & hình trong Word), lessonImport, diff (so sánh phiên bản), stats (thống kê điểm), ids, excel, katex
 tests/                    Kiểm thử đơn vị (npm test)
 ```
+
+
+## Nâng cấp quản trị KPI (bổ sung 01/10/2026)
+
+- **Dashboard quản trị & Trung tâm công việc**: tự tổng hợp hồ sơ chờ duyệt, hồ sơ bị trả lại, nhiệm vụ SHCM/công việc chuyên môn chưa hoàn thành; cảnh báo quá hạn và đến hạn trong 7 ngày.
+- **Hồ sơ 360° & KPI**: màn hình `/teachers/:id` tổng hợp phân công, KHGD, giáo án, dự giờ, nhiệm vụ, bồi dưỡng và KPI; từng nhóm KPI mở được danh sách minh chứng cấu thành.
+- **Deep-link**: mỗi phân hệ có URL riêng; hồ sơ 360° và nhật ký audit có URL theo ID để chia sẻ/kiểm tra trực tiếp.
+- **Lịch sử & Audit**: màn hình `/audit/:id` hiển thị timeline audit và versionHistory của kế hoạch/giáo án nếu có.
+- Trọng số KPI mặc định hiện tại: KHGD 25, Kế hoạch bài dạy 30, Dự giờ 20, Nhiệm vụ SHCM 15, Bồi dưỡng 10. Điểm luôn hiển thị cùng minh chứng, không dùng như kết luận độc lập về chất lượng giáo viên.

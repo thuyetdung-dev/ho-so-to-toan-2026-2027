@@ -29,6 +29,8 @@ const DocumentsModule = lazy(() => import('./components/modules/DocumentsModule'
 const ReportsModule = lazy(() => import('./components/modules/ReportsModule').then(m => ({ default: m.ReportsModule })));
 const AiAssistantModule = lazy(() => import('./components/modules/AiAssistantModule').then(m => ({ default: m.AiAssistantModule })));
 const SettingsModule = lazy(() => import('./components/modules/SettingsModule').then(m => ({ default: m.SettingsModule })));
+const Teacher360Module = lazy(() => import('./components/modules/Teacher360Module').then(m => ({ default: m.Teacher360Module })));
+const AuditTrailModule = lazy(() => import('./components/modules/AuditTrailModule').then(m => ({ default: m.AuditTrailModule })));
 
 const CenteredCard: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="flex-1 flex items-center justify-center p-4">
@@ -131,6 +133,10 @@ const MainLayout: React.FC = () => {
         return <AiAssistantModule />;
       case 'settings':
         return <SettingsModule />;
+      case 'teacher-360':
+        return <Teacher360Module />;
+      case 'audit-trail':
+        return <AuditTrailModule />;
       case 'overview':
       default:
         return <OverviewModule onNavigate={setActiveTab} />;

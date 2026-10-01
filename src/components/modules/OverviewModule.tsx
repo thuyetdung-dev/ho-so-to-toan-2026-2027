@@ -13,7 +13,11 @@ import {
   PlusCircle,
   ArrowRight,
   BookOpen,
+  BellRing,
+  ListChecks,
+  Users,
 } from 'lucide-react';
+import { buildWorkCenter } from '../../utils/management';
 
 interface OverviewModuleProps {
   onNavigate: (module: ActiveModule) => void;
@@ -36,6 +40,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
     classes,
     departmentPlans,
     lessonPlans,
+    teacherPlans,
     meetings,
     observations,
     permissions,
@@ -45,6 +50,9 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
   const myLessonPlans = lessonPlans.filter(p => isMe(p.teacherId));
   const pendingLessonPlans = lessonPlans.filter(p => p.status === 'submitted');
   const myObservations = observations.filter(o => isMe(o.observerId) || isMe(o.teacherId));
+  const workItems = buildWorkCenter({ departmentPlans, teacherPlans, lessonPlans, meetings, isLeader: permissions.isLeader, activeMember, isMe });
+  const overdueCount = workItems.filter(w => w.priority === 'overdue').length;
+  const soonCount = workItems.filter(w => w.priority === 'today' || w.priority === 'soon').length;
 
   // Bản cũ lấy 2 phần tử đầu mảng (không phải cuộc họp sắp tới). Nay: sắp tới trước, nếu không có thì gần nhất.
   const today = new Date().toISOString().slice(0, 10);
@@ -113,6 +121,21 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
               <span>Tạo biên bản họp</span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Management dashboard / Work center */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div><h2 className="text-sm font-bold text-slate-900 flex items-center gap-2"><ListChecks className="w-4 h-4 text-blue-600"/>Trung tâm công việc</h2><p className="text-[11px] text-slate-500 mt-1">Tự tổng hợp hồ sơ chờ duyệt, hồ sơ bị trả lại và nhiệm vụ chuyên môn chưa hoàn thành.</p></div>
+            <div className="flex items-center gap-2 text-[10px]"><span className="px-2 py-1 rounded bg-rose-50 text-rose-700 font-bold">{overdueCount} quá hạn</span><span className="px-2 py-1 rounded bg-amber-50 text-amber-700 font-bold">{soonCount} cần sớm</span></div>
+          </div>
+          {workItems.length===0 ? <div className="text-xs text-slate-500 py-6 text-center border border-dashed rounded-lg">Không có công việc tồn đọng theo dữ liệu hiện tại.</div> : <div className="space-y-2 max-h-72 overflow-auto pr-1">{workItems.slice(0,12).map(w=><button key={w.id} onClick={()=>onNavigate(w.module)} className="w-full text-left border rounded-lg p-3 hover:border-blue-300 hover:bg-blue-50/30 transition flex items-start gap-3"><span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${w.priority==='overdue'?'bg-rose-500':w.priority==='today'?'bg-amber-500':w.priority==='soon'?'bg-yellow-400':'bg-slate-300'}`}/><span className="flex-1 min-w-0"><span className="text-xs font-bold text-slate-800 block">{w.title}</span><span className="text-[11px] text-slate-500 block truncate">{w.detail}</span></span><span className="text-[10px] font-semibold text-slate-500 shrink-0">{w.deadline ? new Date(w.deadline+'T00:00:00').toLocaleDateString('vi-VN') : 'Xử lý'}</span></button>)}</div>}
+        </div>
+        <div className="space-y-4">
+          <div className={`border rounded-xl p-4 ${overdueCount?'bg-rose-50 border-rose-200':'bg-emerald-50 border-emerald-200'}`}><BellRing className={`w-5 h-5 ${overdueCount?'text-rose-600':'text-emerald-600'}`}/><div className="text-xs font-bold mt-2">Cảnh báo deadline</div><div className="text-3xl font-black mt-1">{overdueCount}</div><div className="text-[11px] text-slate-600">công việc đã quá hạn · {soonCount} công việc đến hạn trong 7 ngày</div></div>
+          <button onClick={()=>onNavigate('teacher-360')} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl p-4 text-left"><Users className="w-5 h-5"/><div className="text-sm font-bold mt-2">Hồ sơ 360° & KPI</div><div className="text-[11px] text-indigo-100 mt-1">Xem KPI từng giáo viên kèm minh chứng cấu thành.</div></button>
         </div>
       </div>
 

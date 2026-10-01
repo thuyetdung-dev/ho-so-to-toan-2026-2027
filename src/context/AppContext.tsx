@@ -32,6 +32,7 @@ import {
   SharedDocument,
 } from '../types';
 import { ActiveModule, MODULE_IDS } from '../components/Sidebar';
+import { moduleFromPath, pushRoute } from '../utils/deepLink';
 import {
   SAMPLE_DEPARTMENT_CONFIG,
   SAMPLE_MEMBERS,
@@ -304,6 +305,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [activeTabState, setActiveTabState] = useState<ActiveModule>(() => {
     try {
+      const routed = moduleFromPath();
+      if (routed !== 'overview' || window.location.pathname === '/') return routed;
       const saved = localStorage.getItem('to-toan-active-module') as ActiveModule | null;
       return saved && MODULE_IDS.includes(saved) ? saved : 'overview';
     } catch {
@@ -390,11 +393,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const setActiveTab = (tab: ActiveModule) => {
     try {
       localStorage.setItem('to-toan-active-module', tab);
+      pushRoute(tab);
     } catch {
       /* bỏ qua */
     }
     setActiveTabState(tab);
   };
+
+  useEffect(() => {
+    const onPop = () => setActiveTabState(moduleFromPath());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // ---------- Theo dõi mạng & phiên đăng nhập ----------
   useEffect(() => {
