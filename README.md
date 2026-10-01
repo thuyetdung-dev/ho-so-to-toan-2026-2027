@@ -1,3 +1,5 @@
+> **2.16.0 (01/10/2026):** ảnh giáo án chuyển sang **Firebase Storage** (Firestore chỉ giữ metadata), có migration base64 cũ; backup chuẩn hóa thành **ZIP schema v3 có SHA-256** và phục hồi tương thích JSON cũ; xuất **gói hồ sơ cuối kỳ/năm**; deep-link/KPI/audit từ 2.15.x; bổ sung bộ Playwright E2E cho deployment thật và 3 tác vụ AI có dẫn minh chứng. **Phải deploy cả `firestore.rules` và `storage.rules` trước khi chạy migration.** Xem `UPGRADE_STORAGE_BACKUP_AI_2026-10-01.md`.
+
 > **2.15.0:** tiến độ tách khỏi kế hoạch đã duyệt, sao lưu kiểm tra đầy đủ, phục hồi có phiên Quản trị, lưu/xóa giáo án nguyên tử và nhật ký chuyển trạng thái bất biến. **Phải cập nhật Firestore Rules cùng mã nguồn.** Xem [HUONG-DAN-CAP-NHAT-2.15.0.md](HUONG-DAN-CAP-NHAT-2.15.0.md).
 
 > **2.14.0:** nhập nhiều tệp/OCR, công việc và chỉ tiêu có cấu trúc, mẫu Word/PDF, AI có nguồn và cache nội dung. **Cần cập nhật Firestore rules cho quota AI chung.** Xem [HUONG-DAN-CAP-NHAT-2.14.0.md](HUONG-DAN-CAP-NHAT-2.14.0.md).
@@ -412,7 +414,7 @@ thì thiếu. Bản 2.10 dựng lại đúng khung:
 **Chưa làm trong bản này:**
 - Chưa có đường dẫn riêng cho từng phân hệ (nhấn F5 vẫn giữ đúng phân hệ nhờ `localStorage`,
   nhưng chưa gửi được liên kết trực tiếp tới một giáo án hay kế hoạch cụ thể).
-- Hình trong giáo án vẫn lưu base64 trong Firestore thay vì Firebase Storage.
+- Ảnh giáo án mới lưu trong Firebase Storage; Firestore chỉ giữ metadata. Dữ liệu base64 cũ được đọc tương thích và có công cụ migration trong Cài đặt.
 - `sample-data.ts` vẫn nằm trong gói chính (~217 kB gzip) dù chỉ dùng cho chế độ dữ liệu mẫu.
 
 
@@ -437,3 +439,15 @@ tests/                    Kiểm thử đơn vị (npm test)
 - **Deep-link**: mỗi phân hệ có URL riêng; hồ sơ 360° và nhật ký audit có URL theo ID để chia sẻ/kiểm tra trực tiếp.
 - **Lịch sử & Audit**: màn hình `/audit/:id` hiển thị timeline audit và versionHistory của kế hoạch/giáo án nếu có.
 - Trọng số KPI mặc định hiện tại: KHGD 25, Kế hoạch bài dạy 30, Dự giờ 20, Nhiệm vụ SHCM 15, Bồi dưỡng 10. Điểm luôn hiển thị cùng minh chứng, không dùng như kết luận độc lập về chất lượng giáo viên.
+
+
+## Triển khai 2.16.0 – Storage, backup và E2E
+
+1. Cài dependency: `npm ci`.
+2. Deploy rules: `firebase deploy --only firestore:rules,storage --project <PROJECT_ID>`.
+3. Deploy ứng dụng lên Vercel/Firebase Hosting theo quy trình của trường.
+4. Đăng nhập bằng tài khoản Quản trị/BGH, vào **Cài đặt → Dữ liệu & sao lưu → Firebase Storage – ảnh giáo án** và chạy migration. Không đóng tab trong lúc migration; tác vụ idempotent nên có thể chạy lại nếu gián đoạn.
+5. Tạo một backup ZIP sau migration và thử restore trên môi trường QA trước khi thao tác production.
+6. E2E deployment thật: xem `e2e/README.md`. Bộ test yêu cầu `E2E_BASE_URL`; luồng cần đăng nhập dùng `E2E_AUTH_STATE` của một tài khoản QA riêng. Không commit file đăng nhập hay credential.
+
+Backup mới dùng schema v3: `manifest.json` + SHA-256 + `data.json` + ảnh nhị phân. Restore vẫn nhận file JSON backup cũ. Mục **Báo cáo & In → Gói hồ sơ kỳ/năm ZIP** xuất hồ sơ độc lập gồm báo cáo, thành viên, phân công, kế hoạch, giáo án đầy đủ và ảnh, SHCM, dự giờ, chuyên đề, bồi dưỡng, sáng kiến và báo cáo đã chốt.

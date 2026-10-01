@@ -43,7 +43,7 @@ function checkRules(db: FakeDb, ref: Ref, op: 'write' | 'delete', data?: Data) {
       return data!.planId === ref.id && canEdit(ref.id);
     case 'lessonPlanImages':
       if (op === 'delete') return canClean(existing?.planId);
-      return ref.id === `${data!.planId}__${data!.imageId}` && data!.data.length < 1_000_000 && canEdit(data!.planId);
+      return ref.id === `${data!.planId}__${data!.imageId}` && data!.storagePath === `lessonPlanImages/${data!.planId}/${data!.imageId}` && !('data' in data!) && canEdit(data!.planId);
     case 'lessonPlanVersions':
       if (op === 'delete') return canClean(existing?.planId);
       if (ref.id !== `${data!.planId}__v${data!.index}`) return false;
@@ -60,6 +60,28 @@ const snapOf = (db: FakeDb, ref: Ref, data: Data | undefined) => ({
 });
 const fake = {
   serverTimestamp: () => 'SERVER_TIME',
+deleteField: () => ({ __deleteField: true }),
+
+async updateDoc(ref: Ref, patch: Data) {
+  const current = ref.db.docs.get(ref.path);
+  if (!current) throw new Error(`Document not found: ${ref.path}`);
+
+  const next = { ...current };
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      (value as any).__deleteField === true
+    ) {
+      delete next[key];
+    } else {
+      next[key] = value;
+    }
+  }
+
+  ref.db.docs.set(ref.path, clone(next));
+},
   writeBatch(db: FakeDb) {
     const ops: Array<{ref:Ref; data?:Data}> = [];
     return {
@@ -125,6 +147,16 @@ const fake = {
   },
 };
 mock.module('firebase/firestore', { namedExports: {...fake, getDocsFromServer: fake.getDocs} });
+const fakeStorage:any = {objects:new Map<string,{data:string;contentType:string}>()};
+const storageFake = {
+  ref: (storage:any, path:string) => ({storage,path}),
+  async uploadString(r:any, data:string, _format:string, meta:any) {r.storage.objects.set(r.path,{data,contentType:meta?.contentType||'image/jpeg'}); return {ref:r};},
+  async getDownloadURL(r:any) {const v=r.storage.objects.get(r.path); if(!v) throw new Error('not found'); return v.data;},
+  async getMetadata(r:any) {const v=r.storage.objects.get(r.path); if(!v) throw Object.assign(new Error('not found'),{code:'storage/object-not-found'}); return {contentType:v.contentType,size:v.data.length,timeCreated:'2026-09-01T00:00:00.000Z'};},
+  async deleteObject(r:any) {if(!r.storage.objects.delete(r.path)) throw Object.assign(new Error('not found'),{code:'storage/object-not-found'});},
+  async getBlob(r:any) {const v=r.storage.objects.get(r.path); if(!v) throw new Error('not found'); const body=v.data.split(',')[1]||''; return new Blob([body],{type:v.contentType});},
+};
+mock.module('firebase/storage', { namedExports: storageFake });
 const store = await import('../src/services/lessonPlanStore.ts');
 
 const img = (kb: number, c = 'A') => 'data:image/jpeg;base64,' + c.repeat(kb * 1024);
@@ -143,7 +175,7 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   const fdb = db as unknown as FakeDb;
 
   // 1. Giáo viên tạo giáo án mới có 2 hình
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
   assert.ok(fdb.docs.has('lessonPlans/lp-1'));
   assert.ok(fdb.docs.has('lessonPlanContent/lp-1'));
   assert.ok(fdb.docs.has('lessonPlanImages/lp-1__h1') && fdb.docs.has('lessonPlanImages/lp-1__h2'));
@@ -154,26 +186,26 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   // 2. Mở giáo án (nội dung + hình), sửa: bỏ h2, thêm h3 → chỉ ghi hình mới, xóa hình bỏ
   let light = lightOf(fdb, 'lp-1');
   const content = await store.getLessonPlanContent(db, 'lp-1');
-  const images = await store.loadLessonPlanImages(db, 'lp-1', content!.imageIds);
+  const images = await store.loadLessonPlanImages(db, fakeStorage, 'lp-1', content!.imageIds);
   const full = store.mergeLessonPlan(light, content, images);
   assert.equal(full.objectivesKnowledge, newPlan().objectivesKnowledge);
   assert.deepEqual(Object.keys(full.images!).sort(), ['h1', 'h2']);
   fdb.imageWrites = 0;
   const edited = { ...full, images: { h1: full.images!.h1, h3: img(100, 'C') }, activities: [{ ...full.activities[0], content: '![H1](img:h1) ![H3](img:h3)' }] };
-  await store.writeLessonPlan(db, edited, { isNew: false, prevImageIds: light.imageIds });
+  await store.writeLessonPlan(db, fakeStorage, edited, { isNew: false, prevImageIds: light.imageIds });
   assert.equal(fdb.imageWrites, 1, 'chỉ ghi hình mới');
   assert.ok(!fdb.docs.has('lessonPlanImages/lp-1__h2'));
   assert.ok(fdb.docs.has('lessonPlanImages/lp-1__h3'));
 
   // 3. Mở lại giáo án: h1 lấy từ bộ nhớ máy, không tải lại
   const readsBefore = fdb.serverReads;
-  await store.loadLessonPlanImages(db, 'lp-1', ['h1']);
+  await store.loadLessonPlanImages(db, fakeStorage, 'lp-1', ['h1']);
   assert.equal(fdb.serverReads, readsBefore, 'hình đã có trên máy không tải lại');
 
   // 4. Nộp duyệt (chỉ phần tóm tắt + ảnh chụp phiên bản)
   light = lightOf(fdb, 'lp-1');
   const snap = { title: light.title, activities: edited.activities };
-  await store.writeLessonPlan(db, {
+  await store.writeLessonPlan(db, fakeStorage, {
     ...light, status: 'submitted', version: 2,
     versionHistory: [...light.versionHistory!, { version: 2, updatedAt: '2026-09-02', updatedBy: 'Cô A', changeSummary: 'Nộp', status: 'submitted', dataSnapshot: snap }],
   }, { isNew: false });
@@ -184,7 +216,7 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   // 5. Giáo viên KHÔNG sửa được nội dung khi đang chờ duyệt
   light = lightOf(fdb, 'lp-1');
   await assert.rejects(
-    store.writeLessonPlan(db, { ...store.mergeLessonPlan(light, content, {}), objectivesKnowledge: 'sửa lén' }, { isNew: false, prevImageIds: light.imageIds }),
+    store.writeLessonPlan(db, fakeStorage, { ...store.mergeLessonPlan(light, content, {}), objectivesKnowledge: 'sửa lén' }, { isNew: false, prevImageIds: light.imageIds }),
     /permission/i,
   );
   assert.notEqual(fdb.docs.get('lessonPlanContent/lp-1')!.objectivesKnowledge, 'sửa lén');
@@ -192,7 +224,7 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   // 6. Tổ trưởng duyệt
   fdb.role = 'leader';
   light = lightOf(fdb, 'lp-1');
-  await store.writeLessonPlan(db, {
+  await store.writeLessonPlan(db, fakeStorage, {
     ...light, status: 'approved',
     versionHistory: [...light.versionHistory!, { version: 2, updatedAt: '2026-09-03', updatedBy: 'Tổ trưởng', changeSummary: 'Duyệt', status: 'approved' }],
   }, { isNew: false });
@@ -206,29 +238,29 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   assert.equal(hist[0].dataSnapshot, undefined);
 
   // 8. Sao lưu: ghép đủ nội dung + hình + phiên bản
-  const [backup] = await store.loadAllLessonPlansFull(db, [light]);
+  const [backup] = await store.loadAllLessonPlansFull(db, fakeStorage, [light]);
   assert.deepEqual(Object.keys(backup.images!).sort(), ['h1', 'h3']);
   assert.deepEqual(backup.versionHistory![1].dataSnapshot, snap);
 
   // 9. Xóa: xóa sạch nội dung, hình, phiên bản
-  await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
+  await assert.rejects(store.deleteLessonPlanDeep(db, fakeStorage, light), /permission/i);
   fdb.docs.get('lessonPlans/lp-1')!.status = 'returned';
-  await store.deleteLessonPlanDeep(db, light);
+  await store.deleteLessonPlanDeep(db, fakeStorage, light);
   assert.equal([...fdb.docs.keys()].filter(k => k.includes('lp-1')).length, 0);
 });
 
 test('luồng thật: giáo viên xóa bản nháp của mình; không xóa được giáo án đã duyệt', async () => {
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
-  await store.deleteLessonPlanDeep(db, lightOf(fdb, 'lp-1'));
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
+  await store.deleteLessonPlanDeep(db, fakeStorage, lightOf(fdb, 'lp-1'));
   assert.equal(fdb.docs.size, 0);
 
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
   fdb.role = 'leader';
   fdb.docs.get('lessonPlans/lp-1')!.status = 'approved';
   fdb.role = 'teacher';
-  await assert.rejects(store.deleteLessonPlanDeep(db, lightOf(fdb, 'lp-1')), /permission/i);
+  await assert.rejects(store.deleteLessonPlanDeep(db, fakeStorage, lightOf(fdb, 'lp-1')), /permission/i);
   assert.ok(fdb.docs.has('lessonPlans/lp-1'));
 });
 
@@ -246,7 +278,7 @@ test('chuyển giáo án kiểu cũ (một bản ghi chứa tất cả) sang cá
   const before = JSON.stringify(fdb.docs.get('lessonPlans/lp-1')).length;
 
   fdb.role = 'leader';
-  await store.writeLessonPlan(db, store.asFullForRewrite(legacy), { isNew: false });
+  await store.writeLessonPlan(db, fakeStorage, store.asFullForRewrite(legacy), { isNew: false });
   const after = fdb.docs.get('lessonPlans/lp-1')!;
   assert.equal(after.storage, 'split');
   assert.equal(after.images, undefined);
@@ -254,7 +286,7 @@ test('chuyển giáo án kiểu cũ (một bản ghi chứa tất cả) sang cá
   const full = store.mergeLessonPlan(
     lightOf(fdb, 'lp-1'),
     await store.getLessonPlanContent(db, 'lp-1'),
-    await store.loadLessonPlanImages(db, 'lp-1', after.imageIds),
+    await store.loadLessonPlanImages(db, fakeStorage, 'lp-1', after.imageIds),
   );
   assert.equal(full.objectivesKnowledge, legacyData.objectivesKnowledge);
   assert.deepEqual(full.images, legacyData.images);
@@ -275,43 +307,43 @@ test('dung lượng tải khi mở phần mềm: 400 giáo án (chữ ~60 KB + 4
 test('mạng chập chờn: hình chưa tải được KHÔNG bị xóa khi lưu; nội dung chưa tải được KHÔNG bị ghi đè rỗng', async () => {
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
   const light = lightOf(fdb, 'lp-1');
   const content = await store.getLessonPlanContent(db, 'lp-1');
 
   // h2 không tải được → giáo viên sửa chữ rồi lưu
-  const partial = store.mergeLessonPlan(light, content, { h1: (await store.loadLessonPlanImages(db, 'lp-1', ['h1'])).h1 });
-  await store.writeLessonPlan(db, { ...partial, objectivesCompetence: 'NL mới' }, { isNew: false, prevImageIds: light.imageIds });
+  const partial = store.mergeLessonPlan(light, content, { h1: (await store.loadLessonPlanImages(db, fakeStorage, 'lp-1', ['h1'])).h1 });
+  await store.writeLessonPlan(db, fakeStorage, { ...partial, objectivesCompetence: 'NL mới' }, { isNew: false, prevImageIds: light.imageIds });
   assert.ok(fdb.docs.has('lessonPlanImages/lp-1__h2'), 'hình h2 vẫn còn');
   assert.deepEqual(fdb.docs.get('lessonPlanContent/lp-1')!.imageIds.sort(), ['h1', 'h2']);
 
   // Xóa thật tham chiếu h2 khỏi nội dung → lúc đó mới xóa hình
   const now = store.mergeLessonPlan(lightOf(fdb, 'lp-1'), await store.getLessonPlanContent(db, 'lp-1'), { h1: 'x' });
-  await store.writeLessonPlan(db, { ...now, activities: [{ ...now.activities[0], content: '![H1](img:h1)' }] }, { isNew: false, prevImageIds: ['h1', 'h2'] });
+  await store.writeLessonPlan(db, fakeStorage, { ...now, activities: [{ ...now.activities[0], content: '![H1](img:h1)' }] }, { isNew: false, prevImageIds: ['h1', 'h2'] });
   assert.ok(!fdb.docs.has('lessonPlanImages/lp-1__h2'));
 
   // Không tải được nội dung → ghép ra vẫn là "tóm tắt" → lưu không đụng tới nội dung
   const noContent = store.mergeLessonPlan(lightOf(fdb, 'lp-1'), null, {});
   assert.equal(noContent.contentState, 'light');
   const before = JSON.stringify(fdb.docs.get('lessonPlanContent/lp-1'));
-  await store.writeLessonPlan(db, { ...noContent, comments: [{ id: 'c', authorId: 'x', authorName: 'x', sectionId: 's', content: 'góp ý', isResolved: false, createdAt: '' }] }, { isNew: false });
+  await store.writeLessonPlan(db, fakeStorage, { ...noContent, comments: [{ id: 'c', authorId: 'x', authorName: 'x', sectionId: 's', content: 'góp ý', isResolved: false, createdAt: '' }] }, { isNew: false });
   assert.equal(JSON.stringify(fdb.docs.get('lessonPlanContent/lp-1')), before);
 });
 
 test('nộp lại giữ nguyên phiên bản đã lưu; không cho sửa lịch sử khi nháp hoặc đã nộp', async () => {
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
   const light = lightOf(fdb, 'lp-1');
   const entry = { version: 2, updatedAt: 'x', updatedBy: 'Cô A', changeSummary: 'Nộp', status: 'submitted' as const, dataSnapshot: { title: 'a', activities: [] } };
   // lần 1: ghi được phiên bản rồi mất mạng (giả lập bằng cách chỉ ghi phiên bản)
   fdb.docs.set('lessonPlanVersions/lp-1__v1', { planId: 'lp-1', index: 1, version: 2, snapshot: entry.dataSnapshot, createdAt: 'x' });
   // lần 2: nộp lại thành công (ghi đè phiên bản vì giáo án còn nháp)
-  await store.writeLessonPlan(db, { ...light, status: 'submitted', versionHistory: [...light.versionHistory!, entry] }, { isNew: false });
+  await store.writeLessonPlan(db, fakeStorage, { ...light, status: 'submitted', versionHistory: [...light.versionHistory!, entry] }, { isNew: false });
   assert.equal(fdb.docs.get('lessonPlans/lp-1')!.status, 'submitted');
   // sau khi đã nộp, giáo viên không ghi đè được phiên bản cũ
   await assert.rejects(
-    store.writeLessonPlan(db, { ...lightOf(fdb, 'lp-1'), versionHistory: [light.versionHistory![0], { ...entry, dataSnapshot: { title: 'sửa lịch sử', activities: [] } }] }, { isNew: false }),
+    store.writeLessonPlan(db, fakeStorage, { ...lightOf(fdb, 'lp-1'), versionHistory: [light.versionHistory![0], { ...entry, dataSnapshot: { title: 'sửa lịch sử', activities: [] } }] }, { isNew: false }),
     /phiên bản đã lưu/i,
   );
 });
@@ -319,15 +351,15 @@ test('nộp lại giữ nguyên phiên bản đã lưu; không cho sửa lịch 
 test('xóa thất bại giữ lại bản tóm tắt; xóa thành công dọn cả ảnh ngoài danh sách', async () => {
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
   const light = lightOf(fdb, 'lp-1');
   fdb.docs.get('lessonPlans/lp-1')!.status = 'approved';
-  await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
+  await assert.rejects(store.deleteLessonPlanDeep(db, fakeStorage, light), /permission/i);
   assert.ok(fdb.docs.has('lessonPlans/lp-1'));
   fdb.role = 'leader';
   fdb.docs.get('lessonPlans/lp-1')!.status = 'submitted';
   fdb.docs.set('lessonPlanImages/lp-1__orphan', { planId: 'lp-1', imageId: 'orphan', data: 'x' });
-  await store.deleteLessonPlanDeep(db, light);
+  await store.deleteLessonPlanDeep(db, fakeStorage, light);
   assert.equal([...fdb.docs.values()].some(d => d.planId === 'lp-1'), false);
   assert.equal(fdb.docs.has('lessonPlans/lp-1'), false);
 });
@@ -335,44 +367,73 @@ test('xóa thất bại giữ lại bản tóm tắt; xóa thành công dọn c�
  test('giáo viên khác không sửa, nộp, xóa giáo án của đồng nghiệp (mô phỏng)', async () => {
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
-  await store.writeLessonPlan(db, newPlan(), { isNew: true });
+  await store.writeLessonPlan(db, fakeStorage, newPlan(), { isNew: true });
   const light = lightOf(fdb, 'lp-1');
   fdb.memberId = 'gv-2';
-  await assert.rejects(store.writeLessonPlan(db, { ...light, status: 'submitted' }, { isNew: false }), /permission/i);
-  await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
+  await assert.rejects(store.writeLessonPlan(db, fakeStorage, { ...light, status: 'submitted' }, { isNew: false }), /permission/i);
+  await assert.rejects(store.deleteLessonPlanDeep(db, fakeStorage, light), /permission/i);
   assert.equal(fdb.docs.get('lessonPlans/lp-1')!.status, 'draft');
 });
 
 test('Lỗi commit khi tạo giáo án không để lại tóm tắt, nội dung hay hình', async () => {
   const fdb = new FakeDb(); fdb.failCommit = true;
-  await assert.rejects(store.writeLessonPlan(fdb as never,newPlan(),{isNew:true}), /network failure/);
+  await assert.rejects(store.writeLessonPlan(fdb as never, fakeStorage,newPlan(),{isNew:true}), /network failure/);
   assert.equal(fdb.docs.size,0);
 });
 
 test('Lỗi commit khi sửa/xóa giữ nguyên tất cả các phần đã lưu', async () => {
   const fdb = new FakeDb(); const db = fdb as never;
-  await store.writeLessonPlan(db,newPlan(),{isNew:true});
+  await store.writeLessonPlan(db, fakeStorage,newPlan(),{isNew:true});
   const before = JSON.stringify([...fdb.docs]); fdb.failCommit = true;
-  await assert.rejects(store.writeLessonPlan(db,{...newPlan(),title:'Sửa',images:{h3:img(30)}}, {isNew:false,prevImageIds:['h1','h2']}), /network failure/);
+  await assert.rejects(store.writeLessonPlan(db, fakeStorage,{...newPlan(),title:'Sửa',images:{h3:img(30)}}, {isNew:false,prevImageIds:['h1','h2']}), /network failure/);
   assert.equal(JSON.stringify([...fdb.docs]),before);
-  await assert.rejects(store.deleteLessonPlanDeep(db,lightOf(fdb,'lp-1')), /network failure/);
+  await assert.rejects(store.deleteLessonPlanDeep(db, fakeStorage,lightOf(fdb,'lp-1')), /network failure/);
   assert.equal(JSON.stringify([...fdb.docs]),before);
 });
 
 test('Giới hạn tổng dung lượng chặn trước khi ghi bất cứ phần nào', async () => {
-  const fdb = new FakeDb(); const plan = newPlan();
-  plan.images = Object.fromEntries(Array.from({length:12},(_,i)=>[`big${i}`,img(700)]));
-  await assert.rejects(store.writeLessonPlan(fdb as never,plan,{isNew:true}), /8 MB/);
-  assert.equal(fdb.docs.size,0);
+  const fdb = new FakeDb();
+  const plan = newPlan();
+
+  // Ảnh giờ nằm ở Firebase Storage nên không còn làm Firestore batch vượt 8 MB.
+  // Tạo nhiều snapshot phiên bản, mỗi snapshot < 1 MB nhưng tổng batch > 8 MB.
+  plan.images = {};
+  plan.activities = [{
+    ...plan.activities[0],
+    content: 'Nội dung không có hình'
+  }];
+
+  plan.versionHistory = Array.from({ length: 10 }, (_, i) => ({
+    version: i + 1,
+    updatedAt: `2026-09-${String(i + 1).padStart(2, '0')}`,
+    updatedBy: 'Cô A',
+    changeSummary: `Phiên bản ${i + 1}`,
+    status: 'draft',
+    dataSnapshot: {
+      content: 'A'.repeat(850_000)
+    }
+  }));
+
+  await assert.rejects(
+    store.writeLessonPlan(
+      fdb as never,
+      fakeStorage,
+      plan,
+      { isNew: true }
+    ),
+    /8 MB/
+  );
+
+  assert.equal(fdb.docs.size, 0);
 });
 
 test('Giữ hình được dùng trong phiên bản cũ khi bỏ khỏi nội dung hiện tại', async () => {
   const fdb = new FakeDb(); const db = fdb as never;
   const plan = newPlan();
   plan.versionHistory = [{version:1,status:'draft',updatedAt:'x',updatedBy:'A',changeSummary:'Lưu',dataSnapshot:{activities:plan.activities}}];
-  const light = await store.writeLessonPlan(db,plan,{isNew:true});
+  const light = await store.writeLessonPlan(db, fakeStorage,plan,{isNew:true});
   const edited = {...plan,imageIds:light.imageIds,images:{h1:plan.images!.h1},activities:[{...plan.activities[0],content:'![H1](img:h1)'}]};
-  await store.writeLessonPlan(db,edited,{isNew:false,prevImageIds:light.imageIds});
+  await store.writeLessonPlan(db, fakeStorage,edited,{isNew:false,prevImageIds:light.imageIds});
   assert.ok(fdb.docs.has('lessonPlanImages/lp-1__h2'));
   assert.ok(fdb.docs.get('lessonPlans/lp-1')!.imageIds.includes('h2'));
 });

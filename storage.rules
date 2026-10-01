@@ -1,0 +1,48 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function myEmail() {
+      return signedIn() && request.auth.token.email != null ? request.auth.token.email.lower() : '';
+    }
+    function indexPath() {
+      return /databases/(default)/documents/accessIndex/$(myEmail());
+    }
+    function myRole() {
+      return !signedIn() || request.auth.token.email_verified != true ? 'none'
+        : (myEmail() == 'thuyetdung@gmail.com' ? 'admin'
+          : (firestore.exists(indexPath()) ? firestore.get(indexPath()).data.role : 'none'));
+    }
+    function isMember() { return myRole() in ['admin','head','deputy','teacher','principal']; }
+    function isLeader() { return myRole() in ['admin','head','deputy']; }
+    function isAdminOrHead() { return myRole() in ['admin','head']; }
+    function myMemberId() {
+      return firestore.exists(indexPath()) ? firestore.get(indexPath()).data.memberId : '';
+    }
+    function planPath(planId) { return /databases/(default)/documents/lessonPlans/$(planId); }
+    // Storage Rules chỉ được đọc tối đa 2 tài liệu Firestore mỗi request.
+    // Dùng accessIndex (vai trò + memberId) và lessonPlans (chủ sở hữu + trạng thái),
+    // không đọc thêm /members để tránh vượt giới hạn cross-service rules.
+    function canEdit(planId) {
+      return firestore.exists(planPath(planId))
+        && firestore.get(planPath(planId)).data.status in ['draft','returned']
+        && (isLeader() || firestore.get(planPath(planId)).data.teacherId == myMemberId());
+    }
+
+    match /lessonPlanImages/{planId}/{imageId} {
+      allow read: if isMember();
+      // Upload object mới được phép trước khi Firestore tạo giáo án; object chỉ trở thành
+      // dữ liệu ứng dụng sau khi metadata Firestore hợp lệ được commit.
+      allow create: if isMember()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      // Sửa/xóa object đang dùng cần đúng quyền giáo án; admin/head dùng cho migration.
+      allow update: if (isAdminOrHead() || canEdit(planId))
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isAdminOrHead() || canEdit(planId)
+        || (resource.metadata.uploaderUid != null && resource.metadata.uploaderUid == request.auth.uid);
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

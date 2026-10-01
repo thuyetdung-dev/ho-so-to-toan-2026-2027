@@ -14,7 +14,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import aiHandler from './api/ai.ts';
+import aiHandler from '../../api/ai.ts';
 
 dotenv.config({ path: ['.env.local', '.env'], quiet: true });
 

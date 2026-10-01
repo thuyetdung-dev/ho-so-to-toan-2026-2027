@@ -11,7 +11,7 @@ const KEY_STORE = 'gemini_api_key';
 const MODEL_STORE = 'gemini_model';
 const LIST_STORE = 'gemini_models';
 
-export type AiTask = 'chat' | 'solve' | 'questions' | 'lesson' | 'latex' | 'observation';
+export type AiTask = 'chat' | 'solve' | 'questions' | 'lesson' | 'latex' | 'observation' | 'review' | 'report' | 'kpi';
 
 export const AI_TASK_PROMPTS: Record<AiTask, string> = {
   chat: 'Trả lời câu hỏi chuyên môn của giáo viên Toán THPT một cách chính xác, ngắn gọn.',
@@ -24,6 +24,12 @@ export const AI_TASK_PROMPTS: Record<AiTask, string> = {
     'Bạn là công cụ sửa công thức LaTeX cho KaTeX. Nhận một công thức bị lỗi cú pháp (thường do chép từ Word) cùng câu văn xung quanh. Hãy trả về DUY NHẤT công thức LaTeX đã sửa, đúng cú pháp KaTeX, giữ nguyên ý nghĩa toán học, không thêm dấu $, không giải thích, không dùng khối mã.',
   observation:
     'Tóm tắt và hệ thống hóa ghi chép dự giờ theo hướng phân tích hoạt động học của học sinh (CV 5512): điểm mạnh, khó khăn của học sinh, đề xuất điều chỉnh. Không xếp loại giờ dạy.',
+  review:
+    'Rà soát hồ sơ chuyên môn dựa trên nguồn người dùng cung cấp. Chỉ ra mục thiếu, điểm chưa nhất quán, deadline/minh chứng còn thiếu và đề xuất chỉnh sửa. Mỗi nhận xét phải gắn với [Nguồn n] khi có căn cứ; không tự phê duyệt hồ sơ, không bịa quy định.',
+  report:
+    'Soạn dự thảo báo cáo chuyên môn từ các nguồn được cung cấp. Tách rõ số liệu/dữ kiện, nhận xét và đề xuất; không tự tạo số liệu, thành tích hay căn cứ pháp lý. Nếu nguồn chưa đủ cho một mục, ghi rõ cần bổ sung minh chứng.',
+  kpi:
+    'Phân tích KPI theo minh chứng được cung cấp: giải thích chỉ số nào đủ/chưa đủ dữ liệu, liệt kê minh chứng liên quan và gợi ý hành động cải thiện. Không xếp hạng giáo viên, không suy diễn năng lực cá nhân, không đưa quyết định nhân sự.',
 };
 
 const SYSTEM_BASE =

@@ -313,13 +313,28 @@ service cloud.firestore {
     match /lessonPlanImages/{id} {
       allow create, update: if adminRestore();
       allow read: if isMember();
-      // mã = {mã giáo án}__{mã hình}; mỗi hình dưới ~1 MB
-      allow create, update: if validId(id)
-        && request.resource.data.planId is string
-        && id == request.resource.data.planId + '__' + request.resource.data.imageId
-        && request.resource.data.data is string
-        && request.resource.data.data.size() < 1000000
-        && canEditLessonContent(request.resource.data.planId);
+      // Firestore chỉ giữ metadata; bytes ảnh nằm ở Firebase Storage.
+      function validStorageImageMeta() {
+        return validId(id)
+          && request.resource.data.planId is string
+          && request.resource.data.imageId is string
+          && id == request.resource.data.planId + '__' + request.resource.data.imageId
+          && request.resource.data.storagePath is string
+          && request.resource.data.storagePath == 'lessonPlanImages/' + request.resource.data.planId + '/' + request.resource.data.imageId
+          && request.resource.data.bytes is int && request.resource.data.bytes >= 0
+          && request.resource.data.bytes < 5000000
+          && request.resource.data.storageVersion == 1
+          && !('data' in request.resource.data);
+      }
+      allow create, update: if validStorageImageMeta() && canEditLessonContent(request.resource.data.planId);
+      // Migration ảnh cũ base64 -> Storage: chỉ Tổ trưởng/Quản trị, giữ nguyên planId/imageId.
+      allow update: if isAdminOrHead() && resource.data.data is string
+        && validStorageImageMeta()
+        && request.resource.data.planId == resource.data.planId
+        && request.resource.data.imageId == resource.data.imageId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'data','storagePath','contentType','bytes','storageVersion','migratedAt','migratedBy'
+        ]);
       allow delete: if canCleanLessonPart(resource.data.planId);
     }
     match /lessonPlanVersions/{id} {

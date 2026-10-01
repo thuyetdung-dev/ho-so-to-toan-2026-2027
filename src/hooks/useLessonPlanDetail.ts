@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { LessonPlan } from '../types';
 import { useApp } from '../context/AppContext';
-import { db, describeFirebaseError } from '../firebase';
+import { db, storage, describeFirebaseError } from '../firebase';
 import { loadLessonPlanImages, mergeLessonPlan, subscribeLessonPlanContent, type LessonPlanContentDoc } from '../services/lessonPlanStore';
 
 /**
@@ -36,7 +36,7 @@ export function useLessonPlanDetail(plan: LessonPlan | undefined) {
           return;
         }
         try {
-          const images = await loadLessonPlanImages(db, planId, content.imageIds || []);
+          const images = await loadLessonPlanImages(db, storage, planId, content.imageIds || []);
           if (alive && mine === seq) setState({ id: planId, content, images, loaded: true, error: '' });
         } catch (err) {
           if (alive && mine === seq) setState({ id: planId, content, images: {}, loaded: true, error: '' });

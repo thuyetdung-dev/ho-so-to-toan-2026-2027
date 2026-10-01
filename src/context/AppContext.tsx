@@ -1,6 +1,7 @@
 import { archivedAuditLogs } from '../utils/archivedAudit';
 import { applyDepartmentProgress, type DepartmentProgress } from '../utils/departmentProgress';
 import { assertCompleteLessonBackup } from '../utils/backupValidation';
+import { createSystemBackupZip, downloadBlob } from '../utils/systemBackupPackage';
 import { asyncCache } from '../utils/asyncCache';
 import { canUpdatePlan } from '../utils/workflow';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,7 +52,7 @@ import {
   SAMPLE_SKKN_TOPICS,
   SAMPLE_SPECIAL_TOPICS_ENRICHED,
 } from '../services/sample-data';
-import { auth, db, googleProvider, OWNER_EMAIL, describeFirebaseError, clearLocalCache } from '../firebase';
+import { auth, db, storage, googleProvider, OWNER_EMAIL, describeFirebaseError, clearLocalCache } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
   collection,
@@ -1347,7 +1348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           saved = { ...legacyDoc, contentState: 'full' } as LessonPlan;
           return;
         }
-        saved = await writeLessonPlan(db, updatedPlan, {
+        saved = await writeLessonPlan(db, storage, updatedPlan, {
           isNew: !existing,
           actor: {uid: currentUser!.uid, email: userEmail},
           prevImageIds: existing?.storage === 'split' ? existing.imageIds || [] : [],
@@ -1371,7 +1372,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ok = true;
     } else {
       const plan = realLessonPlans.find(p => p.id === id);
-      ok = !!plan && (await persist(() => deleteLessonPlanDeep(db, plan)));
+      ok = !!plan && (await persist(() => deleteLessonPlanDeep(db, storage, plan)));
       if (ok) setRealLessonPlans(prev => prev.filter(p => p.id !== id));
     }
     if (ok) {
@@ -1387,7 +1388,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return lessonContentCache.current.get(`${currentUser?.uid}|${plan.id}|${plan.version}|${plan.updatedAt}`,async()=>{
       const content = await getLessonPlanContent(db, plan.id);
       if (!content) throw new Error('Không tìm thấy nội dung giáo án trên máy chủ.');
-      const images = await loadLessonPlanImages(db, plan.id, content.imageIds || []);
+      const images = await loadLessonPlanImages(db, storage, plan.id, content.imageIds || []);
       if((content.imageIds || []).some(id=>!images[id]))throw new Error('Chưa tải đủ hình của giáo án. Hãy kiểm tra kết nối rồi thử lại.');
       return mergeLessonPlan(plan, content, images);
     });
@@ -1815,7 +1816,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let failed = 0;
     for (const p of legacy) {
       try {
-        const saved = await writeLessonPlan(db, asFullForRewrite(p), { isNew: false });
+        const saved = await writeLessonPlan(db, storage, asFullForRewrite(p), { isNew: false });
         setRealLessonPlans(prev => upsertById(prev, saved));
         done++;
       } catch (err) {
@@ -1952,7 +1953,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         snapshots.forEach((snap, i) => {fresh[keys[i]] = snap.docs.map(d => ({...d.data(), id: d.id}));});
         const configs = await getDocsFromServer(collection(db, 'departments'));
         fresh.config = configs.docs.find(d => d.id === currentConfig.id)?.data() || currentConfig;
-        lessonPlansFull = await loadAllLessonPlansFull(db, fresh.lessonPlans.map((p: any) => hydrateLessonPlan(p, p.id)));
+        lessonPlansFull = await loadAllLessonPlansFull(db, storage, fresh.lessonPlans.map((p: any) => hydrateLessonPlan(p, p.id)));
         const after = await getDocsFromServer(collection(db, 'lessonPlans'));
         const stable = (items: any[]) => JSON.stringify([...items].sort((a,b) => a.id.localeCompare(b.id)));
         if (stable(fresh.lessonPlans) !== stable(after.docs.map(d => ({...d.data(), id:d.id})))) throw new Error('Giáo án thay đổi trong lúc sao lưu. Hãy tạm dừng chỉnh sửa rồi tải lại.');
@@ -1966,7 +1967,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {lessonPlansFull.forEach(assertCompleteLessonBackup);} catch (err) {setNotification({message: `Không thể sao lưu: ${(err as Error).message}`, type: 'error'}); return;}
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.15.1',
+      version: '2.16.0',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
@@ -1994,16 +1995,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       auditArchive: fresh.auditLogs || currentAuditLogs,
       planEventArchive: fresh.planEvents || [],
     };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `So_Sinh_Hoat_Chuyen_Mon_To_Toan_${currentConfig.academicYear}_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setNotification({ message: 'Đã tải tệp sao lưu dữ liệu toàn hệ thống', type: 'success' });
+    try {
+      const blob = await createSystemBackupZip(backup);
+      downloadBlob(blob, `So_Sinh_Hoat_Chuyen_Mon_To_Toan_${currentConfig.academicYear}_${new Date().toISOString().slice(0, 10)}.zip`);
+      setNotification({ message: 'Đã tải gói sao lưu ZIP có manifest, checksum và ảnh tách riêng.', type: 'success' });
+    } catch (err) {
+      setNotification({ message: `Không tạo được gói sao lưu: ${err instanceof Error ? err.message : String(err)}`, type: 'error' });
+    }
   };
 
   const importSystemBackup = async (raw: unknown) => {
@@ -2127,7 +2125,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       await flush();
       for (const lp of byKey.lessonPlans as LessonPlan[]) {
-        await writeLessonPlan(db, {...asFullForRewrite(lp), _restoreSession: sessionId} as LessonPlan, {isNew: true, restoreSession: sessionId});
+        await writeLessonPlan(db, storage, {...asFullForRewrite(lp), _restoreSession: sessionId} as LessonPlan, {isNew: true, restoreSession: sessionId});
         completed++; await updateDoc(sessionRef, {completed});
       }
       for (const archive of archiveLists) {

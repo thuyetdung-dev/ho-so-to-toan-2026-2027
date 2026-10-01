@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, connectAuthEmulator } from 'firebase/auth';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -27,11 +28,13 @@ export const db = initializeFirestore(
   firebaseConfig.firestoreDatabaseId,
 );
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // Chạy thử với Firebase Emulator: VITE_USE_EMULATOR=1 npm run dev
 if (import.meta.env.VITE_USE_EMULATOR === '1') {
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
 }
 
 /** Xóa dữ liệu Firestore lưu tạm trên máy (gọi khi đăng xuất – máy tính dùng chung) rồi tải lại trang. */

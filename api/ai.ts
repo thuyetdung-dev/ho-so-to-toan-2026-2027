@@ -50,6 +50,12 @@ const TASKS: Record<string, string> = {
     "Bạn là công cụ sửa công thức LaTeX cho KaTeX. Nhận một công thức bị lỗi cú pháp (thường do chép từ Word) cùng câu văn xung quanh. Hãy trả về DUY NHẤT công thức LaTeX đã sửa, đúng cú pháp KaTeX, giữ nguyên ý nghĩa toán học, không thêm dấu $, không giải thích, không dùng khối mã.",
   observation:
     "Tóm tắt và hệ thống hóa ghi chép dự giờ theo hướng phân tích hoạt động học của học sinh (CV 5512): điểm mạnh, khó khăn của học sinh, đề xuất điều chỉnh. Không xếp loại giờ dạy.",
+  review:
+    "Rà soát hồ sơ chuyên môn dựa trên nguồn được cung cấp: mục thiếu, điểm chưa nhất quán, deadline/minh chứng còn thiếu và đề xuất chỉnh sửa. Gắn nhận xét với [Nguồn n]; không tự phê duyệt, không bịa quy định.",
+  report:
+    "Soạn dự thảo báo cáo chuyên môn từ nguồn cung cấp; phân biệt dữ kiện, nhận xét, đề xuất; không tự tạo số liệu/thành tích/căn cứ pháp lý; đánh dấu phần thiếu minh chứng.",
+  kpi:
+    "Phân tích KPI theo minh chứng: giải thích đủ/chưa đủ dữ liệu, dẫn nguồn và gợi ý cải thiện. Không xếp hạng giáo viên, không suy diễn năng lực cá nhân, không đưa quyết định nhân sự.",
 };
 
 const SYSTEM_BASE =

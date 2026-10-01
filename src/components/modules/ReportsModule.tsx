@@ -27,6 +27,9 @@ import { Booklet } from './Booklet';
 import { reportRange, reportData, validRange } from '../../utils/reporting';
 import { newId } from '../../utils/ids';
 import { findDuplicateAssignments, summarizeTeacher, teacherComparator } from '../../utils/assignments';
+import { exportPeriodDossier } from '../../utils/periodDossier';
+import { db, storage } from '../../firebase';
+import { loadAllLessonPlansFull } from '../../services/lessonPlanStore';
 
 export const ReportsModule: React.FC = () => {
   const {
@@ -43,6 +46,11 @@ export const ReportsModule: React.FC = () => {
     permissions,
     lessonPlans,
     skknTopics,
+    departmentPlans,
+    teacherPlans,
+    trainings,
+    initiatives,
+    isDemoMode,
   } = useApp();
 
   const [exportOpen,setExportOpen] = useState(false);
@@ -236,6 +244,33 @@ export const ReportsModule: React.FC = () => {
     exportToExcel([{ name: 'BaoCaoSoKet', data: rows }], `Bao_Cao_So_Ket_${reportTerm.replace(/\s+/g, '_')}_${reportYear}`);
   };
 
+  const handleExportDossier = async () => {
+    if (rangeDirty || !validRange(startDate, endDate)) {
+      setNotification({message:'Hãy đồng bộ số liệu và kiểm tra khoảng ngày trước khi đóng gói hồ sơ.', type:'error'});
+      return;
+    }
+    try {
+      const inRange = (raw?: string) => !raw || (raw.slice(0,10) >= startDate && raw.slice(0,10) <= endDate);
+      const fullPlans = isDemoMode ? scoped.lessonPlans : await loadAllLessonPlansFull(db, storage, scoped.lessonPlans);
+      await exportPeriodDossier({
+        academicYear: reportYear, term: reportTerm, startDate, endDate,
+        schoolName: config.schoolName, departmentName: config.departmentName,
+        report: {title:reportTitle, metrics:shownMetrics, executiveSummary, advantages, limitations, futureDirections, finalizedBy, isLocked, evidence},
+        members: allMembers,
+        assignments: assignments.filter(a => a.academicYear === reportYear),
+        departmentPlans: departmentPlans.filter(p => p.academicYear === reportYear),
+        teacherPlans: teacherPlans.filter(p => p.academicYear === reportYear),
+        lessonPlans: fullPlans, meetings: scoped.meetings, observations: scoped.observations, specialTopics: scoped.specialTopics,
+        trainings: trainings.filter((x:any) => x.academicYear === reportYear || inRange(x.date || x.completedAt || x.createdAt)),
+        initiatives: initiatives.filter((x:any) => x.academicYear === reportYear || inRange(x.date || x.createdAt)),
+        reportSnapshots: reportSnapshots.filter(r => r.academicYear === reportYear),
+      });
+      setNotification({message:`Đã xuất gói hồ sơ điện tử ${reportTerm} – ${reportYear}.`, type:'success'});
+    } catch (err) {
+      setNotification({message:`Không xuất được gói hồ sơ: ${err instanceof Error ? err.message : String(err)}`, type:'error'});
+    }
+  };
+
   const handleExportTeacherStats = () => {
     const rows = teacherStats.map(t => ({
       'Họ và tên giáo viên': t.name,
@@ -401,6 +436,15 @@ export const ReportsModule: React.FC = () => {
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Xuất Excel</span>
+                </button>
+                <button
+                  disabled={rangeDirty}
+                  onClick={handleExportDossier}
+                  className="px-2.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg border border-indigo-600 flex items-center gap-1.5 disabled:opacity-40"
+                  title="Đóng gói hồ sơ cuối kỳ/năm gồm báo cáo, thành viên, phân công, kế hoạch, giáo án, SHCM, dự giờ và minh chứng"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Gói hồ sơ kỳ/năm ZIP</span>
                 </button>
 
                 <button

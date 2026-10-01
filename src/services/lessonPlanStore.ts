@@ -26,6 +26,8 @@ import {
   serverTimestamp,
   type Firestore,
 } from 'firebase/firestore';
+import type { FirebaseStorage } from 'firebase/storage';
+import { deleteLessonImageMeta, getLessonImageUrl, loadLessonImageAsDataUrl, uploadLessonImage, type LessonImageMeta } from './lessonImageStorage';
 import type { LessonPlan, LessonPlanActivity, PlanVersionRecord } from '../types';
 
 /** Firestore cho tối đa 1 MiB (1.048.576 byte) mỗi bản ghi – chừa phần cho tên trường */
@@ -55,13 +57,7 @@ export interface LessonPlanContentDoc {
   imageIds: string[];
   updatedAt: string;
 }
-export interface LessonPlanImageDoc {
-  planId: string;
-  imageId: string;
-  data: string;
-  bytes: number;
-  createdAt: string;
-}
+export interface LessonPlanImageDoc extends LessonImageMeta {}
 export interface LessonPlanVersionDoc {
   planId: string;
   index: number;
@@ -226,6 +222,7 @@ export function trimHistoryToFit<T extends { versionHistory?: PlanVersionRecord[
  */
 export async function writeLessonPlan(
   db: Firestore,
+  storage: FirebaseStorage,
   plan: LessonPlan,
   opts: { isNew: boolean; prevImageIds?: string[]; restoreSession?: string; actor?: {uid: string; email: string} },
 ): Promise<LessonPlan> {
@@ -234,64 +231,96 @@ export async function writeLessonPlan(
   const limitError = checkLimits(parts);
   if (limitError) throw new Error(limitError);
 
+  // Storage và Firestore không có transaction chung. Quy trình hai pha:
+  // 1) upload ảnh mới vào Storage; 2) commit metadata + nội dung Firestore; 3) xóa object cũ.
+  // Nếu bước 2 lỗi, các object mới (không đè object cũ) được rollback best-effort.
+  const prev = new Set(opts.prevImageIds || []);
+  const uploaded = new Map<string, LessonImageMeta>();
+  const rollbackImages: LessonImageMeta[] = [];
+  if (parts.content) {
+    for (const [imageId, data] of Object.entries(parts.images)) {
+      if (prev.has(imageId) && !opts.restoreSession) continue;
+      const meta = await uploadLessonImage(storage, plan.id, imageId, data, opts.actor?.uid);
+      uploaded.set(imageId, meta);
+      if (!prev.has(imageId) && !opts.restoreSession) rollbackImages.push(meta);
+    }
+  }
+
   const batch = writeBatch(db);
   let operations = 1;
   let totalBytes = bytesOf(parts.light);
-  for (const v of parts.versions) {
-    const ref = doc(db, 'lessonPlanVersions', versionDocId(plan.id, v.index));
-    const old = opts.restoreSession ? null : await getDoc(ref);
-    if (old?.exists()) {
-      if (canonicalJson(old.data().snapshot) !== canonicalJson(v.snapshot)) throw new Error('Không được sửa nội dung phiên bản đã lưu.');
-      continue;
+  const obsoleteImages: LessonImageMeta[] = [];
+  try {
+    for (const v of parts.versions) {
+      const ref = doc(db, 'lessonPlanVersions', versionDocId(plan.id, v.index));
+      const old = opts.restoreSession ? null : await getDoc(ref);
+      if (old?.exists()) {
+        if (canonicalJson(old.data().snapshot) !== canonicalJson(v.snapshot)) throw new Error('Không được sửa nội dung phiên bản đã lưu.');
+        continue;
+      }
+      batch.set(ref, opts.restoreSession ? {...v, _restoreSession: opts.restoreSession} : v);
+      operations++; totalBytes += bytesOf(v);
     }
-    batch.set(ref, opts.restoreSession ? {...v, _restoreSession: opts.restoreSession} : v);
-    operations++; totalBytes += bytesOf(v);
+    if (parts.content) {
+      for (const [imageId] of Object.entries(parts.images)) {
+        if (prev.has(imageId) && !opts.restoreSession) continue;
+        const meta = uploaded.get(imageId);
+        if (!meta) throw new Error(`Không có metadata Storage cho hình ${imageId}.`);
+        const img = {...meta, ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})};
+        batch.set(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId)), img);
+        operations++; totalBytes += bytesOf(img);
+      }
+      batch.set(doc(db, 'lessonPlanContent', plan.id), {...parts.content,
+        ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})});
+      operations++; totalBytes += bytesOf(parts.content);
+      for (const imageId of prev) if (!parts.content.imageIds.includes(imageId)) {
+        const oldRef = doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId));
+        const old = await getDoc(oldRef).catch(() => null);
+        const oldMeta = old?.exists() ? (old.data() as LessonPlanImageDoc) : undefined;
+        if (oldMeta) obsoleteImages.push(oldMeta);
+        batch.delete(oldRef); operations++;
+      }
+    }
+    if (opts.actor && !opts.restoreSession) {
+      const before = await getDoc(doc(db, 'lessonPlans', plan.id));
+      if (before.exists() && before.data().status !== plan.status) {
+        const eventRef = doc(collection(db, 'planEvents'));
+        (parts.light as any)._eventId = eventRef.id;
+        batch.set(eventRef, {collection: 'lessonPlans', planId: plan.id,
+          from: before.data().status, to: plan.status, actorUid: opts.actor.uid,
+          actorEmail: opts.actor.email, recordedAt: serverTimestamp()});
+        operations++;
+      } else if (before.exists() && before.data()._eventId) {
+        (parts.light as any)._eventId = before.data()._eventId;
+      }
+    }
+    if (operations > 450 || totalBytes > 8_000_000) throw new Error('Giáo án vượt giới hạn ghi nguyên tử (450 thao tác/8 MB). Hãy tách giáo án trước khi lưu. Chưa ghi dữ liệu.');
+    batch.set(doc(db, 'lessonPlans', plan.id), parts.light);
+    await batch.commit();
+  } catch (err) {
+    await Promise.all(rollbackImages.map(meta => deleteLessonImageMeta(storage, meta).catch(() => undefined)));
+    throw err;
   }
-  if (parts.content) {
-    const prev = new Set(opts.prevImageIds || []);
-    for (const [imageId, data] of Object.entries(parts.images)) {
-      if (prev.has(imageId) && !opts.restoreSession) continue;
-      const img = {planId: plan.id, imageId, data, bytes: bytesOf(data), createdAt: now,
-        ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})};
-      batch.set(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId)), img);
-      operations++; totalBytes += bytesOf(img);
-    }
-    batch.set(doc(db, 'lessonPlanContent', plan.id), {...parts.content,
-      ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})});
-    operations++; totalBytes += bytesOf(parts.content);
-    for (const imageId of prev) if (!parts.content.imageIds.includes(imageId)) {
-      batch.delete(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId))); operations++;
-    }
-  }
-  if (opts.actor && !opts.restoreSession) {
-    const before = await getDoc(doc(db, 'lessonPlans', plan.id));
-    if (before.exists() && before.data().status !== plan.status) {
-      const eventRef = doc(collection(db, 'planEvents'));
-      (parts.light as any)._eventId = eventRef.id;
-      batch.set(eventRef, {collection: 'lessonPlans', planId: plan.id,
-        from: before.data().status, to: plan.status, actorUid: opts.actor.uid,
-        actorEmail: opts.actor.email, recordedAt: serverTimestamp()});
-      operations++;
-    } else if (before.exists() && before.data()._eventId) {
-      (parts.light as any)._eventId = before.data()._eventId;
-    }
-  }
-  if (operations > 450 || totalBytes > 8_000_000) throw new Error('Giáo án vượt giới hạn ghi nguyên tử (450 thao tác/8 MB). Hãy tách giáo án trước khi lưu. Chưa ghi dữ liệu.');
-  batch.set(doc(db, 'lessonPlans', plan.id), parts.light);
-  await batch.commit();
+  // Xóa object cũ sau khi metadata Firestore đã commit; lỗi dọn rác không làm mất dữ liệu đang dùng.
+  await Promise.all(obsoleteImages.map(meta => deleteLessonImageMeta(storage, meta).catch(() => undefined)));
   return { ...parts.light, contentState: 'light' };
 }
 
 /** Hình không bao giờ thay đổi → lấy từ bộ nhớ trên máy nếu đã có, không tải lại */
-export async function loadLessonPlanImages(db: Firestore, planId: string, ids: string[]): Promise<Record<string, string>> {
+export async function loadLessonPlanImages(db: Firestore, storage: FirebaseStorage, planId: string, ids: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   await Promise.all(
     ids.map(async id => {
-      const ref = doc(db, 'lessonPlanImages', imageDocId(planId, id));
-      let snap = await getDocFromCache(ref).catch(() => null);
-      if (!snap || !snap.exists()) snap = await getDoc(ref).catch(() => null);
-      const data = snap?.exists() ? (snap.data() as LessonPlanImageDoc).data : undefined;
-      if (data) out[id] = data;
+      const metaRef = doc(db, 'lessonPlanImages', imageDocId(planId, id));
+      let snap = await getDocFromCache(metaRef).catch(() => null);
+      if (!snap || !snap.exists()) snap = await getDoc(metaRef).catch(() => null);
+      if (!snap?.exists()) return;
+      const meta = snap.data() as LessonPlanImageDoc;
+      // Tương thích 3 lớp dữ liệu:
+      // 1) base64 rất cũ trong Firestore; 2) Cloudinary mới; 3) Firebase Storage cũ.
+      if (meta.data) { out[id] = meta.data; return; }
+      if (meta.secureUrl) { out[id] = meta.secureUrl; return; }
+      if (meta.storagePath) out[id] = await getLessonImageUrl(storage, meta.storagePath);
     }),
   );
   return out;
@@ -333,11 +362,12 @@ export async function loadVersionHistory(db: Firestore, plan: LessonPlan): Promi
 }
 
 /** Xóa giáo án và toàn bộ các phần trong cùng một lần ghi nguyên tử. */
-export async function deleteLessonPlanDeep(db: Firestore, plan: LessonPlan) {
+export async function deleteLessonPlanDeep(db: Firestore, storage: FirebaseStorage, plan: LessonPlan) {
   const [images, versions] = await Promise.all([
     getDocs(query(collection(db, 'lessonPlanImages'), where('planId', '==', plan.id))),
     getDocs(query(collection(db, 'lessonPlanVersions'), where('planId', '==', plan.id))),
   ]);
+  const imageMetas = images.docs.map(d => d.data() as LessonPlanImageDoc);
   const refs = [...images.docs, ...versions.docs].map(d => d.ref);
   if (refs.length + 2 > 450) throw new Error('Giáo án có quá nhiều bản ghi để xóa nguyên tử. Chưa xóa dữ liệu; cần quản trị xử lý riêng.');
   const batch = writeBatch(db);
@@ -345,10 +375,23 @@ export async function deleteLessonPlanDeep(db: Firestore, plan: LessonPlan) {
   batch.delete(doc(db, 'lessonPlanContent', plan.id));
   batch.delete(doc(db, 'lessonPlans', plan.id));
   await batch.commit();
+  await Promise.all(imageMetas.map(meta => deleteLessonImageMeta(storage, meta).catch(() => undefined)));
+}
+
+async function remoteImageUrlToDataUrl(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Không tải được ảnh Cloudinary (${res.status}).`);
+  const blob = await res.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Không đọc được ảnh Cloudinary.'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 /** Đọc TOÀN BỘ nội dung, hình, phiên bản (cho sao lưu) và ghép vào danh sách giáo án */
-export async function loadAllLessonPlansFull(db: Firestore, plans: LessonPlan[]): Promise<LessonPlan[]> {
+export async function loadAllLessonPlansFull(db: Firestore, storage: FirebaseStorage, plans: LessonPlan[]): Promise<LessonPlan[]> {
   if (!plans.some(p => p.storage === 'split')) return plans;
   const [contents, images, versions] = await Promise.all([
     getDocsFromServer(collection(db, 'lessonPlanContent')),
@@ -358,11 +401,15 @@ export async function loadAllLessonPlansFull(db: Firestore, plans: LessonPlan[])
   const contentBy = new Map<string, LessonPlanContentDoc>();
   contents.forEach(d => contentBy.set(d.id, d.data() as LessonPlanContentDoc));
   const imagesBy = new Map<string, Record<string, string>>();
-  images.forEach(d => {
+  await Promise.all(images.docs.map(async d => {
     const v = d.data() as LessonPlanImageDoc;
+    let data = v.data;
+    if (!data && v.secureUrl) data = await remoteImageUrlToDataUrl(v.secureUrl);
+    if (!data && v.storagePath) data = await loadLessonImageAsDataUrl(storage, v.storagePath);
+    if (!data) return;
     if (!imagesBy.has(v.planId)) imagesBy.set(v.planId, {});
-    imagesBy.get(v.planId)![v.imageId] = v.data;
-  });
+    imagesBy.get(v.planId)![v.imageId] = data;
+  }));
   const versionsBy = new Map<string, Map<number, unknown>>();
   versions.forEach(d => {
     const v = d.data() as LessonPlanVersionDoc;

@@ -3,6 +3,9 @@ import { useConfirm } from '../common/ConfirmDialog';
 import { newId, safeUrl } from '../../utils/ids';
 import { useApp } from '../../context/AppContext';
 import { StoragePanel } from '../common/StoragePanel';
+import { db, storage } from '../../firebase';
+import { migrateLegacyLessonImages } from '../../services/lessonImageStorage';
+import { parseSystemBackupFile } from '../../utils/systemBackupPackage';
 import type { SchoolLeader } from "../../types";
 import {
   Settings,
@@ -139,6 +142,27 @@ export const SettingsModule: React.FC = () => {
   // Liên kết ngoài (ngân hàng câu hỏi/đề kiểm tra, kho tài liệu Drive)
   const [examBankUrl, setExamBankUrl] = useState(config.externalLinks?.examAndQuestionBankUrl || '');
   const [driveUrl, setDriveUrl] = useState(config.externalLinks?.sharedDocumentsDriveUrl || '');
+  const [imageMigration, setImageMigration] = useState<{running:boolean; done:number; total:number; message:string}>({running:false,done:0,total:0,message:''});
+
+  const handleMigrateImages = async () => {
+    if (isDemoMode) { setNotification({message:'Migration chỉ áp dụng cho dữ liệu Firebase thật.', type:'info'}); return; }
+    const ok = await confirm({
+      title: 'Chuyển ảnh giáo án sang Firebase Storage?',
+      message: 'Ảnh base64 cũ sẽ được tải lên Firebase Storage. Firestore chỉ giữ metadata. Quy trình có thể chạy lại an toàn nếu bị gián đoạn.',
+      confirmText: 'Bắt đầu chuyển',
+    });
+    if (!ok) return;
+    setImageMigration({running:true,done:0,total:0,message:'Đang kiểm tra ảnh cũ...'});
+    try {
+      const result = await migrateLegacyLessonImages(db, storage, activeMember.email || '', (done,total,message) => setImageMigration({running:true,done,total,message}));
+      setImageMigration({running:false,done:result.migrated,total:result.total,message:`Đã chuyển ${result.migrated}; bỏ qua ${result.skipped}; lỗi ${result.failed.length}.`});
+      setNotification({message: result.failed.length ? `Migration hoàn tất nhưng có ${result.failed.length} ảnh lỗi. Có thể chạy lại.` : `Đã chuyển ${result.migrated} ảnh sang Firebase Storage.`, type: result.failed.length ? 'info' : 'success'});
+    } catch (err) {
+      setImageMigration(v=>({...v,running:false,message: err instanceof Error ? err.message : String(err)}));
+      setNotification({message:`Không thể migration ảnh: ${err instanceof Error ? err.message : String(err)}`, type:'error'});
+    }
+  };
+
 
   // Đồng bộ lại biểu mẫu khi cấu hình thay đổi (dữ liệu thật tải về sau, đổi chế độ demo/thật...).
   // Bản cũ chỉ đọc cấu hình lúc mở trang → khi lưu có thể ghi đè cấu hình thật bằng giá trị mặc định.
@@ -366,8 +390,7 @@ export const SettingsModule: React.FC = () => {
       return;
     }
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
+      const parsed = await parseSystemBackupFile(file);
       const ok = await confirm({
         title: 'Phục hồi dữ liệu từ tệp sao lưu?',
         message: isDemoMode
@@ -1155,6 +1178,22 @@ export const SettingsModule: React.FC = () => {
         <div className="space-y-6">
           <StoragePanel />
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Database className="w-4 h-4 text-violet-600" />
+                <span>Firebase Storage – ảnh giáo án</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">Ảnh mới được lưu ở Storage; Firestore chỉ giữ metadata. Công cụ dưới đây chuyển các ảnh base64 của phiên bản cũ sang Storage và có thể chạy lại an toàn.</p>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {permissions.isAdminOrHead && !isDemoMode && <button type="button" disabled={imageMigration.running} onClick={handleMigrateImages} className="px-3.5 py-2 text-xs font-semibold bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
+                <RefreshCw className={`w-4 h-4 ${imageMigration.running ? 'animate-spin' : ''}`} />
+                <span>{imageMigration.running ? 'Đang chuyển ảnh...' : 'Migration ảnh cũ sang Storage'}</span>
+              </button>}
+              {imageMigration.message && <span className="text-xs text-slate-600">{imageMigration.message}{imageMigration.total>0 ? ` (${imageMigration.done}/${imageMigration.total})` : ''}</span>}
+            </div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1201,10 +1240,10 @@ export const SettingsModule: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Download className="w-4 h-4 text-emerald-600" />
-                <span>Sao lưu & Phục hồi toàn bộ hệ thống (JSON Backup)</span>
+                <span>Sao lưu & Phục hồi toàn bộ hệ thống (ZIP chuẩn hóa)</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Xuất tất cả dữ liệu ra tệp JSON dự phòng để lưu trữ an toàn hoặc chuyển giao hệ thống
+                Xuất gói ZIP gồm manifest, checksum, dữ liệu JSON và ảnh tách riêng; vẫn phục hồi được bản JSON cũ
               </p>
             </div>
 
@@ -1214,14 +1253,14 @@ export const SettingsModule: React.FC = () => {
                 className="px-3.5 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
               >
                 <Download className="w-4 h-4" />
-                <span>Tải tệp sao lưu JSON</span>
+                <span>Tải gói sao lưu ZIP</span>
               </button>
 
               {(permissions.isAdmin || isDemoMode) && (
               <label className={`px-3.5 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-300 flex items-center gap-1.5 cursor-pointer ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
                 <Upload className="w-4 h-4 text-blue-600" />
-                <span>{isLoading ? 'Đang phục hồi...' : 'Phục hồi từ tệp JSON'}</span>
-                <input type="file" accept=".json,application/json" onChange={handleBackupUpload} className="hidden" />
+                <span>{isLoading ? 'Đang phục hồi...' : 'Phục hồi từ ZIP/JSON'}</span>
+                <input type="file" accept=".zip,.json,application/zip,application/json" onChange={handleBackupUpload} className="hidden" />
               </label>
               )}
             </div>

@@ -14,7 +14,7 @@ import { MathText } from "../../utils/katex-renderer";
 import { GeminiKeyPanel } from "../common/GeminiKeyPanel";
 import { askAI, getStoredKey, serverAiAvailable } from "../../services/gemini";
 
-type Task = "chat" | "solve" | "questions" | "lesson" | "observation";
+type Task = "chat" | "solve" | "questions" | "lesson" | "observation" | "review" | "report" | "kpi";
 
 const TASKS: Record<Task, { label: string; placeholder: string }> = {
   chat: {
@@ -38,6 +38,18 @@ const TASKS: Record<Task, { label: string; placeholder: string }> = {
     label: "Tóm tắt ghi chép dự giờ",
     placeholder: "Dán ghi chép dự giờ thô vào đây để AI hệ thống hóa...",
   },
+  review: {
+    label: "Rà soát hồ sơ",
+    placeholder: "VD: Rà soát các nguồn đã chọn, chỉ ra nội dung thiếu, deadline và minh chứng chưa đủ...",
+  },
+  report: {
+    label: "Dự thảo báo cáo",
+    placeholder: "VD: Từ các nguồn đã chọn, soạn dự thảo báo cáo tháng theo cấu trúc: kết quả, hạn chế, nhiệm vụ tiếp theo...",
+  },
+  kpi: {
+    label: "Phân tích KPI",
+    placeholder: "VD: Phân tích KPI từ minh chứng đã chọn, nêu chỉ số đủ/chưa đủ dữ liệu và việc cần bổ sung...",
+  },
 };
 
 interface Msg {
@@ -59,6 +71,8 @@ export const AiAssistantModule: React.FC = () => {
     setNotification,
     isDemoMode,
     departmentPlans,
+    teacherPlans,
+    lessonPlans,
     meetings,
     observations,
     reportSnapshots,
@@ -86,6 +100,43 @@ export const AiAssistantModule: React.FC = () => {
             ),
           ].join("\n"),
         })),
+      ...teacherPlans
+  .filter((p) => p.academicYear === config.academicYear)
+  .map((p) => ({
+    id: `teacher-plan-${p.id}`,
+    title: `KH cá nhân: ${p.title}`,
+    text: JSON.stringify({
+      title: p.title,
+      status: p.status,
+      teacherId: p.teacherId,
+      teacherName: p.teacherName,
+      grade: p.grade,
+      subject: p.subject,
+      className: p.className,
+      otherTasks: p.otherTasks,
+      sections: p.sections,
+      updatedAt: p.updatedAt,
+    }),
+  })),
+
+...lessonPlans
+  .map((p) => ({
+    id: `lesson-${p.id}`,
+    title: `Giáo án: ${p.title}`,
+    text: JSON.stringify({
+      title: p.title,
+      topicTitle: p.topicTitle,
+      status: p.status,
+      teacherId: p.teacherId,
+      teacherName: p.teacherName,
+      grade: p.grade,
+      week: p.week,
+      classNames: p.classNames,
+      taughtDate: p.taughtDate,
+      teachingStatus: p.teachingStatus,
+      updatedAt: p.updatedAt,
+    }),
+  })),
       ...meetings.map((p) => ({
         id: `meeting-${p.id}`,
         title: `Biên bản: ${p.title}`,
@@ -126,6 +177,8 @@ export const AiAssistantModule: React.FC = () => {
     ],
     [
       departmentPlans,
+      teacherPlans,
+      lessonPlans,
       meetings,
       observations,
       reportSnapshots,
@@ -229,8 +282,7 @@ export const AiAssistantModule: React.FC = () => {
             <Bot className="w-5 h-5 text-blue-600" /> Trợ lý AI Toán học
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Giải toán, soạn câu hỏi định dạng 2025, gợi ý giáo án CV 5512, tóm
-            tắt dự giờ. Hãy luôn kiểm tra lại nội dung AI tạo ra.
+            Giải toán, soạn câu hỏi, gợi ý giáo án, rà soát hồ sơ, dự thảo báo cáo và phân tích KPI theo minh chứng. AI chỉ hỗ trợ; người dùng chịu trách nhiệm kiểm tra và phê duyệt nội dung.
           </p>
         </div>
         {messages.length > 0 && (
