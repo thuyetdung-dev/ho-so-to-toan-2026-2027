@@ -1,7 +1,7 @@
 /**
  * Kiểm thử luồng lưu giáo án kiểu tách trên một Firestore GIẢ LẬP (trong bộ nhớ) có mô phỏng
- * các quy tắc bảo mật của firestore.rules cho lessonPlans / lessonPlanContent / lessonPlanImages / lessonPlanVersions.
- * Mục đích: bảo đảm thứ tự ghi hợp lệ với quy tắc, không mất dữ liệu, hình không tải lại.
+ * một số điều kiện chính của firestore.rules cho lessonPlans / lessonPlanContent / lessonPlanImages / lessonPlanVersions.
+ * Mục đích: kiểm tra batch, dữ liệu và lỗi commit. Không thay thế kiểm tra Rules trên Emulator.
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,6 +17,7 @@ class FakeDb {
   serverReads = 0;
   serverBytes = 0;
   imageWrites = 0;
+  failCommit = false;
 }
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 const denied = () => Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' });
@@ -25,14 +26,18 @@ function checkRules(db: FakeDb, ref: Ref, op: 'write' | 'delete', data?: Data) {
   const leader = db.role === 'leader';
   const plan = (id: string) => db.docs.get(`lessonPlans/${id}`);
   const owns = (id: string) => plan(id)?.teacherId === db.memberId;
-  const canEdit = (id: string) => leader || (owns(id) && ['draft', 'returned'].includes(plan(id)!.status));
-  const canClean = canEdit;
+  const canEdit = (id: string) => ['draft', 'returned'].includes(plan(id)?.status) && (leader || owns(id));
+  const canClean = (id: string) => canEdit(id) || leader && plan(id)?.status !== 'approved';
   const existing = db.docs.get(ref.path);
   switch (ref.col) {
     case 'lessonPlans':
-      if (op === 'delete') return leader || (owns(ref.id) && existing?.status === 'draft');
+      if (op === 'delete') return leader && existing?.status !== 'approved' || owns(ref.id) && existing?.status === 'draft';
       if (!existing) return leader || (data!.teacherId === db.memberId && data!.status === 'draft');
-      return leader || (owns(ref.id) && data!.teacherId === existing.teacherId && ['draft', 'returned'].includes(existing.status) && (['draft', 'submitted'].includes(data!.status) || data!.status === existing.status));
+      const changed = Object.keys({...existing, ...data}).filter(k => JSON.stringify(existing[k]) !== JSON.stringify(data![k]));
+      const review = leader && existing.status === 'submitted' && ['approved','returned'].includes(data!.status)
+        && changed.every(k => ['status','approvedBy','updatedAt','comments','versionHistory','version'].includes(k));
+      return review || (leader || owns(ref.id)) && data!.teacherId === existing.teacherId && ['draft', 'returned'].includes(existing.status)
+        && (['draft', 'submitted'].includes(data!.status) || existing.status === 'returned' && data!.status === 'returned');
     case 'lessonPlanContent':
       if (op === 'delete') return canClean(ref.id);
       return data!.planId === ref.id && canEdit(ref.id);
@@ -42,7 +47,7 @@ function checkRules(db: FakeDb, ref: Ref, op: 'write' | 'delete', data?: Data) {
     case 'lessonPlanVersions':
       if (op === 'delete') return canClean(existing?.planId);
       if (ref.id !== `${data!.planId}__v${data!.index}`) return false;
-      return canEdit(data!.planId);
+      return !existing && canEdit(data!.planId);
   }
   return false;
 }
@@ -54,6 +59,32 @@ const snapOf = (db: FakeDb, ref: Ref, data: Data | undefined) => ({
   data: () => (data === undefined ? undefined : clone(data)),
 });
 const fake = {
+  serverTimestamp: () => 'SERVER_TIME',
+  writeBatch(db: FakeDb) {
+    const ops: Array<{ref:Ref; data?:Data}> = [];
+    return {
+      set(ref:Ref, data:Data) {ops.push({ref,data});},
+      delete(ref:Ref) {ops.push({ref});},
+      async commit() {
+        if (db.failCommit) throw new Error('Simulated network failure');
+        const original = db.docs;
+        const preview = new Map(original);
+        // Simulate getAfter of parent for atomic creation.
+        for (const op of ops) if (op.ref.col === 'lessonPlans' && op.data) preview.set(op.ref.path,clone(op.data));
+        for (const op of ops) {
+          if (op.ref.col !== 'lessonPlans' && !original.has('lessonPlans/' + (op.data?.planId || ''))) db.docs = preview;
+          else db.docs = original;
+          if (!op.data && !db.docs.has(op.ref.path)) continue;
+          if (!checkRules(db,op.ref,op.data ? 'write':'delete',op.data)) {db.docs = original; throw denied();}
+        }
+        db.docs = new Map(original);
+        for (const op of ops) {
+          if (op.data) {db.docs.set(op.ref.path,clone(op.data)); if(op.ref.col === 'lessonPlanImages') db.imageWrites++;}
+          else db.docs.delete(op.ref.path);
+        }
+      }
+    };
+  },
   doc: (db: FakeDb, col: string, id: string): Ref => ({ db, col, id, path: `${col}/${id}` }),
   collection: (db: FakeDb, col: string) => ({ db, col }),
   where: (field: string, _op: string, value: unknown) => ({ field, value }),
@@ -93,7 +124,7 @@ const fake = {
     return () => undefined;
   },
 };
-mock.module('firebase/firestore', { namedExports: fake });
+mock.module('firebase/firestore', { namedExports: {...fake, getDocsFromServer: fake.getDocs} });
 const store = await import('../src/services/lessonPlanStore.ts');
 
 const img = (kb: number, c = 'A') => 'data:image/jpeg;base64,' + c.repeat(kb * 1024);
@@ -163,11 +194,11 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   light = lightOf(fdb, 'lp-1');
   await store.writeLessonPlan(db, {
     ...light, status: 'approved',
-    versionHistory: [...light.versionHistory!, { version: 2, updatedAt: '2026-09-03', updatedBy: 'Tổ trưởng', changeSummary: 'Duyệt', status: 'approved', dataSnapshot: snap }],
+    versionHistory: [...light.versionHistory!, { version: 2, updatedAt: '2026-09-03', updatedBy: 'Tổ trưởng', changeSummary: 'Duyệt', status: 'approved' }],
   }, { isNew: false });
   light = lightOf(fdb, 'lp-1');
   assert.equal(light.status, 'approved');
-  assert.deepEqual(light.versionHistory!.map(h => !!h.hasSnapshot), [false, true, true]);
+  assert.deepEqual(light.versionHistory!.map(h => !!h.hasSnapshot), [false, true, false]);
 
   // 7. So sánh phiên bản: tải nội dung các phiên bản
   const hist = await store.loadVersionHistory(db, light);
@@ -177,9 +208,11 @@ test('luồng thật: tạo → sửa → nộp → (chặn sửa khi chờ duy�
   // 8. Sao lưu: ghép đủ nội dung + hình + phiên bản
   const [backup] = await store.loadAllLessonPlansFull(db, [light]);
   assert.deepEqual(Object.keys(backup.images!).sort(), ['h1', 'h3']);
-  assert.deepEqual(backup.versionHistory![2].dataSnapshot, snap);
+  assert.deepEqual(backup.versionHistory![1].dataSnapshot, snap);
 
   // 9. Xóa: xóa sạch nội dung, hình, phiên bản
+  await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
+  fdb.docs.get('lessonPlans/lp-1')!.status = 'returned';
   await store.deleteLessonPlanDeep(db, light);
   assert.equal([...fdb.docs.keys()].filter(k => k.includes('lp-1')).length, 0);
 });
@@ -193,7 +226,7 @@ test('luồng thật: giáo viên xóa bản nháp của mình; không xóa đư
 
   await store.writeLessonPlan(db, newPlan(), { isNew: true });
   fdb.role = 'leader';
-  await store.writeLessonPlan(db, { ...lightOf(fdb, 'lp-1'), status: 'approved' }, { isNew: false });
+  fdb.docs.get('lessonPlans/lp-1')!.status = 'approved';
   fdb.role = 'teacher';
   await assert.rejects(store.deleteLessonPlanDeep(db, lightOf(fdb, 'lp-1')), /permission/i);
   assert.ok(fdb.docs.has('lessonPlans/lp-1'));
@@ -203,7 +236,7 @@ test('chuyển giáo án kiểu cũ (một bản ghi chứa tất cả) sang cá
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
   const { contentState: _c, ...legacyData } = newPlan();
-  legacyData.status = 'approved';
+  legacyData.status = 'draft';
   legacyData.versionHistory = [
     { version: 1, updatedAt: 'x', updatedBy: 'Cô A', changeSummary: 'Nộp', status: 'submitted', dataSnapshot: { title: 'cũ', activities: [] } },
   ];
@@ -265,21 +298,21 @@ test('mạng chập chờn: hình chưa tải được KHÔNG bị xóa khi lưu
   assert.equal(JSON.stringify(fdb.docs.get('lessonPlanContent/lp-1')), before);
 });
 
-test('nộp lại sau khi mất mạng giữa chừng: ghi đè phiên bản khi còn nháp được, sau khi duyệt thì không', async () => {
+test('nộp lại giữ nguyên phiên bản đã lưu; không cho sửa lịch sử khi nháp hoặc đã nộp', async () => {
   const db = new FakeDb() as never as import('firebase/firestore').Firestore;
   const fdb = db as unknown as FakeDb;
   await store.writeLessonPlan(db, newPlan(), { isNew: true });
   const light = lightOf(fdb, 'lp-1');
   const entry = { version: 2, updatedAt: 'x', updatedBy: 'Cô A', changeSummary: 'Nộp', status: 'submitted' as const, dataSnapshot: { title: 'a', activities: [] } };
   // lần 1: ghi được phiên bản rồi mất mạng (giả lập bằng cách chỉ ghi phiên bản)
-  fdb.docs.set('lessonPlanVersions/lp-1__v1', { planId: 'lp-1', index: 1, version: 2, snapshot: {}, createdAt: 'x' });
+  fdb.docs.set('lessonPlanVersions/lp-1__v1', { planId: 'lp-1', index: 1, version: 2, snapshot: entry.dataSnapshot, createdAt: 'x' });
   // lần 2: nộp lại thành công (ghi đè phiên bản vì giáo án còn nháp)
   await store.writeLessonPlan(db, { ...light, status: 'submitted', versionHistory: [...light.versionHistory!, entry] }, { isNew: false });
   assert.equal(fdb.docs.get('lessonPlans/lp-1')!.status, 'submitted');
   // sau khi đã nộp, giáo viên không ghi đè được phiên bản cũ
   await assert.rejects(
     store.writeLessonPlan(db, { ...lightOf(fdb, 'lp-1'), versionHistory: [light.versionHistory![0], { ...entry, dataSnapshot: { title: 'sửa lịch sử', activities: [] } }] }, { isNew: false }),
-    /permission/i,
+    /phiên bản đã lưu/i,
   );
 });
 
@@ -292,6 +325,7 @@ test('xóa thất bại giữ lại bản tóm tắt; xóa thành công dọn c�
   await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
   assert.ok(fdb.docs.has('lessonPlans/lp-1'));
   fdb.role = 'leader';
+  fdb.docs.get('lessonPlans/lp-1')!.status = 'submitted';
   fdb.docs.set('lessonPlanImages/lp-1__orphan', { planId: 'lp-1', imageId: 'orphan', data: 'x' });
   await store.deleteLessonPlanDeep(db, light);
   assert.equal([...fdb.docs.values()].some(d => d.planId === 'lp-1'), false);
@@ -307,4 +341,38 @@ test('xóa thất bại giữ lại bản tóm tắt; xóa thành công dọn c�
   await assert.rejects(store.writeLessonPlan(db, { ...light, status: 'submitted' }, { isNew: false }), /permission/i);
   await assert.rejects(store.deleteLessonPlanDeep(db, light), /permission/i);
   assert.equal(fdb.docs.get('lessonPlans/lp-1')!.status, 'draft');
+});
+
+test('Lỗi commit khi tạo giáo án không để lại tóm tắt, nội dung hay hình', async () => {
+  const fdb = new FakeDb(); fdb.failCommit = true;
+  await assert.rejects(store.writeLessonPlan(fdb as never,newPlan(),{isNew:true}), /network failure/);
+  assert.equal(fdb.docs.size,0);
+});
+
+test('Lỗi commit khi sửa/xóa giữ nguyên tất cả các phần đã lưu', async () => {
+  const fdb = new FakeDb(); const db = fdb as never;
+  await store.writeLessonPlan(db,newPlan(),{isNew:true});
+  const before = JSON.stringify([...fdb.docs]); fdb.failCommit = true;
+  await assert.rejects(store.writeLessonPlan(db,{...newPlan(),title:'Sửa',images:{h3:img(30)}}, {isNew:false,prevImageIds:['h1','h2']}), /network failure/);
+  assert.equal(JSON.stringify([...fdb.docs]),before);
+  await assert.rejects(store.deleteLessonPlanDeep(db,lightOf(fdb,'lp-1')), /network failure/);
+  assert.equal(JSON.stringify([...fdb.docs]),before);
+});
+
+test('Giới hạn tổng dung lượng chặn trước khi ghi bất cứ phần nào', async () => {
+  const fdb = new FakeDb(); const plan = newPlan();
+  plan.images = Object.fromEntries(Array.from({length:12},(_,i)=>[`big${i}`,img(700)]));
+  await assert.rejects(store.writeLessonPlan(fdb as never,plan,{isNew:true}), /8 MB/);
+  assert.equal(fdb.docs.size,0);
+});
+
+test('Giữ hình được dùng trong phiên bản cũ khi bỏ khỏi nội dung hiện tại', async () => {
+  const fdb = new FakeDb(); const db = fdb as never;
+  const plan = newPlan();
+  plan.versionHistory = [{version:1,status:'draft',updatedAt:'x',updatedBy:'A',changeSummary:'Lưu',dataSnapshot:{activities:plan.activities}}];
+  const light = await store.writeLessonPlan(db,plan,{isNew:true});
+  const edited = {...plan,imageIds:light.imageIds,images:{h1:plan.images!.h1},activities:[{...plan.activities[0],content:'![H1](img:h1)'}]};
+  await store.writeLessonPlan(db,edited,{isNew:false,prevImageIds:light.imageIds});
+  assert.ok(fdb.docs.has('lessonPlanImages/lp-1__h2'));
+  assert.ok(fdb.docs.get('lessonPlans/lp-1')!.imageIds.includes('h2'));
 });

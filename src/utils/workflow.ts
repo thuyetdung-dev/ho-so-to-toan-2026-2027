@@ -12,9 +12,9 @@ export function canUpdatePlan(before: Record<string, any> | undefined, after: Re
     return reviewing && !own && changed.every(k => reviewFields.includes(k));
   }
   if (department) {
-    return leader && (['draft','returned'].includes(before.status) && ['draft','returned','submitted'].includes(after.status)
+    return leader && (['draft','returned'].includes(before.status) && (['draft','submitted'].includes(after.status) || before.status === 'returned' && after.status === 'returned')
       || ['approved','submitted'].includes(before.status) && after.status === 'draft' && after.version > before.version);
   }
-  if (['draft','returned'].includes(before.status)) return (leader || own && role === 'teacher') && ['draft','returned','submitted'].includes(after.status);
+  if (['draft','returned'].includes(before.status)) return (leader || own && role === 'teacher') && (['draft','submitted'].includes(after.status) || before.status === 'returned' && after.status === 'returned');
   return own && before.status === after.status && changed.every(k => ['teachingStatus','isTaught','taughtDate','taughtClasses','updatedAt','contentState'].includes(k));
 }

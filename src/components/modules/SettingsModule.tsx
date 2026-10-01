@@ -361,8 +361,8 @@ export const SettingsModule: React.FC = () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (file.size > 20 * 1024 * 1024) {
-      setNotification({ message: 'Tệp sao lưu quá lớn (tối đa 20 MB).', type: 'error' });
+    if (file.size > 200 * 1024 * 1024) {
+      setNotification({ message: 'Tệp sao lưu quá lớn (tối đa 200 MB).', type: 'error' });
       return;
     }
     try {
@@ -372,7 +372,7 @@ export const SettingsModule: React.FC = () => {
         title: 'Phục hồi dữ liệu từ tệp sao lưu?',
         message: isDemoMode
           ? 'Dữ liệu trong tệp sẽ được nạp vào chế độ DỮ LIỆU MẪU để xem thử (không ảnh hưởng dữ liệu thật).'
-          : 'Các bản ghi trong tệp sẽ GHI ĐÈ bản ghi cùng mã trên Firestore. Nên tải bản sao lưu hiện tại trước.',
+          : 'Các bản ghi cùng mã sẽ bị GHI ĐÈ, kể cả hồ sơ đã duyệt/đã khóa; mã ngoài tệp được giữ lại. Nếu lỗi, phần đã ghi vẫn còn và có thể nhập lại cùng tệp. Hãy tải sao lưu hiện tại trước khi tiếp tục.',
         confirmText: 'Phục hồi',
         danger: !isDemoMode,
       });
@@ -1217,7 +1217,7 @@ export const SettingsModule: React.FC = () => {
                 <span>Tải tệp sao lưu JSON</span>
               </button>
 
-              {(isLeader || isDemoMode) && (
+              {(permissions.isAdmin || isDemoMode) && (
               <label className={`px-3.5 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-300 flex items-center gap-1.5 cursor-pointer ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
                 <Upload className="w-4 h-4 text-blue-600" />
                 <span>{isLoading ? 'Đang phục hồi...' : 'Phục hồi từ tệp JSON'}</span>

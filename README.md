@@ -1,3 +1,5 @@
+> **2.15.0:** tiến độ tách khỏi kế hoạch đã duyệt, sao lưu kiểm tra đầy đủ, phục hồi có phiên Quản trị, lưu/xóa giáo án nguyên tử và nhật ký chuyển trạng thái bất biến. **Phải cập nhật Firestore Rules cùng mã nguồn.** Xem [HUONG-DAN-CAP-NHAT-2.15.0.md](HUONG-DAN-CAP-NHAT-2.15.0.md).
+
 > **2.14.0:** nhập nhiều tệp/OCR, công việc và chỉ tiêu có cấu trúc, mẫu Word/PDF, AI có nguồn và cache nội dung. **Cần cập nhật Firestore rules cho quota AI chung.** Xem [HUONG-DAN-CAP-NHAT-2.14.0.md](HUONG-DAN-CAP-NHAT-2.14.0.md).
 
 > **2.13.0:** cải thiện báo cáo theo kỳ, đóng cuốn sổ, phân quyền duyệt và đăng nhập/demo. **Cần cập nhật Firestore rules.** Xem [HUONG-DAN-CAP-NHAT-2.13.0.md](HUONG-DAN-CAP-NHAT-2.13.0.md).

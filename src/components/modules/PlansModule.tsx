@@ -507,7 +507,7 @@ export const PlansModule: React.FC = () => {
                         <td className="p-2.5 border-r border-slate-200 text-slate-600">{item.equipment || '—'}</td>
                         <td className="p-2 text-center bg-blue-50/20">
                           <button
-                            disabled={!permissions.canContribute}
+                            disabled={!permissions.isLeader && activeMember.role !== 'principal'}
                             onClick={() => {
                               setEditingItem(item);
                               setItemStatus(item.status || 'completed');

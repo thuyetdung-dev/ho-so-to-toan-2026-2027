@@ -51,3 +51,15 @@ test('Kế hoạch tổ: BGH chỉ duyệt, lãnh đạo tạo bản nháp đi�
   assert.equal(canUpdatePlan(p,{...p,status:'draft',version:2},'head',true,true),true);
   assert.equal(canUpdatePlan(p,{...p,status:'draft'},'head',true,true),false);
 });
+
+test('Không tự chuyển nháp sang trả lại; hồ sơ trả lại vẫn được chỉnh sửa/nộp lại', () => {
+  const draft = {...before, status:'draft'};
+  for (const role of ['teacher','head','admin'] as const) {
+    assert.equal(canUpdatePlan(draft, {...draft,status:'returned'},role,true),false);
+  }
+  const returned = {...draft,status:'returned'};
+  assert.equal(canUpdatePlan(returned, {...returned,title:'Đã sửa'},'teacher',true),true);
+  assert.equal(canUpdatePlan(returned, {...returned,status:'submitted'},'teacher',true),true);
+  const dept:any = {createdBy:'Tổ trưởng',createdById:'head',status:'draft',version:1};
+  assert.equal(canUpdatePlan(dept, {...dept,status:'returned'},'head',true,true),false);
+});

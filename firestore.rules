@@ -13,6 +13,60 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Phiên phục hồi có thời hạn, chỉ Quản trị mở được; không cấp quyền cho người nhập tệp.
+    function adminRestore() {
+      let path = /databases/$(database)/documents/restoreSessions/$(request.auth.uid);
+      return isAdmin() && exists(path)
+        && get(path).data.status == 'active' && get(path).data.expiresAt > request.time
+        && request.resource.data.get('_restoreSession', '') == get(path).data.sessionId;
+    }
+    match /restoreSessions/{uid} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && uid == request.auth.uid
+        && request.resource.data.sessionId is string
+        && request.resource.data.status in ['active', 'completed', 'failed']
+        && request.resource.data.expiresAt <= request.time + duration.value(30, 'm');
+      allow delete: if false;
+    }
+    match /restoreArchives/{id} {
+      allow read: if isAdminOrHead();
+      allow create: if adminRestore() && request.resource.data.importedByUid == request.auth.uid
+        && request.resource.data.importedAt == request.time;
+      allow update, delete: if false;
+    }
+    function tracedTransition(name, id) {
+      let event = /databases/$(database)/documents/planEvents/$(request.resource.data.get('_eventId', '__none'));
+      return request.resource.data.status == resource.data.status
+        ? request.resource.data.get('_eventId', '') == resource.data.get('_eventId', '')
+        : getAfter(event).data.collection == name && getAfter(event).data.planId == id
+          && getAfter(event).data.actorUid == request.auth.uid
+          && getAfter(event).data.recordedAt == request.time
+          && getAfter(event).data.from == resource.data.status
+          && getAfter(event).data.to == request.resource.data.status;
+    }
+    match /planEvents/{id} {
+      allow read: if isMember();
+      allow create: if isMember() && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorEmail == myEmail()
+        && request.resource.data.recordedAt == request.time
+        && request.resource.data.collection in ['departmentPlans', 'teacherPlans', 'lessonPlans']
+        && request.resource.data.from != request.resource.data.to
+        && get(/databases/$(database)/documents/$(request.resource.data.collection)/$(request.resource.data.planId)).data.status == request.resource.data.from
+        && getAfter(/databases/$(database)/documents/$(request.resource.data.collection)/$(request.resource.data.planId)).data.status == request.resource.data.to;
+      allow update, delete: if false;
+    }
+    match /departmentProgress/{id} {
+      allow read: if isMember();
+      allow create, update: if adminRestore() || (
+        (isLeader() || isPrincipal()) && validId(id)
+        && request.resource.data.keys().hasOnly(['id','planId','itemId','itemIndex','status','dateTaught','updatedAt','updatedByUid'])
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.status in ['planned','in_progress','completed','delayed','make_up']
+        && request.resource.data.itemIndex is int && request.resource.data.itemIndex >= 0
+        && id == request.resource.data.planId + '__' + request.resource.data.itemId
+        && get(/databases/$(database)/documents/departmentPlans/$(request.resource.data.planId)).data.distribution[request.resource.data.itemIndex].id == request.resource.data.itemId);
+      allow delete: if isAdminOrHead();
+    }
     function signedIn() {
       return request.auth != null;
     }
@@ -82,7 +136,7 @@ service cloud.firestore {
     function planReview(department) {
       return resource.data.status == 'submitted'
         && request.resource.data.status in ['approved', 'returned']
-        && changedOnly(['status', 'approvedBy', 'updatedAt', 'comments', 'versionHistory', 'version'])
+        && changedOnly(['status', 'approvedBy', 'updatedAt', 'comments', 'versionHistory', 'version', '_eventId'])
         && (department ? isPrincipal() : myRole() in ['admin', 'head', 'deputy', 'principal'])
         && (department ? (resource.data.get('createdById', '') == ''
           ? resource.data.createdBy != request.auth.token.get('name', '')
@@ -92,7 +146,7 @@ service cloud.firestore {
     function personalPlanEdit() {
       return resource.data.status in ['draft', 'returned']
         && request.resource.data.teacherId == resource.data.teacherId
-        && request.resource.data.status in ['draft', 'returned', 'submitted']
+        && (request.resource.data.status in ['draft', 'submitted'] || resource.data.status == 'returned' && request.resource.data.status == 'returned')
         && (isLeader() || (canContribute() && ownsPlan()));
     }
     // Ai được gán vai trò nào: admin ← chỉ Quản trị; head ← Tổ trưởng/Quản trị; còn lại ← Tổ trưởng/Tổ phó
@@ -163,6 +217,7 @@ service cloud.firestore {
     }
 
     match /accessRequests/{requestId} {
+      allow create, update: if adminRestore();
       allow read: if isLeader() || (signedIn() && resource.data.email == myEmail());
       allow create: if signedIn() && validId(requestId)
         && request.resource.data.email == myEmail()
@@ -196,17 +251,19 @@ service cloud.firestore {
       allow write: if isLeader();
     }
     match /departmentPlans/{id} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       allow create: if validId(id) && isLeader() && request.resource.data.status == 'draft';
-      allow update: if request.resource.data.createdBy == resource.data.createdBy
+      allow update: if tracedTransition('departmentPlans', id) && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.get('createdById', '') == resource.data.get('createdById', '') && (
         planReview(true)
-        || (isLeader() && resource.data.status in ['draft', 'returned'] && request.resource.data.status in ['draft', 'returned', 'submitted'])
+        || (isLeader() && resource.data.status in ['draft', 'returned'] && (request.resource.data.status in ['draft', 'submitted'] || resource.data.status == 'returned' && request.resource.data.status == 'returned'))
         || (isLeader() && resource.data.status in ['approved', 'submitted'] && request.resource.data.status == 'draft' && request.resource.data.version > resource.data.version)
       );
       allow delete: if isAdminOrHead();
     }
     match /reportSnapshots/{id} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       allow create: if isLeader() && validId(id);
       allow update: if isLeader() && (resource.data.isLocked != true
@@ -214,18 +271,20 @@ service cloud.firestore {
       allow delete: if isAdminOrHead() && resource.data.isLocked != true;
     }
     match /teacherPlans/{id} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       allow create: if validId(id) && request.resource.data.status == 'draft' && (isLeader() || (canContribute() && ownsMember(request.resource.data.teacherId)));
-      allow update: if personalPlanEdit() || planReview(false);
+      allow update: if tracedTransition('teacherPlans', id) && (personalPlanEdit() || planReview(false));
       allow delete: if isAdminOrHead() && resource.data.status != 'approved';
     }
     match /lessonPlans/{id} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       allow create: if validId(id) && request.resource.data.status == 'draft' && (isLeader() || (canContribute() && ownsMember(request.resource.data.teacherId)));
-      allow update: if personalPlanEdit() || planReview(false)
+      allow update: if tracedTransition('lessonPlans', id) && (personalPlanEdit() || planReview(false)
         || (changedOnly(['teachingStatus', 'isTaught', 'taughtDate', 'taughtClasses', 'updatedAt'])
           && request.resource.data.status == resource.data.status
-          && request.resource.data.teacherId == resource.data.teacherId && canContribute() && ownsPlan());
+          && request.resource.data.teacherId == resource.data.teacherId && canContribute() && ownsPlan()));
       allow delete: if (isAdminOrHead() && resource.data.status != 'approved') || (canContribute() && ownsPlan() && resource.data.status == 'draft');
     }
     // ----- Giáo án lưu tách (bản 2.4): nội dung, hình, phiên bản -----
@@ -234,14 +293,17 @@ service cloud.firestore {
     }
     // Nội dung chỉ được sửa khi nháp/trả lại; phê duyệt chỉ cập nhật phần tóm tắt.
     function canEditLessonContent(planId) {
-      return exists(lessonPlanPath(planId))
+      return (exists(lessonPlanPath(planId))
         && get(lessonPlanPath(planId)).data.status in ['draft', 'returned']
-        && (isLeader() || (canContribute() && ownsMember(get(lessonPlanPath(planId)).data.teacherId)));
+        && (isLeader() || (canContribute() && ownsMember(get(lessonPlanPath(planId)).data.teacherId))))
+        || (!exists(lessonPlanPath(planId)) && getAfter(lessonPlanPath(planId)).data.status == 'draft'
+          && (isLeader() || (canContribute() && ownsMember(getAfter(lessonPlanPath(planId)).data.teacherId))));
     }
     function canCleanLessonPart(planId) {
-      return canEditLessonContent(planId);
+      return canEditLessonContent(planId) || (isAdminOrHead() && exists(lessonPlanPath(planId)) && get(lessonPlanPath(planId)).data.status != 'approved');
     }
     match /lessonPlanContent/{planId} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       allow create, update: if validId(planId)
         && request.resource.data.planId == planId
@@ -249,6 +311,7 @@ service cloud.firestore {
       allow delete: if canCleanLessonPart(planId);
     }
     match /lessonPlanImages/{id} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       // mã = {mã giáo án}__{mã hình}; mỗi hình dưới ~1 MB
       allow create, update: if validId(id)
@@ -260,6 +323,7 @@ service cloud.firestore {
       allow delete: if canCleanLessonPart(resource.data.planId);
     }
     match /lessonPlanVersions/{id} {
+      allow create, update: if adminRestore();
       allow read: if isMember();
       // Phiên bản chỉ lãnh đạo hoặc chính chủ khi giáo án còn nháp / trả lại được tạo.
       function validVersion() {
@@ -269,10 +333,9 @@ service cloud.firestore {
           && id == request.resource.data.planId + '__v' + string(request.resource.data.index);
       }
       allow create: if validVersion() && canEditLessonContent(request.resource.data.planId);
-      // Ghi đè phiên bản đã có: chỉ tổ trưởng/tổ phó, hoặc khi giáo án còn đang soạn (thử nộp lại sau khi mất mạng)
-      allow update: if validVersion() && request.resource.data.planId == resource.data.planId
-        && canEditLessonContent(request.resource.data.planId);
-      allow delete: if canCleanLessonPart(resource.data.planId);
+      // Nội dung phiên bản đã nộp là bất biến; phục hồi chỉ trong phiên Quản trị có thời hạn.
+      allow update: if false;
+      allow delete: if canCleanLessonPart(resource.data.planId) && !existsAfter(lessonPlanPath(resource.data.planId));
     }
     match /meetings/{id} {
       allow read: if isMember();

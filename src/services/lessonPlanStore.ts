@@ -14,15 +14,16 @@
  */
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocFromCache,
   getDocs,
+  getDocsFromServer,
   onSnapshot,
   query,
-  setDoc,
   where,
+  writeBatch,
+  serverTimestamp,
   type Firestore,
 } from 'firebase/firestore';
 import type { LessonPlan, LessonPlanActivity, PlanVersionRecord } from '../types';
@@ -37,6 +38,12 @@ const encoder = new TextEncoder();
 export const bytesOf = (v: unknown): number => encoder.encode(typeof v === 'string' ? v : JSON.stringify(v ?? null)).length;
 export const formatBytes = (n: number) =>
   n >= 1024 * 1024 * 1024 ? `${(n / 1024 / 1024 / 1024).toFixed(2)} GB` : n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : n <= 0 ? "0 KB" : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+/** So sánh snapshot theo nội dung, không phụ thuộc thứ tự khóa Firestore trả về. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+}
 
 export interface LessonPlanContentDoc {
   planId: string;
@@ -130,7 +137,7 @@ export function splitLessonPlan(plan: LessonPlan, now = new Date().toISOString()
   HEAVY_KEYS.forEach(k => delete light[k]);
   light.storage = 'split';
   light.versionHistory = lightHistory;
-  light.versionBytes = (plan.versionBytes || 0) + versions.reduce((a, v) => a + bytesOf(v.snapshot), 0);
+  light.versionBytes = Math.max(plan.versionBytes || 0, versions.reduce((a, v) => a + bytesOf(v.snapshot), 0));
 
   if (isLight) {
     return { light: light as unknown as LessonPlan, content: null, images: {}, versions };
@@ -141,7 +148,7 @@ export function splitLessonPlan(plan: LessonPlan, now = new Date().toISOString()
     ...(plan.activities || []).flatMap(a => [a.objectives, a.content, a.product, a.implementation])];
   const referenced = referencedImageIds(texts);
   // Hình đã lưu nhưng lần này không tải được (mạng chập chờn) mà nội dung vẫn dùng → giữ lại, KHÔNG coi là đã xóa
-  const kept = (plan.imageIds || []).filter(id => !(id in images) && referenced.has(id));
+  const kept = (plan.imageIds || []).filter(id => !(id in images) && (referenced.has(id) || history.some(h => h.hasSnapshot || h.dataSnapshot != null)));
   const imageIds = [...Object.keys(images), ...kept];
   const content: LessonPlanContentDoc = {
     planId: plan.id,
@@ -179,13 +186,16 @@ export function mergeLessonPlan(light: LessonPlan, content: LessonPlanContentDoc
 
 /** Kiểm tra giới hạn trước khi ghi; trả về thông báo lỗi tiếng Việt hoặc null */
 export function checkLimits(parts: SplitResult): string | null {
+  if (!/^[a-zA-Z0-9_@.+\-]{1,150}$/.test(parts.light.id)) return 'Mã giáo án không hợp lệ hoặc quá dài.';
+  if (Object.entries(parts.images).some(([id,data]) => !/^[a-zA-Z0-9_\-]+$/.test(id) || imageDocId(parts.light.id,id).length > 160 || typeof data !== 'string')) return 'Mã hình hoặc dữ liệu hình không hợp lệ.';
+  if (parts.versions.some(v => versionDocId(parts.light.id,v.index).length > 160)) return 'Mã phiên bản quá dài.';
   if (bytesOf(parts.light) > MAX_DOC_BYTES) return 'Phần thông tin chung của giáo án quá lớn (quá nhiều góp ý/phiên bản).';
   if (parts.content && bytesOf(parts.content) > MAX_DOC_BYTES) {
     return `Phần chữ của giáo án quá lớn (${formatBytes(bytesOf(parts.content))}, tối đa ${formatBytes(MAX_DOC_BYTES)}). Hãy tách thành 2 giáo án (ví dụ tiết 1–2 và tiết 3–4).`;
   }
-  const ids = Object.keys(parts.images);
+  const ids = parts.content?.imageIds || Object.keys(parts.images);
   if (ids.length > MAX_IMAGES_PER_PLAN) return `Giáo án có ${ids.length} hình, tối đa ${MAX_IMAGES_PER_PLAN} hình.`;
-  const big = ids.find(id => bytesOf(parts.images[id]) > MAX_IMAGE_BYTES);
+  const big = Object.keys(parts.images).find(id => bytesOf(parts.images[id]) > MAX_IMAGE_BYTES);
   if (big) return `Có hình quá lớn (${formatBytes(bytesOf(parts.images[big]))}). Hãy chèn lại hình này (phần mềm sẽ tự nén).`;
   for (const v of parts.versions) if (bytesOf(v) > MAX_DOC_BYTES) return 'Nội dung phiên bản quá lớn để lưu.';
   return null;
@@ -211,40 +221,64 @@ export function trimHistoryToFit<T extends { versionHistory?: PlanVersionRecord[
 // ---------------------------------------------------------------------------
 
 /**
- * Ghi giáo án. Thứ tự ghi đảm bảo không mất dữ liệu nếu mạng đứt giữa chừng:
- *  - giáo án mới: tóm tắt trước (để quy tắc bảo mật thấy giáo án tồn tại), rồi nội dung
- *  - giáo án đã có: phiên bản, hình, nội dung trước – tóm tắt ghi SAU CÙNG (ghi đè luôn bản ghi kiểu cũ)
+ * Ghi tóm tắt, nội dung, hình, snapshot mới và nhật ký trong cùng writeBatch.
+ * Kiểm tra giới hạn trước commit; lỗi ở bất kỳ phần nào không để lại bản ghi dở dang.
  */
 export async function writeLessonPlan(
   db: Firestore,
   plan: LessonPlan,
-  opts: { isNew: boolean; prevImageIds?: string[] },
+  opts: { isNew: boolean; prevImageIds?: string[]; restoreSession?: string; actor?: {uid: string; email: string} },
 ): Promise<LessonPlan> {
   const now = new Date().toISOString();
   const parts = splitLessonPlan(plan, now);
   const limitError = checkLimits(parts);
   if (limitError) throw new Error(limitError);
 
-  const planRef = doc(db, 'lessonPlans', plan.id);
-  if (opts.isNew) await setDoc(planRef, parts.light);
-
-  for (const v of parts.versions) await setDoc(doc(db, 'lessonPlanVersions', versionDocId(plan.id, v.index)), v);
-
+  const batch = writeBatch(db);
+  let operations = 1;
+  let totalBytes = bytesOf(parts.light);
+  for (const v of parts.versions) {
+    const ref = doc(db, 'lessonPlanVersions', versionDocId(plan.id, v.index));
+    const old = opts.restoreSession ? null : await getDoc(ref);
+    if (old?.exists()) {
+      if (canonicalJson(old.data().snapshot) !== canonicalJson(v.snapshot)) throw new Error('Không được sửa nội dung phiên bản đã lưu.');
+      continue;
+    }
+    batch.set(ref, opts.restoreSession ? {...v, _restoreSession: opts.restoreSession} : v);
+    operations++; totalBytes += bytesOf(v);
+  }
   if (parts.content) {
     const prev = new Set(opts.prevImageIds || []);
     for (const [imageId, data] of Object.entries(parts.images)) {
-      if (prev.has(imageId)) continue; // hình không đổi (mã hình không bao giờ dùng lại cho hình khác)
-      const img: LessonPlanImageDoc = { planId: plan.id, imageId, data, bytes: bytesOf(data), createdAt: now };
-      await setDoc(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId)), img);
+      if (prev.has(imageId) && !opts.restoreSession) continue;
+      const img = {planId: plan.id, imageId, data, bytes: bytesOf(data), createdAt: now,
+        ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})};
+      batch.set(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId)), img);
+      operations++; totalBytes += bytesOf(img);
     }
-    await setDoc(doc(db, 'lessonPlanContent', plan.id), parts.content);
-    const stillUsed = new Set(parts.content.imageIds);
-    for (const imageId of prev) {
-      if (!stillUsed.has(imageId)) await deleteDoc(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId))).catch(() => undefined);
+    batch.set(doc(db, 'lessonPlanContent', plan.id), {...parts.content,
+      ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})});
+    operations++; totalBytes += bytesOf(parts.content);
+    for (const imageId of prev) if (!parts.content.imageIds.includes(imageId)) {
+      batch.delete(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId))); operations++;
     }
   }
-
-  if (!opts.isNew) await setDoc(planRef, parts.light);
+  if (opts.actor && !opts.restoreSession) {
+    const before = await getDoc(doc(db, 'lessonPlans', plan.id));
+    if (before.exists() && before.data().status !== plan.status) {
+      const eventRef = doc(collection(db, 'planEvents'));
+      (parts.light as any)._eventId = eventRef.id;
+      batch.set(eventRef, {collection: 'lessonPlans', planId: plan.id,
+        from: before.data().status, to: plan.status, actorUid: opts.actor.uid,
+        actorEmail: opts.actor.email, recordedAt: serverTimestamp()});
+      operations++;
+    } else if (before.exists() && before.data()._eventId) {
+      (parts.light as any)._eventId = before.data()._eventId;
+    }
+  }
+  if (operations > 450 || totalBytes > 8_000_000) throw new Error('Giáo án vượt giới hạn ghi nguyên tử (450 thao tác/8 MB). Hãy tách giáo án trước khi lưu. Chưa ghi dữ liệu.');
+  batch.set(doc(db, 'lessonPlans', plan.id), parts.light);
+  await batch.commit();
   return { ...parts.light, contentState: 'light' };
 }
 
@@ -298,25 +332,28 @@ export async function loadVersionHistory(db: Firestore, plan: LessonPlan): Promi
   return history.map((h, i) => (h.dataSnapshot === undefined && byIndex.has(i) ? { ...h, dataSnapshot: byIndex.get(i) } : h));
 }
 
-/** Xóa giáo án cùng nội dung, hình, phiên bản (bản ghi tóm tắt xóa sau cùng) */
+/** Xóa giáo án và toàn bộ các phần trong cùng một lần ghi nguyên tử. */
 export async function deleteLessonPlanDeep(db: Firestore, plan: LessonPlan) {
-  if (plan.storage === 'split') {
-    const images = await getDocs(query(collection(db, 'lessonPlanImages'), where('planId', '==', plan.id)));
-    const versions = await getDocs(query(collection(db, 'lessonPlanVersions'), where('planId', '==', plan.id)));
-    for (const image of images.docs) await deleteDoc(image.ref);
-    for (const version of versions.docs) await deleteDoc(version.ref);
-    await deleteDoc(doc(db, 'lessonPlanContent', plan.id));
-  }
-  await deleteDoc(doc(db, 'lessonPlans', plan.id));
+  const [images, versions] = await Promise.all([
+    getDocs(query(collection(db, 'lessonPlanImages'), where('planId', '==', plan.id))),
+    getDocs(query(collection(db, 'lessonPlanVersions'), where('planId', '==', plan.id))),
+  ]);
+  const refs = [...images.docs, ...versions.docs].map(d => d.ref);
+  if (refs.length + 2 > 450) throw new Error('Giáo án có quá nhiều bản ghi để xóa nguyên tử. Chưa xóa dữ liệu; cần quản trị xử lý riêng.');
+  const batch = writeBatch(db);
+  refs.forEach(ref => batch.delete(ref));
+  batch.delete(doc(db, 'lessonPlanContent', plan.id));
+  batch.delete(doc(db, 'lessonPlans', plan.id));
+  await batch.commit();
 }
 
 /** Đọc TOÀN BỘ nội dung, hình, phiên bản (cho sao lưu) và ghép vào danh sách giáo án */
 export async function loadAllLessonPlansFull(db: Firestore, plans: LessonPlan[]): Promise<LessonPlan[]> {
-  if (!plans.some(p => p.contentState === 'light')) return plans;
+  if (!plans.some(p => p.storage === 'split')) return plans;
   const [contents, images, versions] = await Promise.all([
-    getDocs(collection(db, 'lessonPlanContent')),
-    getDocs(collection(db, 'lessonPlanImages')),
-    getDocs(collection(db, 'lessonPlanVersions')),
+    getDocsFromServer(collection(db, 'lessonPlanContent')),
+    getDocsFromServer(collection(db, 'lessonPlanImages')),
+    getDocsFromServer(collection(db, 'lessonPlanVersions')),
   ]);
   const contentBy = new Map<string, LessonPlanContentDoc>();
   contents.forEach(d => contentBy.set(d.id, d.data() as LessonPlanContentDoc));
@@ -333,7 +370,7 @@ export async function loadAllLessonPlansFull(db: Firestore, plans: LessonPlan[])
     versionsBy.get(v.planId)!.set(v.index, v.snapshot);
   });
   return plans.map(p => {
-    if (p.contentState !== 'light') return p;
+    if (p.storage !== 'split') return p;
     const full = mergeLessonPlan(p, contentBy.get(p.id) || null, imagesBy.get(p.id) || {});
     const vmap = versionsBy.get(p.id);
     return {

@@ -1,3 +1,6 @@
+import { archivedAuditLogs } from '../utils/archivedAudit';
+import { applyDepartmentProgress, type DepartmentProgress } from '../utils/departmentProgress';
+import { assertCompleteLessonBackup } from '../utils/backupValidation';
 import { asyncCache } from '../utils/asyncCache';
 import { canUpdatePlan } from '../utils/workflow';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -59,6 +62,7 @@ import {
   onSnapshot,
   getDoc,
   getDocs,
+  getDocsFromServer,
   query,
   where,
   writeBatch,
@@ -285,7 +289,7 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const CONTENT_COLLECTIONS = [
   'classes', 'assignments', 'departmentPlans', 'teacherPlans', 'lessonPlans',
   'meetings', 'observations',
-  'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots',
+  'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots', 'departmentProgress',
 ] as const;
 /** Các bảng chứa nội dung/hình/phiên bản giáo án (lưu tách, bản 2.4) */
 const LESSON_PLAN_PART_COLLECTIONS = ['lessonPlanContent', 'lessonPlanImages', 'lessonPlanVersions'] as const;
@@ -410,6 +414,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
+  const [realRestoreArchives, setRealRestoreArchives] = useState<any[]>([]);
+  const [realPlanEvents, setRealPlanEvents] = useState<any[]>([]);
+  const [realProgress, setRealProgress] = useState<DepartmentProgress[]>([]);
+  const [demoProgress, setDemoProgress] = useState<DepartmentProgress[]>([]);
   const userEmail = normalizeEmail(currentUser?.email);
   const isOwner = !!currentUser && userEmail === OWNER_EMAIL && currentUser.emailVerified !== false;
 
@@ -518,6 +526,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ),
     );
 
+    subscribeList<DepartmentProgress>('departmentProgress', setRealProgress);
     subscribeList<Member>('members', setRealMembers);
     subscribeList<SchoolClass>('classes', setRealClasses);
     subscribeList<Assignment>('assignments', setRealAssignments);
@@ -549,6 +558,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       subscribeList<AccessRequest>('accessRequests', setRealAccessRequests);
       subscribeList<AccessIndexEntry>('accessIndex', setRealAccessIndex);
       subscribeList<AuditLog>('auditLogs', setRealAuditLogs);
+      subscribeList<any>('planEvents', setRealPlanEvents);
+      subscribeList<any>('restoreArchives', setRealRestoreArchives);
     }
 
     return () => subscriptions.forEach(unsubscribe => unsubscribe());
@@ -613,6 +624,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRealClasses([]);
     setRealAssignments([]);
     setRealDeptPlans([]);
+    setRealProgress([]);
     setRealTeacherPlans([]);
     setRealLessonPlans([]);
     setRealMeetings([]);
@@ -630,6 +642,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRealInvitations([]);
     setRealAccessRequests([]);
     setRealAuditLogs([]);
+    setRealPlanEvents([]);
+    setRealRestoreArchives([]);
+    setRealProgress([]);
     setRealConfig(DEFAULT_REAL_CONFIG);
   }, [currentUser]);
 
@@ -639,6 +654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentClasses = isDemoMode ? demoClasses : realClasses;
   const currentAssignments = isDemoMode ? demoAssignments : realAssignments;
   const currentDeptPlans = isDemoMode ? demoDeptPlans : realDeptPlans;
+  const departmentPlansWithProgress = useMemo(() => applyDepartmentProgress(currentDeptPlans, isDemoMode ? demoProgress : realProgress), [currentDeptPlans, isDemoMode, demoProgress, realProgress]);
   const currentTeacherPlans = isDemoMode ? demoTeacherPlans : realTeacherPlans;
   const currentLessonPlans = isDemoMode ? demoLessonPlans : realLessonPlans;
   const currentInvitations = isDemoMode ? demoInvitations : realInvitations;
@@ -649,10 +665,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentSkknTopics = isDemoMode ? demoSkknTopics : realSkknTopics;
   const currentTrainings = isDemoMode ? demoTrainings : realTrainings;
   const currentInitiatives = isDemoMode ? demoInitiatives : realInitiatives;
-  const currentAuditLogs = useMemo(
-    () => [...(isDemoMode ? demoAuditLogs : realAuditLogs)].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || '')),
-    [isDemoMode, demoAuditLogs, realAuditLogs],
-  );
+  const currentAuditLogs = useMemo(() => {
+    const labels: Record<string,string> = {draft:'Nháp',submitted:'Chờ duyệt',approved:'Đã duyệt',returned:'Trả lại'};
+    const events: AuditLog[] = isDemoMode || !iAmLeader ? [] : realPlanEvents.filter(e => e.recordedAt?.toDate).map(e => ({
+      id: `event_${e.id}`, action:'Chuyển trạng thái (đã xác thực)', actorUid:e.actorUid, actorEmail:e.actorEmail,
+      actorId:e.actorUid, actorName:currentMembers.find(m => m.uid === e.actorUid)?.displayName || e.actorEmail,
+      targetType:e.collection, targetId:e.planId, details:`${labels[e.from] || e.from} → ${labels[e.to] || e.to}`,
+      timestamp:e.recordedAt.toDate().toISOString(),
+    }));
+    const archived = isDemoMode || !iAmLeader ? [] : archivedAuditLogs(realRestoreArchives);
+    return [...(isDemoMode ? demoAuditLogs : realAuditLogs),...events,...archived].sort((a,b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+  }, [isDemoMode, demoAuditLogs, realAuditLogs, realPlanEvents, realRestoreArchives, iAmLeader, currentMembers]);
   const currentQuestions = isDemoMode ? demoQuestions : realQuestions;
   const currentExamBlueprints = isDemoMode ? demoExamBlueprints : realExamBlueprints;
   const currentExams = isDemoMode ? demoExams : realExams;
@@ -756,7 +779,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDemo(prev => upsertById(prev, item, prepend));
       return true;
     }
-    const ok = await persist(() => setDoc(doc(db, collectionName, item.id), item));
+    const ok = await persist(async () => {
+      if (['departmentPlans', 'teacherPlans'].includes(collectionName)) {
+        const ref = doc(db, collectionName, item.id); const old = await getDoc(ref);
+        const batch = writeBatch(db);
+        if (old.exists() && old.data().status !== (item as any).status) {
+          const eventRef = doc(collection(db, 'planEvents'));
+          batch.set(ref, {...item, _eventId: eventRef.id});
+          batch.set(eventRef, {collection: collectionName, planId: item.id, from: old.data().status, to: (item as any).status,
+            actorUid: currentUser!.uid, actorEmail: userEmail, recordedAt: serverTimestamp()});
+        } else batch.set(ref, {...item, ...(old.exists() && old.data()._eventId ? {_eventId: old.data()._eventId} : {})});
+        await batch.commit();
+      } else await setDoc(doc(db, collectionName, item.id), item);
+    });
     if (ok) setReal(prev => upsertById(prev, item, prepend));
     return ok;
   };
@@ -1134,7 +1169,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteDepartmentPlan = async (id: string) => {
-    const ok = await removeItem('departmentPlans', id, setDemoDeptPlans, setRealDeptPlans);
+    const ok = isDemoMode ? (setDemoDeptPlans(prev => prev.filter(p => p.id !== id)), setDemoProgress(prev => prev.filter(r => r.planId !== id)), true)
+      : await persist(async () => {
+        const rows = await getDocs(query(collection(db, 'departmentProgress'), where('planId','==',id)));
+        if (rows.size + 1 > 450) throw new Error('Kế hoạch có quá nhiều dòng tiến độ để xóa nguyên tử. Chưa xóa dữ liệu.');
+        const batch = writeBatch(db); rows.docs.forEach(row => batch.delete(row.ref));
+        batch.delete(doc(db, 'departmentPlans', id)); await batch.commit();
+        setRealDeptPlans(prev => prev.filter(p => p.id !== id)); setRealProgress(prev => prev.filter(r => r.planId !== id));
+      });
     if (ok) {
       setNotification({ message: 'Đã xóa kế hoạch tổ', type: 'info' });
       await logAction('Xóa kế hoạch tổ', 'DepartmentPlan', id, '');
@@ -1176,6 +1218,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const plan = currentDeptPlans.find(p => p.id === planId);
     if (!plan) return;
+    if (action === 'returned' && !note.trim()) {setNotification({message: 'Hãy ghi lý do trả lại kế hoạch.', type: 'error'}); return;}
     const isApprove = action === 'approve';
     const nextStatus = isApprove ? ('approved' as const) : ('returned' as const);
     const now = new Date().toISOString();
@@ -1228,23 +1271,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const plan = currentDeptPlans.find(p => p.id === planId);
     if (!plan) return;
-    const updatedPlan: DepartmentPlan = {
-      ...plan,
-      distribution: plan.distribution.map(item =>
-        item.id === itemId
-          ? {
-              ...item,
-              status,
-              dateTaught:
-                status === 'completed' || status === 'make_up'
-                  ? dateTaught || item.dateTaught || new Date().toISOString().split('T')[0]
-                  : undefined,
-            }
-          : item,
-      ),
-    };
-    if (await saveDepartmentPlan(updatedPlan, { silent: true })) {
-      setNotification({ message: 'Đã cập nhật tiến độ thực hiện tiết dạy!', type: 'success' });
+    const itemIndex = plan.distribution.findIndex(item => item.id === itemId);
+    if (itemIndex < 0) return;
+    const progress = {id: `${planId}__${itemId}`, planId, itemId, itemIndex, status,
+      dateTaught: ['completed', 'make_up'].includes(status) ? dateTaught || new Date().toISOString().slice(0,10) : '',
+      updatedAt: new Date().toISOString(), updatedByUid: currentUser?.uid || activeMember.id};
+    if (await upsertItem('departmentProgress', progress, setDemoProgress, setRealProgress)) {
+      setNotification({message: 'Đã cập nhật tiến độ; nội dung kế hoạch phê duyệt được giữ nguyên.', type: 'success'});
+      await logAction('Cập nhật tiến độ', 'DepartmentPlan', planId, `${itemId}: ${status}`);
     }
   };
 
@@ -1305,6 +1339,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         saved = await writeLessonPlan(db, updatedPlan, {
           isNew: !existing,
+          actor: {uid: currentUser!.uid, email: userEmail},
           prevImageIds: existing?.storage === 'split' ? existing.imageIds || [] : [],
         });
       });
@@ -1382,17 +1417,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updatedBy: activeMember.displayName,
           changeSummary: 'Nộp kế hoạch bài dạy lên Tổ trưởng chuyên môn',
           status: 'submitted',
+          dataSnapshot: snap,
           comment: comment || 'Kính gửi Tổ trưởng phê duyệt kế hoạch bài dạy.',
         },
       ],
     };
-    // Chỉ cập nhật phần phê duyệt; không ghi lại nội dung/hình của giáo án tách.
-    const ok = isDemoMode
-      ? (setDemoLessonPlans(prev => upsertById(prev, updatedPlan, true)), true)
-      : await persist(() => updateDoc(doc(db, 'lessonPlans', planId), {
-          status: updatedPlan.status, approvedBy: updatedPlan.approvedBy || '',
-          updatedAt: now, comments: updatedPlan.comments, versionHistory: updatedPlan.versionHistory,
-        }));
+    const ok = await saveLessonPlan(updatedPlan, {silent: true});
     if (ok) {
       if (!isDemoMode) setRealLessonPlans(prev => upsertById(prev, updatedPlan, true));
       setNotification({ message: 'Đã nộp kế hoạch bài dạy lên Tổ chuyên môn duyệt!', type: 'success' });
@@ -1446,10 +1476,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Chỉ cập nhật phần phê duyệt; không ghi lại nội dung/hình của giáo án tách.
     const ok = isDemoMode
       ? (setDemoLessonPlans(prev => upsertById(prev, updatedPlan, true)), true)
-      : await persist(() => updateDoc(doc(db, 'lessonPlans', planId), {
-          status: updatedPlan.status, approvedBy: updatedPlan.approvedBy || '',
-          updatedAt: now, comments: updatedPlan.comments, versionHistory: updatedPlan.versionHistory,
-        }));
+      : await persist(async () => {
+          const batch = writeBatch(db);
+          const eventRef = doc(collection(db, 'planEvents'));
+          batch.update(doc(db, 'lessonPlans', planId), {
+            status: updatedPlan.status, approvedBy: updatedPlan.approvedBy || '', _eventId: eventRef.id,
+            updatedAt: now, comments: updatedPlan.comments, versionHistory: updatedPlan.versionHistory,
+          });
+          batch.set(eventRef, {collection: 'lessonPlans', planId,
+            from: plan.status, to: nextStatus, actorUid: currentUser!.uid, actorEmail: userEmail, recordedAt: serverTimestamp()});
+          await batch.commit();
+        });
     if (ok) {
       if (!isDemoMode) setRealLessonPlans(prev => upsertById(prev, updatedPlan, true));
       setNotification({
@@ -1817,6 +1854,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Quản trị dữ liệu ----------
   const resetToSampleData = async () => {
+    setDemoProgress([]);
     setDemoConfig(clone(SAMPLE_DEPARTMENT_CONFIG));
     setDemoMembers(clone(SAMPLE_MEMBERS));
     setDemoClasses(clone(SAMPLE_CLASSES));
@@ -1855,14 +1893,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     const ok = await persist(async () => {
-      for (const collectionName of [...CONTENT_COLLECTIONS, ...LESSON_PLAN_PART_COLLECTIONS]) {
-        const snapshot = await getDocs(collection(db, collectionName));
-        for (let i = 0; i < snapshot.docs.length; i += 400) {
-          const batch = writeBatch(db);
-          snapshot.docs.slice(i, i + 400).forEach(item => batch.delete(item.ref));
-          await batch.commit();
-        }
-      }
+      const keys = [...CONTENT_COLLECTIONS, ...LESSON_PLAN_PART_COLLECTIONS];
+      const snapshots = await Promise.all(keys.map(key => getDocsFromServer(collection(db,key))));
+      const protectedData = snapshots.some((snapshot,index) =>
+        ['teacherPlans','lessonPlans'].includes(keys[index]) && snapshot.docs.some(d => d.data().status === 'approved')
+        || keys[index] === 'reportSnapshots' && snapshot.docs.some(d => d.data().isLocked));
+      if (protectedData) throw new Error('Có hồ sơ đã duyệt hoặc báo cáo đã khóa. Chưa xóa dữ liệu. Hãy giữ sao lưu và xử lý hồ sơ được bảo vệ riêng.');
+      const count = snapshots.reduce((n,snapshot) => n + snapshot.size,0);
+      if (count > 450) throw new Error('Dữ liệu vượt giới hạn xóa trắng nguyên tử (450 bản ghi). Chưa xóa dữ liệu; cần Quản trị xử lý theo bản sao lưu.');
+      const batch = writeBatch(db);
+      snapshots.forEach(snapshot => snapshot.docs.forEach(item => batch.delete(item.ref)));
+      if (count) await batch.commit();
+
     });
     if (!ok) return;
     setRealClasses([]);
@@ -1887,11 +1929,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const exportSystemBackup = async () => {
+    if (!isDemoMode && !permissions.isAdminOrHead) {setNotification({message: 'Sao lưu toàn hệ thống cần Tổ trưởng hoặc Quản trị viên.', type: 'error'}); return;}
     let lessonPlansFull = currentLessonPlans;
+    const fresh: Record<string, any> = {};
     if (!isDemoMode) {
       setIsLoading(true);
       try {
-        lessonPlansFull = await loadAllLessonPlansFull(db, currentLessonPlans);
+        const keys = [...CONTENT_COLLECTIONS, 'members', 'invitations', 'accessRequests', 'accessIndex', 'auditLogs', 'planEvents', 'restoreArchives'];
+        if (!isOnline) throw new Error('Cần kết nối mạng để xác nhận dữ liệu sao lưu mới nhất.');
+        await waitForPendingWrites(db);
+        const snapshots = await Promise.all(keys.map(key => getDocsFromServer(collection(db, key))));
+        snapshots.forEach((snap, i) => {fresh[keys[i]] = snap.docs.map(d => ({...d.data(), id: d.id}));});
+        const configs = await getDocsFromServer(collection(db, 'departments'));
+        fresh.config = configs.docs.find(d => d.id === currentConfig.id)?.data() || currentConfig;
+        lessonPlansFull = await loadAllLessonPlansFull(db, fresh.lessonPlans.map((p: any) => hydrateLessonPlan(p, p.id)));
+        const after = await getDocsFromServer(collection(db, 'lessonPlans'));
+        const stable = (items: any[]) => JSON.stringify([...items].sort((a,b) => a.id.localeCompare(b.id)));
+        if (stable(fresh.lessonPlans) !== stable(after.docs.map(d => ({...d.data(), id:d.id})))) throw new Error('Giáo án thay đổi trong lúc sao lưu. Hãy tạm dừng chỉnh sửa rồi tải lại.');
       } catch (err) {
         setNotification({ message: `Không tải được nội dung giáo án để sao lưu: ${describeFirebaseError(err)}`, type: 'error' });
         return;
@@ -1899,13 +1953,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsLoading(false);
       }
     }
-    if (lessonPlansFull.some(p => p.contentState === 'light')) {
-      setNotification({ message: 'Không thể sao lưu: có giáo án thiếu nội dung. Hãy kiểm tra dữ liệu và thử lại.', type: 'error' });
-      return;
-    }
+    try {lessonPlansFull.forEach(assertCompleteLessonBackup);} catch (err) {setNotification({message: `Không thể sao lưu: ${(err as Error).message}`, type: 'error'}); return;}
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.14.0',
+      version: '2.15.0',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
@@ -1924,7 +1975,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       trainings: currentTrainings,
       initiatives: currentInitiatives,
       documents: currentDocuments,
-      reportSnapshots: currentReportSnapshots,
+      ...Object.fromEntries(Object.entries(fresh).filter(([key]) => !['lessonPlans', 'auditLogs', 'planEvents'].includes(key))),
+      reportSnapshots: fresh.reportSnapshots || currentReportSnapshots,
+      invitations: fresh.invitations || currentInvitations,
+      accessRequests: fresh.accessRequests || currentAccessRequests,
+      accessIndex: fresh.accessIndex || [],
+      departmentProgress: fresh.departmentProgress || (isDemoMode ? demoProgress : realProgress),
+      auditArchive: fresh.auditLogs || currentAuditLogs,
+      planEventArchive: fresh.planEvents || [],
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1946,6 +2004,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!data || typeof data !== 'object' || !data.config || typeof data.config !== 'object') {
       throw new Error('Định dạng tệp sao lưu không hợp lệ (thiếu mục config).');
     }
+    if (data.app !== 'so-sinh-hoat-chuyen-mon-to-toan') throw new Error('Tệp không phải bản sao lưu của phần mềm. Chưa ghi dữ liệu.');
     const listOf = (key: string): Array<{ id: string }> => {
       const v = data[key];
       if (v === undefined) return [];
@@ -1964,18 +2023,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('Tệp chứa ngân hàng câu hỏi/đề/kết quả thuộc công cụ cũ. Chưa ghi dữ liệu. Hãy lưu giữ tệp gốc và chuyển các mục này sang công cụ ngoài trước khi phục hồi.');
     }
     const byKey: Record<string, Array<{ id: string }>> = {};
-    for (const key of [...CONTENT_COLLECTIONS, 'members']) byKey[key] = listOf(key);
+    for (const key of [...CONTENT_COLLECTIONS, 'members', 'invitations', 'accessRequests', 'accessIndex']) byKey[key] = listOf(key);
 
     // Không cho phục hồi đè vai trò Quản trị nếu người thao tác không phải Quản trị
     if (!permissions.isAdmin) {
       if ((byKey.members as Member[]).some(m => m.role === 'admin')) throw new Error('Tệp chứa hồ sơ Quản trị. Cần Quản trị viên phục hồi; không tự đổi vai trò.');
     }
+    const archiveLists = ['auditArchive', 'planEventArchive', 'restoreArchives'].map(key => ({key, records: listOf(key)}));
+    if (archiveLists.some(a => a.records.some(r => bytesOf(r) > 800_000))) throw new Error('Nhật ký quá lớn. Chưa ghi dữ liệu.');
     const cfg = { ...(data.config as DepartmentConfig), id: isDemoMode ? demoConfig.id : realConfig.id };
 
     if (!isDemoMode && !permissions.isAdmin && cfg.academicYear !== currentConfig.academicYear) throw new Error('Chỉ Quản trị viên được phục hồi sang năm học khác.');
     if ((byKey.members as Member[]).some(m => !['admin', 'head', 'deputy', 'teacher', 'principal'].includes(m.role))) throw new Error('Tệp chứa vai trò thành viên không hợp lệ.');
     if (isDemoMode) {
+      setDemoProgress((byKey.departmentProgress || []) as DepartmentProgress[]);
       setDemoConfig(cfg);
+      if (data.invitations) setDemoInvitations(byKey.invitations as MemberInvitation[]);
+      if (data.accessRequests) setDemoAccessRequests(byKey.accessRequests as AccessRequest[]);
+      if (data.auditArchive) setDemoAuditLogs(listOf('auditArchive') as AuditLog[]);
       if (data.members) setDemoMembers(byKey.members as Member[]);
       setDemoClasses(byKey.classes as SchoolClass[]);
       setDemoAssignments(byKey.assignments as Assignment[]);
@@ -1998,49 +2063,81 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    // Không để phục hồi ghi dở dang khi gặp hồ sơ bị khóa bởi quy trình duyệt.
+    if (!isOwner && ((byKey.members as Member[]).some(m => normalizeEmail(m.email) === userEmail && m.role !== 'admin') || (byKey.accessIndex as any[]).some(m => normalizeEmail(m.id) === userEmail && m.role !== 'admin'))) throw new Error('Tệp thay đổi quyền Quản trị của tài khoản đang phục hồi. Chưa ghi dữ liệu; dùng một Quản trị viên khác.');
+    if (!permissions.isAdmin) throw new Error('Phục hồi dữ liệu thật đầy đủ cần Quản trị viên, bao gồm hồ sơ đã duyệt/đã khóa.');
+    const roles = ['admin','head','deputy','teacher','principal'];
+    if (byKey.invitations.some((r:any) => !roles.includes(r.role)) || byKey.accessIndex.some((r:any) => !roles.includes(r.role))) throw new Error('Tệp chứa quyền truy cập không hợp lệ. Chưa ghi dữ liệu.');
+    if (bytesOf(cfg) > 900_000 || typeof cfg.academicYear !== 'string' || !/^\d{4}-\d{4}$/.test(cfg.academicYear)) throw new Error('Cấu hình năm học không hợp lệ. Chưa ghi dữ liệu.');
+    if ((byKey.departmentPlans as DepartmentPlan[]).some(p => !Array.isArray(p.distribution))) throw new Error('Kế hoạch tổ thiếu phân phối chương trình. Chưa ghi dữ liệu.');
+    for (const key of ['teacherPlans','lessonPlans']) if ((byKey[key] as any[]).some(p => typeof p.teacherId !== 'string' || !p.teacherId)) throw new Error(`Mục ${key} thiếu người sở hữu. Chưa ghi dữ liệu.`);
+    if ((byKey.lessonPlans as LessonPlan[]).some(p => !Array.isArray(p.activities))) throw new Error('Giáo án thiếu danh sách hoạt động. Chưa ghi dữ liệu.');
+    for (const record of byKey.departmentProgress as DepartmentProgress[]) {
+      const parent = (byKey.departmentPlans as DepartmentPlan[]).find(p => p.id === record.planId) || currentDeptPlans.find(p => p.id === record.planId);
+      if (!['planned','in_progress','completed','delayed','make_up'].includes(record.status)
+        || !Number.isInteger(record.itemIndex) || record.itemIndex < 0
+        || record.id !== `${record.planId}__${record.itemId}`) throw new Error('Tiến độ kế hoạch không hợp lệ. Chưa ghi dữ liệu.');
+      const index = parent?.distribution.findIndex(item => item.id === record.itemId);
+      if (index != null && index >= 0) record.itemIndex = index;
+    }
+    // Toàn bộ dữ liệu phải hợp lệ trước khi mở phiên phục hồi.
+    for (const [key, items] of Object.entries(byKey)) {
+      if (key !== 'lessonPlans' && items.some(item => bytesOf(item) > 900_000)) throw new Error(`Mục ${key} có bản ghi quá lớn. Chưa ghi dữ liệu.`);
+    }
     for (const key of ['departmentPlans', 'teacherPlans', 'lessonPlans']) {
-      const existing = key === 'departmentPlans' ? currentDeptPlans : key === 'teacherPlans' ? currentTeacherPlans : currentLessonPlans;
-      if ((byKey[key] as Array<{id:string;status?:string}>).some(p => p.status !== 'draft' || existing.some(old => old.id === p.id && ['submitted','approved'].includes(old.status)))) {
-        throw new Error('Tệp có kế hoạch đang chờ/đã duyệt hoặc đè lên hồ sơ bị khóa. Chưa ghi dữ liệu. Có thể nạp vào demo để đối chiếu; phục hồi chính thức chỉ nhận kế hoạch nháp.');
-      }
+      if ((byKey[key] as any[]).some(p => !['draft', 'submitted', 'approved', 'returned'].includes(p.status))) throw new Error(`Trạng thái không hợp lệ ở ${key}. Chưa ghi dữ liệu.`);
     }
-    if (byKey.reportSnapshots.some(p => currentReportSnapshots.some(old => old.id === p.id && old.isLocked))) {
-      throw new Error('Tệp ghi đè báo cáo đã chốt. Chưa ghi dữ liệu; cần mở khóa riêng trước khi phục hồi.');
+    for (const lp of byKey.lessonPlans as LessonPlan[]) {
+      assertCompleteLessonBackup(lp);
+      const parts = splitLessonPlan(asFullForRewrite(lp));
+      if (bytesOf(parts.light) + bytesOf(parts.content) + bytesOf(parts.images) + bytesOf(parts.versions) > 7_800_000 || parts.versions.length + Object.keys(parts.images).length + 2 > 450) throw new Error('Giáo án vượt giới hạn phục hồi nguyên tử. Chưa ghi dữ liệu.');
     }
-
     // Kiểm tra giáo án trước khi ghi bất cứ thứ gì (tránh phục hồi dở dang)
     const badPlans = (byKey.lessonPlans as LessonPlan[]).filter(lp => checkLimits(splitLessonPlan(asFullForRewrite(lp))));
     if (badPlans.length) {
       throw new Error(`${badPlans.length} giáo án vượt giới hạn dung lượng. Chưa ghi dữ liệu; hãy điều chỉnh tệp sao lưu.`);
     }
     setIsLoading(true);
+    const sessionId = newId('restore');
+    const sessionRef = doc(db, 'restoreSessions', currentUser!.uid);
+    let completed = 0;
+    const total = 1 + Object.values(byKey).reduce((n, list) => n + list.length, 0) + archiveLists.reduce((n,a) => n+a.records.length,0);
     try {
-      const ok = await persist(async () => {
-        await setDoc(doc(db, 'departments', cfg.id), cfg);
-        const ops: Array<[string, { id: string }]> = [];
-        for (const key of Object.keys(byKey)) if (key !== 'lessonPlans') byKey[key].forEach(item => ops.push([key, item]));
-        for (let i = 0; i < ops.length; i += 400) {
-          const batch = writeBatch(db);
-          ops.slice(i, i + 400).forEach(([key, item]) => batch.set(doc(db, key, item.id), item));
-          await batch.commit();
-        }
-        // Giáo án: ghi theo cách tách (nội dung, hình, phiên bản riêng)
-        for (const lp of byKey.lessonPlans as LessonPlan[]) {
-          await writeLessonPlan(db, asFullForRewrite(lp), { isNew: true });
-        }
-      });
-      if (!ok) return;
-      setNotification({
-        message: badPlans.length
-          ? `Đã phục hồi dữ liệu. ${badPlans.length} giáo án quá giới hạn dung lượng nên bỏ qua: ${badPlans.map(b => b.title).slice(0, 3).join('; ')}${badPlans.length > 3 ? '…' : ''}`
-          : 'Đã phục hồi dữ liệu từ file sao lưu thành công',
-        type: badPlans.length ? 'error' : 'success',
-      });
-      await logAction('Phục hồi dữ liệu', 'System', 'backup', `Phục hồi từ tệp sao lưu ${String(data.exportedAt || '')}`);
-    } finally {
-      setIsLoading(false);
-    }
+      await setDoc(sessionRef, {sessionId, status: 'active', expiresAt: new Date(Date.now() + 30 * 60_000), completed: 0, total, startedAt: serverTimestamp()});
+      await setDoc(doc(db, 'departments', cfg.id), cfg); completed++;
+      const ops: Array<[string, {id: string}]> = [];
+      for (const key of Object.keys(byKey)) if (key !== 'lessonPlans') byKey[key].forEach(item => ops.push([key, item]));
+      // Giới hạn cả số thao tác lẫn byte; có thể chạy lại cùng tệp nếu một đợt lỗi.
+      let batch = writeBatch(db); let count = 0; let size = 0;
+      const flush = async () => {if (!count) return; await batch.commit(); completed += count;
+        await updateDoc(sessionRef, {completed}); batch = writeBatch(db); count = 0; size = 0;};
+      for (const [key, item] of ops) {
+        const record = {...item, _restoreSession: sessionId};
+        if (count >= 350 || size + bytesOf(record) > 7_000_000) await flush();
+        batch.set(doc(db, key, item.id), record); count++; size += bytesOf(record);
+      }
+      await flush();
+      for (const lp of byKey.lessonPlans as LessonPlan[]) {
+        await writeLessonPlan(db, {...asFullForRewrite(lp), _restoreSession: sessionId} as LessonPlan, {isNew: true, restoreSession: sessionId});
+        completed++; await updateDoc(sessionRef, {completed});
+      }
+      for (const archive of archiveLists) {
+        let records: any[] = []; let size = 0; let index = 0;
+        const saveArchive = async () => {if (!records.length) return;
+          await setDoc(doc(db, 'restoreArchives', `${sessionId}__${archive.key}__${index++}`), {
+            _restoreSession: sessionId, source: archive.key, importedAt: serverTimestamp(),
+            importedByUid: currentUser!.uid, records}); completed += records.length;
+          await updateDoc(sessionRef, {completed}); records = []; size = 0;};
+        for (const record of archive.records) {if (size + bytesOf(record) > 850_000) await saveArchive(); records.push(record); size += bytesOf(record);}
+        await saveArchive();
+      }
+      await updateDoc(sessionRef, {status: 'completed', completed, finishedAt: serverTimestamp()});
+      setNotification({message: `Đã phục hồi ${completed}/${total} hồ sơ, giữ trạng thái phê duyệt/khóa. Các mã ngoài tệp được giữ lại.`, type: 'success'});
+      await logAction('Phục hồi dữ liệu', 'System', sessionId, `${completed}/${total}; tệp ${String(data.exportedAt || '')}`);
+    } catch (err) {
+      await updateDoc(sessionRef, {status: 'failed', completed, error: describeFirebaseError(err), finishedAt: serverTimestamp()}).catch(() => undefined);
+      throw new Error(`Phục hồi dừng sau ${completed}/${total} hồ sơ. Những đợt đã ghi được giữ lại. Có thể nhập lại cùng tệp; mã hồ sơ không bị nhân đôi. ${describeFirebaseError(err)}`);
+    } finally {setIsLoading(false);}
+
   };
 
   return (
@@ -2083,7 +2180,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAssignments,
         saveAssignment,
         deleteAssignment,
-        departmentPlans: currentDeptPlans,
+        departmentPlans: departmentPlansWithProgress,
         saveDepartmentPlan,
         deleteDepartmentPlan,
         submitDepartmentPlan,
