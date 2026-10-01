@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+.booklet { color: #111827; font: 12pt 'Times New Roman', serif; line-height: 1.45; overflow-wrap: anywhere; }
+.booklet h1 { font-size: 24pt; font-weight: bold; }
+.booklet h2 { font-size: 16pt; font-weight: bold; margin: 1em 0; }
+.booklet h3 { font-weight: bold; margin: 1em 0 .5em; }
+.book-cover { text-align: center; padding: 4em 1em; border: 2px solid #222; }
+.book-field { margin: .4em 0; }
+.book-field dt { font-weight: bold; }
+.book-field dd { margin-left: 1em; white-space: pre-wrap; }
+.book-entry { margin: .6em 0; padding: .5em; border-bottom: 1px solid #ddd; }
+.booklet img { max-width: 100%; height: auto; }
+@media print {
+  @page { size: A4; margin: 18mm 16mm; }
+  .booklet { padding: 0; border: 0; box-shadow: none; }
+  .book-section { break-before: page; }
+  .booklet h2, .booklet h3, .book-field dt { break-after: avoid; }
+  .booklet img, .booklet svg { break-inside: avoid; }
+}
+
+.book-table { border-collapse: collapse; width: 100%; margin: .6em 0; font-size: 10pt; }
+.book-table th, .book-table td { border: 1px solid #777; padding: 4px 6px; vertical-align: top; }
+.book-table th { font-weight: bold; background: #f1f5f9; }
+.book-table thead { display: table-header-group; }
+@media print { .book-table tr { break-inside: avoid; } }
