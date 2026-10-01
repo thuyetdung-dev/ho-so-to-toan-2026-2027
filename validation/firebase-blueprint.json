@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "Department": {
+      "title": "Department",
+      "description": "Tổ chuyên môn Toán trường THPT",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "departmentName": { "type": "string", "maxLength": 100 },
+        "academicYear": { "type": "string", "maxLength": 20 },
+        "currentTerm": { "type": "string", "enum": ["HK1", "HK2"] },
+        "weeksCount": { "type": "number" },
+        "standardPeriods": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["schoolName", "departmentName", "academicYear"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Thành viên tổ chuyên môn",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 120 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "head", "deputy", "teacher", "principal"] },
+        "qualifications": { "type": "string", "maxLength": 100 },
+        "subject": { "type": "string", "maxLength": 50 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["active", "transferred", "retired"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "displayName", "role"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Câu hỏi môn Toán THPT",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["multiple_choice", "true_false", "short_answer", "essay"] },
+        "content": { "type": "string", "maxLength": 10000 },
+        "grade": { "type": "number" },
+        "topicId": { "type": "string", "maxLength": 100 },
+        "topicTitle": { "type": "string", "maxLength": 200 },
+        "difficulty": { "type": "string", "enum": ["nhan_biet", "thong_hieu", "van_dung", "van_dung_cao"] },
+        "competencies": { "type": "string", "maxLength": 200 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["draft", "pending", "approved", "rejected"] },
+        "source": { "type": "string", "maxLength": 255 },
+        "isAiDraft": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "content", "grade", "difficulty", "status"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "Đề kiểm tra môn Toán",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 255 },
+        "grade": { "type": "number" },
+        "term": { "type": "string", "maxLength": 20 },
+        "durationMinutes": { "type": "number" },
+        "totalPoints": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "in_review", "finalized"] },
+        "isPublished": { "type": "boolean" },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "reviewerId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "grade", "durationMinutes", "totalPoints", "status"]
+    }
+  },
+  "firestore": {
+    "/departments/{departmentId}": {
+      "schema": "Department",
+      "description": "Cấu hình chung của tổ"
+    },
+    "/members/{memberId}": {
+      "schema": "Member",
+      "description": "Danh sách thành viên tổ"
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Ngân hàng câu hỏi Toán"
+    },
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Đề kiểm tra Toán"
+    }
+  }
+}

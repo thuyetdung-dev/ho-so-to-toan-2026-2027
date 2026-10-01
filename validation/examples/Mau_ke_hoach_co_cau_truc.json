@@ -1,0 +1,21 @@
+{
+  "tasks": [
+    {
+      "title": "Chuẩn bị kiểm tra giữa học kỳ I",
+      "category": "Kiểm tra định kỳ",
+      "assignee": "",
+      "deadline": "",
+      "product": "Ma trận, đặc tả và đề kiểm tra",
+      "evidence": ""
+    }
+  ],
+  "indicators": [
+    {
+      "title": "Sinh hoạt nghiên cứu bài học",
+      "target": "",
+      "actual": "",
+      "unit": "buổi",
+      "evidence": ""
+    }
+  ]
+}
