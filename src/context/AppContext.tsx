@@ -417,6 +417,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     window.addEventListener('offline', off);
     const unsubscribeAuth = onAuthStateChanged(auth, user => {
       setCurrentUser(user);
+      if (user) {persistMode('real');setIsDemoMode(false);}
       setAuthResolved(true);
       if (!user) setMyAccess(null);
     });
@@ -867,10 +868,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       setIsLoading(true);
       await signInWithPopup(auth, googleProvider);
-      if (!options.keepDemo) {
-        persistMode('real');
-        setIsDemoMode(false);
-      }
+      persistMode('real');
+      setIsDemoMode(false);
       setNotification({ message: 'Đăng nhập Google thành công!', type: 'success' });
     } catch (err) {
       console.error(err);
@@ -910,6 +909,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleDemoMode = () => {
+    if (currentUser) {persistMode('real');setIsDemoMode(false);return;}
     const next = !isDemoMode;
     persistMode(next ? 'demo' : 'real');
     setIsDemoMode(next);
@@ -2180,7 +2180,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchActiveRole,
         selectActiveMember,
         setActiveMember,
-        canSimulateRoles: isDemoMode,
+        canSimulateRoles: isDemoMode && !currentUser,
         isMe,
         isUserAuthorized,
         saveMember,

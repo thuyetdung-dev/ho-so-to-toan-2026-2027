@@ -97,8 +97,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
 
         {/* Right: Mode Toggle, Role Switcher & User Profile */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Demo Mode Toggle Badge */}
-          <button
+          {/* Điều khiển mẫu chỉ dành cho phiên chưa đăng nhập. */}
+          {!currentUser && <button
             onClick={toggleDemoMode}
             id="btn-toggle-demo"
             className={`px-2.5 py-1 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all border ${
@@ -119,7 +119,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
                 <span>DỮ LIỆU THẬT</span>
               </>
             )}
-          </button>
+          </button>}
 
           {!isDemoMode && !isFirestoreConnected && (
             <span className="hidden sm:inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200" title="Mất mạng: hãy chờ xác nhận lưu từ máy chủ">
@@ -131,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
             {syncStatus.errors.length ? 'Lỗi đồng bộ – dữ liệu có thể thiếu' : !isFirestoreConnected ? 'Ngoại tuyến – chưa xác nhận lưu' : syncStatus.saving || syncStatus.pendingWrites ? 'Đang lưu lên máy chủ…' : syncStatus.cached ? 'Dữ liệu từ bộ nhớ đệm' : 'Đã đồng bộ'}
           </span>}
           {/* Chế độ demo: cho phép đổi vai để thử phân quyền. Chế độ thật: chỉ hiện danh tính. */}
-          {(isDemoMode || currentUser) && (
+          {((isDemoMode && !currentUser) || (!isDemoMode && currentUser)) && (
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => canSimulateRoles && setShowRoleMenu(!showRoleMenu)}
