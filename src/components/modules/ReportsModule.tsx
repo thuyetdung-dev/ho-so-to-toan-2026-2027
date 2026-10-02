@@ -1,3 +1,4 @@
+import { scopeRecords, annualRecords, savedEvidence } from '../../utils/reporting';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ReportSnapshot } from '../../types';
@@ -78,7 +79,9 @@ export const ReportsModule: React.FC = () => {
   const [savedMetrics, setSavedMetrics] = useState<ReportSnapshot['metrics'] | null>(null);
   const [evidence, setEvidence] = useState<ReportSnapshot['evidence']>();
   const [rangeDirty, setRangeDirty] = useState(false);
-  const scoped = reportData({ meetings, observations, lessonPlans, specialTopics }, startDate, endDate);
+  const {syncStatus, isFirestoreConnected} = useApp();
+  const scopeReady = isDemoMode || (isFirestoreConnected && !syncStatus.cached && !syncStatus.errors.length && !syncStatus.pendingWrites && !syncStatus.saving);
+  const scoped = reportData({ meetings, observations, lessonPlans, specialTopics }, startDate, endDate, undefined, reportYear);
   // Live aggregated metrics
   const lessonStudyMeetingsCount = scoped.meetings.filter(m => m.type === 'lesson_study').length;
   const activeTeachers = allMembers.filter(m => m.status === 'active' && m.role !== 'principal');
@@ -152,6 +155,7 @@ export const ReportsModule: React.FC = () => {
 
   // Handle sync live numbers into current narrative
   const handleSyncLiveMetrics = () => {
+    if (!scopeReady) {setNotification({message:'Dữ liệu chưa được xác nhận đầy đủ từ máy chủ. Hãy chờ đồng bộ trước khi tổng hợp.',type:'error'});return;}
     if (isLocked) {
       setNotification({ message: 'Báo cáo đã chốt và khóa, không thể ghi đè dữ liệu trực tiếp!', type: 'error' });
       return;
@@ -245,25 +249,32 @@ export const ReportsModule: React.FC = () => {
   };
 
   const handleExportDossier = async () => {
+    if (!scopeReady) {setNotification({message:'Hãy chờ dữ liệu đồng bộ đầy đủ trước khi xuất hồ sơ.',type:'error'});return;}
     if (rangeDirty || !validRange(startDate, endDate)) {
       setNotification({message:'Hãy đồng bộ số liệu và kiểm tra khoảng ngày trước khi đóng gói hồ sơ.', type:'error'});
       return;
     }
     try {
-      const inRange = (raw?: string) => !raw || (raw.slice(0,10) >= startDate && raw.slice(0,10) <= endDate);
-      const fullPlans = isDemoMode ? scoped.lessonPlans : await loadAllLessonPlansFull(db, storage, scoped.lessonPlans);
+      if (savedMetrics && !evidence) throw new Error('Báo cáo cũ chưa có danh sách minh chứng. Hãy mở khóa và đồng bộ trước khi xuất.');
+      const source = evidence ? {
+        lessonPlans: savedEvidence(lessonPlans,evidence.lessonPlans || []),
+        meetings: savedEvidence(meetings,evidence.meetings || []),
+        observations: savedEvidence(observations,evidence.observations || []),
+        specialTopics: savedEvidence(specialTopics,evidence.specialTopics || []),
+      } : scoped;
+      const fullPlans = isDemoMode ? source.lessonPlans : await loadAllLessonPlansFull(db, storage, source.lessonPlans);
       await exportPeriodDossier({
         academicYear: reportYear, term: reportTerm, startDate, endDate,
         schoolName: config.schoolName, departmentName: config.departmentName,
         report: {title:reportTitle, metrics:shownMetrics, executiveSummary, advantages, limitations, futureDirections, finalizedBy, isLocked, evidence},
         members: allMembers,
-        assignments: assignments.filter(a => a.academicYear === reportYear),
-        departmentPlans: departmentPlans.filter(p => p.academicYear === reportYear),
-        teacherPlans: teacherPlans.filter(p => p.academicYear === reportYear),
-        lessonPlans: fullPlans, meetings: scoped.meetings, observations: scoped.observations, specialTopics: scoped.specialTopics,
-        trainings: trainings.filter((x:any) => x.academicYear === reportYear || inRange(x.date || x.completedAt || x.createdAt)),
-        initiatives: initiatives.filter((x:any) => x.academicYear === reportYear || inRange(x.date || x.createdAt)),
-        reportSnapshots: reportSnapshots.filter(r => r.academicYear === reportYear),
+        assignments: findDuplicateAssignments(annualRecords(assignments, reportYear)).keep,
+        departmentPlans: annualRecords(departmentPlans,reportYear),
+        teacherPlans: annualRecords(teacherPlans,reportYear),
+        lessonPlans: fullPlans, meetings: source.meetings, observations: source.observations, specialTopics: source.specialTopics,
+        trainings: scopeRecords(trainings, reportYear, startDate, endDate, (x:any) => x.date || x.completedAt || x.createdAt),
+        initiatives: scopeRecords(initiatives, reportYear, startDate, endDate, (x:any) => x.date || x.createdAt),
+        reportSnapshots: reportSnapshots.filter(r => r.id === selectedSnapshotId),
       });
       setNotification({message:`Đã xuất gói hồ sơ điện tử ${reportTerm} – ${reportYear}.`, type:'success'});
     } catch (err) {

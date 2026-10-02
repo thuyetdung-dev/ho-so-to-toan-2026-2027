@@ -1,7 +1,7 @@
 {
   "name": "so-sinh-hoat-chuyen-mon-to-toan",
   "private": true,
-  "version": "2.16.1",
+  "version": "2.17.0",
   "type": "module",
   "scripts": {
     "dev": "node --import tsx server.ts",
@@ -12,7 +12,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "node --import tsx --experimental-test-module-mocks --test tests/*.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-hoso-upgrade --config firebase.emulator.json \"node validation/firestore-rules.mjs\""
+    "test:rules": "firebase emulators:exec --only firestore --project demo-hoso-upgrade --config firebase.emulator.json \"node validation/firestore-rules.mjs\"",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",
@@ -51,7 +52,8 @@
     "esbuild": "^0.28.0",
     "firebase-tools": "^13.35.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@playwright/test": "^1.58.0"
   },
   "engines": {
     "node": "24.x"

@@ -10,7 +10,7 @@ test('Tài khoản thật truy cập Dashboard, 360°, Audit và trang dữ li�
   await page.goto('/overview', { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText(/Trung tâm công việc|Tổng quan/i);
 
-  await page.goto('/teacher-360', { waitUntil: 'networkidle' });
+  await page.goto('/teachers', { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText(/360|KPI/i);
 
   await page.goto('/audit', { waitUntil: 'networkidle' });

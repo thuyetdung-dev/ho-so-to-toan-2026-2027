@@ -138,6 +138,12 @@ export const LessonPlansModule: React.FC = () => {
   })
     .sort((a, b) => a.grade - b.grade || a.week - b.week);
 
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const pageCount = Math.max(1, Math.ceil(filteredPlans.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  useEffect(() => {setPage(1);}, [filterGrade, onlyMine, searchText, filterTeachingStatus]);
+  const pagedPlans = filteredPlans.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selectedPlan = lessonPlans.find(p => p.id === selectedPlanId) || filteredPlans[0];
   // Nội dung + hình chỉ tải khi mở giáo án (bản 2.4)
   const { plan: fullPlan, loading: detailLoading, error: detailError, missingImages } = useLessonPlanDetail(selectedPlan);
@@ -485,13 +491,18 @@ export const LessonPlansModule: React.FC = () => {
             </div>
           </div>
 
+          <nav aria-label="Phân trang giáo án" className="flex items-center justify-between text-xs mb-2">
+            <button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Trang trước</button>
+            <span>Trang {currentPage}/{pageCount} · {filteredPlans.length} giáo án</span>
+            <button disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Trang sau</button>
+          </nav>
           <div className="space-y-2 max-h-[75vh] overflow-y-auto pr-1">
             {filteredPlans.length === 0 && (
               <div className="p-4 text-center text-xs text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
                 Không có giáo án phù hợp bộ lọc.
               </div>
             )}
-            {filteredPlans.map(plan => {
+            {pagedPlans.map(plan => {
               const isSelected = plan.id === selectedPlan?.id;
 
               return (

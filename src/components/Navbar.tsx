@@ -37,6 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
     logout,
     isFirestoreConnected,
     isLoading,
+    syncStatus,
   } = useApp();
 
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -121,11 +122,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
           </button>
 
           {!isDemoMode && !isFirestoreConnected && (
-            <span className="hidden sm:inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200" title="Mất mạng: thay đổi sẽ đồng bộ khi có mạng">
+            <span className="hidden sm:inline-flex px-2 py-1 text-[11px] font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200" title="Mất mạng: hãy chờ xác nhận lưu từ máy chủ">
               Ngoại tuyến
             </span>
           )}
 
+          {!isDemoMode && <span role="status" className="text-xs max-w-40" title={syncStatus.errors.join('; ')}>
+            {syncStatus.errors.length ? 'Lỗi đồng bộ – dữ liệu có thể thiếu' : !isFirestoreConnected ? 'Ngoại tuyến – chưa xác nhận lưu' : syncStatus.saving || syncStatus.pendingWrites ? 'Đang lưu lên máy chủ…' : syncStatus.cached ? 'Dữ liệu từ bộ nhớ đệm' : 'Đã đồng bộ'}
+          </span>}
           {/* Chế độ demo: cho phép đổi vai để thử phân quyền. Chế độ thật: chỉ hiện danh tính. */}
           {(isDemoMode || currentUser) && (
           <div className="relative" ref={menuRef}>

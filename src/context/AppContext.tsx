@@ -234,6 +234,7 @@ interface AppContextType {
   exportSystemBackup: () => Promise<void>;
   importSystemBackup: (backupData: unknown) => Promise<void>;
 
+  syncStatus: {pendingWrites: number; cached: boolean; errors: string[]; saving: number};
   isFirestoreConnected: boolean;
   isLoading: boolean;
 }
@@ -505,19 +506,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const myRole: UserRole | null = myAccess?.role ?? null;
   const iAmLeader = !!myRole && LEADER_ROLES.includes(myRole);
 
+  const [syncCollections,setSyncCollections] = useState<Record<string,{pending:boolean;cached:boolean;error?:string}>>({});
+  const [savingCount,setSavingCount] = useState(0);
   // ---------- Đồng bộ Firestore (chỉ khi đã được cấp quyền) ----------
   useEffect(() => {
     if (isDemoMode || authStatus !== 'authorized') return;
 
+    setSyncCollections({});
     const subscriptions: Array<() => void> = [];
     const onError = (name: string) => (err: unknown) => {
+      setSyncCollections(prev=>({...prev,[name]:{pending:false,cached:true,error:describeFirebaseError(err)}}));
       console.warn(`Firestore listen error (${name}):`, err);
     };
     const subscribeList = <T,>(collectionName: string, setter: React.Dispatch<React.SetStateAction<T[]>>) => {
+      setSyncCollections(prev=>({...prev,[collectionName]:{pending:false,cached:true}}));
       subscriptions.push(
         onSnapshot(
           collection(db, collectionName),
+          {includeMetadataChanges:true},
           snapshot => {
+            setSyncCollections(prev=>({...prev,[collectionName]:{pending:snapshot.metadata.hasPendingWrites,cached:snapshot.metadata.fromCache}}));
             const list: T[] = [];
             snapshot.forEach(docSnap => list.push({ ...docSnap.data(), id: docSnap.id } as T));
             setter(list);
@@ -527,10 +535,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     };
 
+    setSyncCollections(prev=>({...prev,departments:{pending:false,cached:true},lessonPlans:{pending:false,cached:true}}));
     subscriptions.push(
       onSnapshot(
         collection(db, 'departments'),
+        {includeMetadataChanges:true},
         snapshot => {
+          setSyncCollections(prev=>({...prev,departments:{pending:snapshot.metadata.hasPendingWrites,cached:snapshot.metadata.fromCache}}));
           const preferred = snapshot.docs.find(item => item.id === DEFAULT_REAL_CONFIG.id) || snapshot.docs[0];
           if (preferred) setRealConfig({ ...DEFAULT_REAL_CONFIG, ...preferred.data(), id: preferred.id } as DepartmentConfig);
         },
@@ -548,7 +559,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     subscriptions.push(
       onSnapshot(
         collection(db, 'lessonPlans'),
+        {includeMetadataChanges:true},
         snapshot => {
+          setSyncCollections(prev=>({...prev,lessonPlans:{pending:snapshot.metadata.hasPendingWrites,cached:snapshot.metadata.fromCache}}));
           const list: LessonPlan[] = [];
           snapshot.forEach(docSnap => list.push(hydrateLessonPlan(docSnap.data(), docSnap.id)));
           setRealLessonPlans(list);
@@ -769,6 +782,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setNotification({ message: 'Bạn cần đăng nhập bằng tài khoản đã được cấp quyền để lưu dữ liệu.', type: 'error' });
       return false;
     }
+    setSavingCount(n=>n+1);
     try {
       await op();
       return true;
@@ -776,7 +790,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error(err);
       setNotification({ message: `Không lưu được: ${describeFirebaseError(err)}`, type: 'error' });
       return false;
-    }
+    } finally {setSavingCount(n=>Math.max(0,n-1));}
   };
 
   /** Lưu một phần tử vào collection (thật) hoặc state (demo). */
@@ -2251,6 +2265,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearAllRealData,
         exportSystemBackup,
         importSystemBackup,
+        syncStatus: {pendingWrites:Object.values(syncCollections).filter(s=>s.pending).length,cached:!Object.keys(syncCollections).length || Object.values(syncCollections).some(s=>s.cached),errors:Object.values(syncCollections).flatMap(s=>s.error ? [s.error] : []),saving:savingCount},
         isFirestoreConnected: isOnline,
         isLoading,
       }}

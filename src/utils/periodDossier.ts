@@ -56,8 +56,17 @@ export async function exportPeriodDossier(input: PeriodDossierInput): Promise<vo
     const images = plan.images || {};
     plan.images = {};
     for (const [imageId, dataUrl] of Object.entries(images as Record<string,string>)) {
-      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) continue;
-      const parsed = dataUrlToBytes(dataUrl);
+      if (typeof dataUrl !== 'string') throw new Error(`Ảnh không hợp lệ: ${imageId}`);
+      let encoded = dataUrl;
+      if (dataUrl.startsWith('https://')) {
+        const response = await fetch(dataUrl);
+        if (!response.ok) throw new Error(`Không tải được ảnh ${imageId}: ${response.status}`);
+        const blob = await response.blob();
+        if (!blob.type.startsWith('image/')) throw new Error(`Tệp ${imageId} không phải ảnh`);
+        encoded = await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error(`Không đọc được ảnh ${imageId}`));reader.readAsDataURL(blob);});
+      }
+      if (!encoded.startsWith('data:image/')) throw new Error(`Ảnh chưa tải đầy đủ: ${imageId}`);
+      const parsed = dataUrlToBytes(encoded);
       const imagePath = `06_GIAO_AN/ANH/${safe(String(plan.id))}/${safe(imageId)}.${parsed.extension}`;
       zip.file(imagePath, parsed.bytes);
       plan.images[imageId] = imagePath;

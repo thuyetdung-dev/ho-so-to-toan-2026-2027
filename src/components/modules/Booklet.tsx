@@ -1,7 +1,8 @@
+import { findDuplicateAssignments } from '../../utils/assignments';
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { MathText } from '../../utils/katex-renderer';
-import { inRange, reportRange, validRange } from '../../utils/reporting';
+import { inRange, reportRange, validRange, reportData, annualRecords } from '../../utils/reporting';
 
 const labels: Record<string, string> = {
   periodLabel:'Kỳ báo cáo', sectionsIncluded:'Các phần báo cáo',
@@ -64,19 +65,21 @@ export function Booklet() {
   const generation = useRef(0);
   useEffect(() => {generation.current++; setPrepared(null);}, [start,end,selected,config,allMembers,departmentPlans,teacherPlans,lessonPlans,meetings,observations,specialTopics,reportSnapshots,assignments,skknTopics]);
   const names = new Map(allMembers.map(m => [m.id,m.displayName]));
+  const scoped = reportData({meetings,observations,lessonPlans,specialTopics},start,end,undefined,config.academicYear);
   const groups = [
-    {key:'members', title:'I. Thành viên và phân công', records:[...allMembers.map(m => ({displayName:m.displayName,role:m.role,subject:m.subject})), ...assignments.filter(a => a.term === config.currentTerm)]},
-    {key:'department', title:'II. Kế hoạch của tổ', records:departmentPlans.filter(p => p.academicYear === config.academicYear)},
-    {key:'teacher', title:'III. Kế hoạch giáo viên', records:teacherPlans.filter(p => p.academicYear === config.academicYear)},
-    {key:'lessons', title:'IV. Kế hoạch bài dạy', records:lessonPlans.filter(p => inRange(p.createdAt || p.updatedAt,start,end))},
-    {key:'meetings', title:'V. Biên bản sinh hoạt chuyên môn', records:meetings.filter(p => inRange(p.date,start,end))},
-    {key:'observations', title:'VI. Phiếu dự giờ', records:observations.filter(p => inRange(p.date,start,end))},
-    {key:'studies', title:'VII. Nghiên cứu bài học', records:meetings.filter(p => p.type === 'lesson_study' && inRange(p.date,start,end))},
-    {key:'topics', title:'VIII. Chuyên đề và sáng kiến', records:[...specialTopics.filter(p => inRange(p.date || p.createdAt,start,end)),...skknTopics.filter(p => p.academicYear === config.academicYear)]},
+    {key:'members', title:'I. Thành viên và phân công', records:[...allMembers.map(m => ({displayName:m.displayName,role:m.role,subject:m.subject})), ...findDuplicateAssignments(annualRecords(assignments,config.academicYear)).keep.filter(a => a.term === config.currentTerm)]},
+    {key:'department', title:'II. Kế hoạch của tổ', records:annualRecords(departmentPlans,config.academicYear)},
+    {key:'teacher', title:'III. Kế hoạch giáo viên', records:annualRecords(teacherPlans,config.academicYear)},
+    {key:'lessons', title:'IV. Kế hoạch bài dạy', records:scoped.lessonPlans},
+    {key:'meetings', title:'V. Biên bản sinh hoạt chuyên môn', records:scoped.meetings.filter(p => !selected.includes('studies') || p.type !== 'lesson_study')},
+    {key:'observations', title:'VI. Phiếu dự giờ', records:scoped.observations},
+    {key:'studies', title:'VII. Nghiên cứu bài học', records:scoped.meetings.filter(p => p.type === 'lesson_study')},
+    {key:'topics', title:'VIII. Chuyên đề và sáng kiến', records:[...scoped.specialTopics,...annualRecords(skknTopics,config.academicYear)]},
     {key:'reports', title:'IX. Báo cáo đã lưu', records:reportSnapshots.filter(p => p.academicYear === config.academicYear && (p.startDate && p.endDate ? p.startDate <= end && p.endDate >= start : inRange(p.createdAt,start,end)))},
   ];
   const prepare = async () => {
     if (!validRange(start,end)) {setNotification({message:'Khoảng ngày không hợp lệ.',type:'error'}); return;}
+    if (!app.isDemoMode && (!app.isFirestoreConnected || app.syncStatus.cached || app.syncStatus.errors.length || app.syncStatus.pendingWrites || app.syncStatus.saving)) {setNotification({message:'Hãy chờ dữ liệu đồng bộ đầy đủ trước khi đóng sổ.',type:'error'});return;}
     const token = generation.current;
     setBusy(true); setPrepared(null);
     try {
@@ -116,7 +119,7 @@ export function Booklet() {
   return <section className="space-y-4">
     <div className="bg-white p-4 rounded-xl border space-y-3">
       <h2 className="font-bold">Đóng cuốn Sổ chuyên môn</h2>
-      <p className="text-xs">Chọn phần hồ sơ và tải bản xem trước trước khi in. Kế hoạch, thành viên và sáng kiến lấy theo năm học; phân công lấy học kỳ hiện tại. Khoảng ngày áp dụng cho các hoạt động và giáo án. Hồ sơ nháp vẫn in kèm trạng thái.</p>
+      <p className="text-xs">Chọn phần hồ sơ và tải bản xem trước trước khi in. Kế hoạch, thành viên và sáng kiến lấy theo năm học; phân công lấy học kỳ hiện tại. Khoảng ngày áp dụng cho các hoạt động và giáo án. Biên bản chỉ lấy bản đã chốt và đã diễn ra; nghiên cứu bài học chỉ in một lần khi chọn cả hai phần. Giáo án lấy theo ngày tạo, đến ngày hiện tại; hồ sơ nháp có ghi trạng thái.</p>
       <div className="flex flex-wrap gap-3 text-sm"><label>Từ ngày <input type="date" value={start} onChange={e => setStart(e.target.value)}/></label><label>Đến ngày <input type="date" value={end} onChange={e => setEnd(e.target.value)}/></label></div>
       <div className="grid sm:grid-cols-2 gap-2 text-sm">{groups.map(g => <label key={g.key}><input type="checkbox" checked={selected.includes(g.key)} onChange={e => setSelected(e.target.checked ? [...selected,g.key] : selected.filter(k => k !== g.key))}/> {g.title} ({g.records.length})</label>)}</div>
       <div className="flex gap-3"><button disabled={busy || !selected.length} onClick={prepare} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-50">{busy ? 'Đang tải đầy đủ hồ sơ…' : 'Tạo bản xem trước'}</button><button disabled={!prepared || busy} onClick={print} className="border rounded px-4 py-2 disabled:opacity-50">In toàn bộ / Lưu PDF</button></div>
