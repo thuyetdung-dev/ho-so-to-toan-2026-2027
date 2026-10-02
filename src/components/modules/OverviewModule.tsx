@@ -17,7 +17,7 @@ import {
   ListChecks,
   Users,
 } from 'lucide-react';
-import { buildWorkCenter } from '../../utils/management';
+import { buildWorkCenter, todayIso } from '../../utils/management';
 
 interface OverviewModuleProps {
   onNavigate: (module: ActiveModule) => void;
@@ -50,12 +50,12 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
   const myLessonPlans = lessonPlans.filter(p => isMe(p.teacherId));
   const pendingLessonPlans = lessonPlans.filter(p => p.status === 'submitted');
   const myObservations = observations.filter(o => isMe(o.observerId) || isMe(o.teacherId));
-  const workItems = buildWorkCenter({ departmentPlans, teacherPlans, lessonPlans, meetings, isLeader: permissions.isLeader, activeMember, isMe });
+  const workItems = buildWorkCenter({ departmentPlans, teacherPlans, lessonPlans, meetings, isLeader: permissions.isLeader, activeMember, isMe, members: allMembers, academicYear: config.academicYear, canApproveDeptPlan: permissions.canApproveDeptPlan });
   const overdueCount = workItems.filter(w => w.priority === 'overdue').length;
   const soonCount = workItems.filter(w => w.priority === 'today' || w.priority === 'soon').length;
 
   // Bản cũ lấy 2 phần tử đầu mảng (không phải cuộc họp sắp tới). Nay: sắp tới trước, nếu không có thì gần nhất.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const futureMeetings = meetings.filter(m => (m.date || '') >= today).sort((a, b) => a.date.localeCompare(b.date));
   const upcomingMeetings = (futureMeetings.length
     ? futureMeetings

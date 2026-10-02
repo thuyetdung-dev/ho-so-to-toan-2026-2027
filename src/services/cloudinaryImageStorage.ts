@@ -14,6 +14,7 @@ export interface CloudinaryLessonImageMeta {
 
   createdAt: string;
   storageVersion: 2;
+  cleanupToken?: string;
 }
 
 interface CloudinarySignatureResponse {
@@ -23,6 +24,8 @@ interface CloudinarySignatureResponse {
   apiKey: string;
   folder: string;
   publicId: string;
+  overwrite: false;
+  cleanupToken: string;
 }
 
 interface CloudinaryUploadResponse {
@@ -45,6 +48,7 @@ export async function uploadLessonImageToCloudinary(
   planId: string,
   imageId: string,
   dataUrl: string,
+  options: {teacherId?: string; restoreSession?: string} = {},
 ): Promise<CloudinaryLessonImageMeta> {
   const { auth } = await import('../firebase');
   const user = auth.currentUser;
@@ -62,6 +66,7 @@ export async function uploadLessonImageToCloudinary(
     body: JSON.stringify({
       planId,
       imageId,
+      ...options,
     }),
   });
 
@@ -81,7 +86,7 @@ export async function uploadLessonImageToCloudinary(
   form.append('signature', signed.signature);
   form.append('folder', signed.folder);
   form.append('public_id', signed.publicId);
-  form.append('overwrite', 'true');
+  form.append('overwrite', 'false');
 
   const uploadRes = await fetch(
     `https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`,
@@ -100,7 +105,7 @@ export async function uploadLessonImageToCloudinary(
 
   const uploaded = (await uploadRes.json()) as CloudinaryUploadResponse;
 
-  if (!uploaded.public_id || !uploaded.secure_url) {
+  if (uploaded.public_id !== `${signed.folder}/${signed.publicId}` || !uploaded.secure_url?.startsWith(`https://res.cloudinary.com/${signed.cloudName}/image/upload/`)) {
     throw new Error('Cloudinary không trả về public_id hoặc secure_url.');
   }
 
@@ -120,6 +125,7 @@ export async function uploadLessonImageToCloudinary(
 
     createdAt: uploaded.created_at || new Date().toISOString(),
     storageVersion: 2,
+    cleanupToken: signed.cleanupToken,
   };
 }
 

@@ -15,6 +15,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import aiHandler from './api/ai.ts';
+import imageSignHandler from './api/cloudinary-sign.ts';
+import imageDeleteHandler from './api/cloudinary-delete.ts';
 
 dotenv.config({ path: ['.env.local', '.env'], quiet: true });
 
@@ -46,6 +48,8 @@ app.get('/api/health', (_req, res) => {
 
 // ---------- Trợ lý AI: dùng chung hàm với Vercel (api/ai.ts) ----------
 app.all('/api/ai', (req, res) => aiHandler(req, res));
+app.all('/api/cloudinary-sign', (req, res) => imageSignHandler(req as any, res as any));
+app.all('/api/cloudinary-delete', (req, res) => imageDeleteHandler(req as any, res as any));
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Không tìm thấy API' }));
 

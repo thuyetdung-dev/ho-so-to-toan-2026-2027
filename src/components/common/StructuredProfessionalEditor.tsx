@@ -1,3 +1,4 @@
+import { useApp } from '../../context/AppContext';
 import React, { useMemo, useState } from "react";
 import type { ProfessionalTask, ProfessionalIndicator } from "../../types";
 import { newId } from "../../utils/ids";
@@ -19,6 +20,7 @@ export function StructuredProfessionalEditor({
     indicators: ProfessionalIndicator[],
   ) => void;
 }) {
+  const {allMembers} = useApp();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
@@ -42,7 +44,7 @@ export function StructuredProfessionalEditor({
   const editable = !!onChange;
   const update = (id: string, key: keyof ProfessionalTask, value: string) =>
     onChange?.(
-      tasks.map((t) => (t.id === id ? { ...t, [key]: value } : t)),
+      tasks.map((t) => (t.id === id ? { ...t, [key]: value, ...(key === 'assignee' ? {assigneeId: undefined} : {}) } : t)),
       indicators,
     );
   const evidence = (text: string) =>
@@ -202,8 +204,15 @@ export function StructuredProfessionalEditor({
                       </p>
                     )}
                   </td>
+                  <td className="border p-2 min-w-40">
+                    {editable ? <><select aria-label="Chọn giáo viên phụ trách" value={t.assigneeId || ''}
+                      onChange={e=>{const member=allMembers.find(m=>m.id===e.target.value);onChange?.(tasks.map(x=>x.id===t.id?{...x,assigneeId:member?.id,assignee:member?.displayName || x.assignee}:x),indicators);}}
+                      className="w-full border rounded p-1"><option value="">Chưa gắn giáo viên / nhóm chung</option>{allMembers.filter(m=>m.status==='active').map(m=><option key={m.id} value={m.id}>{m.displayName}{m.email?` · ${m.email}`:` · ${m.id}`}</option>)}</select>
+                      <input aria-label="Tên người hoặc nhóm phụ trách" value={t.assignee} onChange={e=>update(t.id,'assignee',e.target.value)} className="w-full border rounded p-1 mt-1"/></> : t.assignee}
+                    {!t.assigneeId && <p className="text-amber-700">Chưa gắn mã giáo viên</p>}
+                  </td>
                   {(
-                    ["assignee", "deadline", "product", "evidence"] as const
+                    ["deadline", "product", "evidence"] as const
                   ).map((k) => (
                     <td key={k} className="border p-2 min-w-32">
                       {editable ? (

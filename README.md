@@ -1,3 +1,5 @@
+> **V2.16.1 (02/10/2026):** đồng bộ Cloudinary v2/Firebase v1 với Firestore rules; kiểm tra quyền từng giáo án tại API ảnh; dùng chung API trên Vercel và local/VPS; sửa phân công theo ID, hạn ngày Việt Nam và chỉ số tiến độ hồ sơ. **Đọc HUONG_DAN_NANG_CAP_V2.16.1.md trước khi triển khai; phải cập nhật Firestore rules và cấu hình Cloudinary.** Những ghi chú V2.16.0 bên dưới là lịch sử phiên bản.
+
 > **2.16.0 (01/10/2026):** ảnh giáo án chuyển sang **Firebase Storage** (Firestore chỉ giữ metadata), có migration base64 cũ; backup chuẩn hóa thành **ZIP schema v3 có SHA-256** và phục hồi tương thích JSON cũ; xuất **gói hồ sơ cuối kỳ/năm**; deep-link/KPI/audit từ 2.15.x; bổ sung bộ Playwright E2E cho deployment thật và 3 tác vụ AI có dẫn minh chứng. **Phải deploy cả `firestore.rules` và `storage.rules` trước khi chạy migration.** Xem `UPGRADE_STORAGE_BACKUP_AI_2026-10-01.md`.
 
 > **2.15.0:** tiến độ tách khỏi kế hoạch đã duyệt, sao lưu kiểm tra đầy đủ, phục hồi có phiên Quản trị, lưu/xóa giáo án nguyên tử và nhật ký chuyển trạng thái bất biến. **Phải cập nhật Firestore Rules cùng mã nguồn.** Xem [HUONG-DAN-CAP-NHAT-2.15.0.md](HUONG-DAN-CAP-NHAT-2.15.0.md).

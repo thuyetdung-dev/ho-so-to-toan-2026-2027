@@ -1,3 +1,4 @@
+import appPackage from '../../package.json';
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { UserRole } from '../types';
@@ -83,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
                   {config.departmentName || 'Tổ Toán THPT'}
                 </span>
                 <span className="hidden lg:inline-flex px-2 py-0.5 text-[11px] font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  {config.academicYear} • {config.currentTerm}
+                  {config.academicYear} • {config.currentTerm} • V{appPackage.version}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 line-clamp-1 hidden sm:block">

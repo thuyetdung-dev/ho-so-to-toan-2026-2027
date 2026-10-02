@@ -45,6 +45,8 @@ export interface LessonImageMeta {
   createdAt: string;
   storageVersion?: number;
 
+  /** Xác nhận dọn ảnh, chỉ giữ trong bộ nhớ khi ghi dữ liệu. */
+  cleanupToken?: string;
   migratedAt?: unknown;
   migratedBy?: string;
 
@@ -75,6 +77,7 @@ export async function uploadLessonImage(
   imageId: string,
   dataUrl: string,
   uploaderUid?: string,
+  options: {teacherId?: string; restoreSession?: string} = {},
 ): Promise<LessonImageMeta> {
   // Trên trình duyệt thật: dùng Cloudinary.
   if (typeof window !== 'undefined') {
@@ -82,6 +85,7 @@ export async function uploadLessonImage(
       planId,
       imageId,
       dataUrl,
+      options,
     );
 
     return {
@@ -102,6 +106,7 @@ export async function uploadLessonImage(
       createdAt: uploaded.createdAt,
 
       storageVersion: LESSON_IMAGE_STORAGE_VERSION,
+      cleanupToken: uploaded.cleanupToken,
     };
   }
 
@@ -145,6 +150,22 @@ export async function deleteLessonImage(storage: FirebaseStorage, storagePath: s
 }
 
 
+/** Lấy xác nhận dọn ảnh trước khi metadata/giáo án bị xóa. */
+export async function prepareLessonImageCleanup(meta: LessonImageMeta, deletePlan = false): Promise<LessonImageMeta> {
+  if (meta.provider !== 'cloudinary' || typeof window === 'undefined' || meta.cleanupToken) return meta;
+  const {auth} = await import('../firebase');
+  const user = auth.currentUser;
+  if (!user) throw new Error('Cần đăng nhập để dọn ảnh.');
+  const response = await fetch('/api/cloudinary-delete', {
+    method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${await user.getIdToken()}`},
+    body:JSON.stringify({action:'prepare',planId:meta.planId,imageId:meta.imageId,publicId:meta.publicId,deletePlan}),
+  });
+  if (!response.ok) throw new Error(`Không xác nhận được quyền dọn ảnh (${response.status}).`);
+  const data = await response.json();
+  if (typeof data.cleanupToken !== 'string') throw new Error('Máy chủ thiếu xác nhận dọn ảnh.');
+  return {...meta,cleanupToken:data.cleanupToken};
+}
+
 /**
  * Xóa ảnh theo đúng nhà cung cấp.
  * - Cloudinary mới: gọi API server-side để API Secret không lộ ra trình duyệt.
@@ -152,7 +173,7 @@ export async function deleteLessonImage(storage: FirebaseStorage, storagePath: s
  */
 export async function deleteLessonImageMeta(
   storage: FirebaseStorage,
-  meta: Pick<LessonImageMeta, 'provider' | 'publicId' | 'storagePath'>,
+  meta: Pick<LessonImageMeta, 'provider' | 'publicId' | 'storagePath' | 'cleanupToken'>,
 ): Promise<void> {
   if (meta.provider === 'cloudinary' || (!!meta.publicId && !meta.storagePath)) {
     if (!meta.publicId) return;
@@ -171,7 +192,7 @@ export async function deleteLessonImageMeta(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ publicId: meta.publicId }),
+      body: JSON.stringify({ publicId: meta.publicId, cleanupToken: meta.cleanupToken }),
     });
 
     if (!res.ok) {
@@ -233,7 +254,8 @@ export async function migrateLegacyLessonImages(
     const raw = row.data() as LessonImageMeta;
     try {
       if (!raw.planId || !raw.imageId || !raw.data) throw new Error('Metadata ảnh cũ không hợp lệ.');
-      const meta = await uploadLessonImage(storage, raw.planId, raw.imageId, raw.data);
+      const uploadedMeta = await uploadLessonImage(storage, raw.planId, raw.imageId, raw.data);
+      const {cleanupToken: _cleanup, ...meta} = uploadedMeta;
       const common = {
         provider: meta.provider,
         contentType: meta.contentType,

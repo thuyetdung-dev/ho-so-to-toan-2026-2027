@@ -112,10 +112,12 @@ export const LessonStudyModule: React.FC = () => {
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMeeting || !taskTitle.trim()) return;
+    const assignee = activeMembers.find(m => m.id === taskAssignee) || activeMember;
     const task: MeetingTask = {
       id: newId('task'),
       title: taskTitle.trim(),
-      assigneeName: taskAssignee || activeMember.displayName,
+      assigneeName: assignee.displayName,
+      assigneeId: assignee.id,
       deadline: taskDeadline,
       status: 'pending',
     };
@@ -125,8 +127,17 @@ export const LessonStudyModule: React.FC = () => {
     }
   };
 
+  const assignExistingTask = async (taskId: string, memberId: string) => {
+    if (!isLeader || !selectedMeeting) return;
+    const assignee = activeMembers.find(m => m.id === memberId);
+    if (!assignee) return;
+    await saveMeeting({...selectedMeeting,tasks:selectedMeeting.tasks.map(t=>t.id===taskId?{...t,assigneeId:assignee.id,assigneeName:assignee.displayName}:t)},{silent:true});
+  };
+
   const cycleTaskStatus = async (taskId: string) => {
     if (!selectedMeeting) return;
+    const task = selectedMeeting.tasks.find(t => t.id === taskId);
+    if (!task || (!isLeader && (selectedMeeting.status === 'finalized' || task.assigneeId !== activeMember.id))) return;
     const next: Record<MeetingTask['status'], MeetingTask['status']> = { pending: 'in_progress', in_progress: 'completed', completed: 'pending' };
     await saveMeeting(
       { ...selectedMeeting, tasks: selectedMeeting.tasks.map(t => (t.id === taskId ? { ...t, status: next[t.status] } : t)) },
@@ -513,11 +524,15 @@ export const LessonStudyModule: React.FC = () => {
                         >
                           <div>
                             <span className="font-medium text-slate-900">{t.title}</span>
-                            <span className="text-slate-500 ml-2">({t.assigneeName} • Hạn: {t.deadline})</span>
+                            <span className="text-slate-500 ml-2">({t.assigneeName} • Hạn: {t.deadline}){!t.assigneeId && <span className="text-amber-700 ml-2">Cần tổ trưởng xác nhận người thực hiện</span>}
+                            {isLeader && <select aria-label={`Xác nhận người thực hiện: ${t.title}`} value={t.assigneeId || ''}
+                              onChange={e=>assignExistingTask(t.id,e.target.value)} className="block mt-1 px-2 py-1 border rounded bg-white text-xs print:hidden">
+                              <option value="">Chọn giáo viên để xác nhận</option>{activeMembers.map(m=><option key={m.id} value={m.id}>{m.displayName}{m.email?` · ${m.email}`:` · ${m.id}`}</option>)}
+                            </select>}</span>
                           </div>
                           <button
                             type="button"
-                            disabled={!(isLeader || (t.assigneeName === activeMember.displayName && selectedMeeting.status !== 'finalized'))}
+                            disabled={!(isLeader || (t.assigneeId === activeMember.id && selectedMeeting.status !== 'finalized'))}
                             onClick={() => cycleTaskStatus(t.id)}
                             title="Bấm để đổi trạng thái"
                             className={`px-2 py-0.5 rounded text-[10px] font-bold disabled:cursor-default ${
@@ -539,7 +554,7 @@ export const LessonStudyModule: React.FC = () => {
                         <select value={taskAssignee} onChange={e => setTaskAssignee(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-300 rounded-lg bg-white" aria-label="Người thực hiện">
                           <option value="">— Người thực hiện —</option>
                           {activeMembers.map(m => (
-                            <option key={m.id} value={m.displayName}>{m.displayName}</option>
+                            <option key={m.id} value={m.id}>{m.displayName}{m.email?` · ${m.email}`:` · ${m.id}`}</option>
                           ))}
                         </select>
                         <input type="date" value={taskDeadline} onChange={e => setTaskDeadline(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-300 rounded-lg" aria-label="Hạn" />

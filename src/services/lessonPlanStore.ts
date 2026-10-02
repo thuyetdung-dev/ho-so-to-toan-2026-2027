@@ -27,7 +27,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import type { FirebaseStorage } from 'firebase/storage';
-import { deleteLessonImageMeta, getLessonImageUrl, loadLessonImageAsDataUrl, uploadLessonImage, type LessonImageMeta } from './lessonImageStorage';
+import { deleteLessonImageMeta, prepareLessonImageCleanup, getLessonImageUrl, loadLessonImageAsDataUrl, uploadLessonImage, type LessonImageMeta } from './lessonImageStorage';
 import type { LessonPlan, LessonPlanActivity, PlanVersionRecord } from '../types';
 
 /** Firestore cho tối đa 1 MiB (1.048.576 byte) mỗi bản ghi – chừa phần cho tên trường */
@@ -237,13 +237,19 @@ export async function writeLessonPlan(
   const prev = new Set(opts.prevImageIds || []);
   const uploaded = new Map<string, LessonImageMeta>();
   const rollbackImages: LessonImageMeta[] = [];
+  try {
   if (parts.content) {
     for (const [imageId, data] of Object.entries(parts.images)) {
       if (prev.has(imageId) && !opts.restoreSession) continue;
-      const meta = await uploadLessonImage(storage, plan.id, imageId, data, opts.actor?.uid);
+      const meta = await uploadLessonImage(storage, plan.id, imageId, data, opts.actor?.uid, {teacherId: plan.teacherId, restoreSession: opts.restoreSession});
       uploaded.set(imageId, meta);
       if (!prev.has(imageId) && !opts.restoreSession) rollbackImages.push(meta);
     }
+  }
+
+  } catch (error) {
+    await Promise.all(rollbackImages.map(meta => deleteLessonImageMeta(storage, meta).catch(() => undefined)));
+    throw error;
   }
 
   const batch = writeBatch(db);
@@ -266,7 +272,8 @@ export async function writeLessonPlan(
         if (prev.has(imageId) && !opts.restoreSession) continue;
         const meta = uploaded.get(imageId);
         if (!meta) throw new Error(`Không có metadata Storage cho hình ${imageId}.`);
-        const img = {...meta, ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})};
+        const {cleanupToken: _cleanupToken, ...storedMeta} = meta;
+        const img = {...storedMeta, ...(opts.restoreSession ? {_restoreSession: opts.restoreSession} : {})};
         batch.set(doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId)), img);
         operations++; totalBytes += bytesOf(img);
       }
@@ -277,7 +284,7 @@ export async function writeLessonPlan(
         const oldRef = doc(db, 'lessonPlanImages', imageDocId(plan.id, imageId));
         const old = await getDoc(oldRef).catch(() => null);
         const oldMeta = old?.exists() ? (old.data() as LessonPlanImageDoc) : undefined;
-        if (oldMeta) obsoleteImages.push(oldMeta);
+        if (oldMeta) obsoleteImages.push(await prepareLessonImageCleanup(oldMeta));
         batch.delete(oldRef); operations++;
       }
     }
@@ -367,7 +374,7 @@ export async function deleteLessonPlanDeep(db: Firestore, storage: FirebaseStora
     getDocs(query(collection(db, 'lessonPlanImages'), where('planId', '==', plan.id))),
     getDocs(query(collection(db, 'lessonPlanVersions'), where('planId', '==', plan.id))),
   ]);
-  const imageMetas = images.docs.map(d => d.data() as LessonPlanImageDoc);
+  const imageMetas = await Promise.all(images.docs.map(d => prepareLessonImageCleanup(d.data() as LessonPlanImageDoc, true)));
   const refs = [...images.docs, ...versions.docs].map(d => d.ref);
   if (refs.length + 2 > 450) throw new Error('Giáo án có quá nhiều bản ghi để xóa nguyên tử. Chưa xóa dữ liệu; cần quản trị xử lý riêng.');
   const batch = writeBatch(db);

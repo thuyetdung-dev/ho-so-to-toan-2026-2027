@@ -273,7 +273,7 @@ export interface PlanReviewComment {
 }
 
 export interface ImportProvenance { fileName: string; table: number; row: number; }
-export interface ProfessionalTask { id: string; title: string; category: string; assignee: string; deadline: string; deadlineText?: string; product: string; evidence: string; status: 'pending' | 'in_progress' | 'completed'; source?: ImportProvenance; }
+export interface ProfessionalTask { id: string; title: string; category: string; assignee: string; assigneeId?: string; deadline: string; deadlineText?: string; product: string; evidence: string; status: 'pending' | 'in_progress' | 'completed'; source?: ImportProvenance; }
 export interface ProfessionalIndicator { id: string; title: string; target: string; actual: string; unit: string; evidence: string; source?: ImportProvenance; }
 export interface DepartmentPlan {
   tasks?: ProfessionalTask[];
@@ -561,6 +561,7 @@ export interface MeetingTask {
   id: string;
   title: string;
   assigneeName: string;
+  assigneeId?: string;
   deadline: string;
   status: 'pending' | 'in_progress' | 'completed';
 }

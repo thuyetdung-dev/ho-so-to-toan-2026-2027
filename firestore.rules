@@ -313,27 +313,41 @@ service cloud.firestore {
     match /lessonPlanImages/{id} {
       allow create, update: if adminRestore();
       allow read: if isMember();
-      // Firestore chỉ giữ metadata; bytes ảnh nằm ở Firebase Storage.
+      // Metadata của cả Firebase Storage v1 và Cloudinary v2.
       function validStorageImageMeta() {
-        return validId(id)
-          && request.resource.data.planId is string
-          && request.resource.data.imageId is string
-          && id == request.resource.data.planId + '__' + request.resource.data.imageId
-          && request.resource.data.storagePath is string
-          && request.resource.data.storagePath == 'lessonPlanImages/' + request.resource.data.planId + '/' + request.resource.data.imageId
-          && request.resource.data.bytes is int && request.resource.data.bytes >= 0
-          && request.resource.data.bytes < 5000000
-          && request.resource.data.storageVersion == 1
-          && !('data' in request.resource.data);
+        let d = request.resource.data;
+        return validId(id) && d.planId is string && d.imageId is string && d.imageId.matches('^[a-zA-Z0-9_\\-]{1,150}$')
+          && id == d.planId + '__' + d.imageId
+          && d.bytes is int && d.bytes >= 0 && d.bytes < 5000000
+          && !('data' in d)
+          && ((d.get('provider', 'firebase') == 'firebase'
+              && d.storageVersion == 1 && d.storagePath is string
+              && d.storagePath == 'lessonPlanImages/' + d.planId + '/' + d.imageId)
+            || (d.get('provider', '') == 'cloudinary' && d.storageVersion == 2
+              && !('storagePath' in d)
+              && d.publicId is string
+              && d.publicId.matches('^ho-so-to-toan/lesson-plans/[a-zA-Z0-9_@.+\\-]{1,150}/[a-zA-Z0-9_\\-]{1,200}$')
+              && d.publicId.split('/')[2] == d.planId
+              && (d.publicId.split('/')[3] == d.imageId || d.publicId.split('/')[3].matches('^' + d.imageId + '--[a-f0-9\\-]{36}$'))
+              && d.secureUrl is string
+              && d.secureUrl.matches('^https://res[.]cloudinary[.]com/[a-zA-Z0-9_\\-]+/image/upload/.+$')));
       }
-      allow create, update: if validStorageImageMeta() && canEditLessonContent(request.resource.data.planId);
+      allow create: if validStorageImageMeta() && canEditLessonContent(request.resource.data.planId);
+      allow update: if validStorageImageMeta() && canEditLessonContent(resource.data.planId)
+        && request.resource.data.planId == resource.data.planId
+        && request.resource.data.imageId == resource.data.imageId
+        && request.resource.data.get('provider', 'firebase') == resource.data.get('provider', 'firebase')
+        && request.resource.data.storageVersion == resource.data.get('storageVersion', 0)
+        && (request.resource.data.get('provider', 'firebase') == 'cloudinary'
+          ? (request.resource.data.publicId == resource.data.publicId && request.resource.data.secureUrl == resource.data.secureUrl)
+          : request.resource.data.storagePath == resource.data.storagePath);
       // Migration ảnh cũ base64 -> Storage: chỉ Tổ trưởng/Quản trị, giữ nguyên planId/imageId.
       allow update: if isAdminOrHead() && resource.data.data is string
         && validStorageImageMeta()
         && request.resource.data.planId == resource.data.planId
         && request.resource.data.imageId == resource.data.imageId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'data','storagePath','contentType','bytes','storageVersion','migratedAt','migratedBy'
+          'data','storagePath','provider','publicId','secureUrl','format','width','height','createdAt','contentType','bytes','storageVersion','migratedAt','migratedBy'
         ]);
       allow delete: if canCleanLessonPart(resource.data.planId);
     }
@@ -352,13 +366,26 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if canCleanLessonPart(resource.data.planId) && !existsAfter(lessonPlanPath(resource.data.planId));
     }
+    // Thành viên chỉ đổi trạng thái một nhiệm vụ có assigneeId thuộc mình.
+    function ownMeetingTaskUpdate() {
+      let oldTasks = resource.data.get('tasks', []);
+      let newTasks = request.resource.data.get('tasks', []);
+      let removed = oldTasks.removeAll(newTasks);
+      let added = newTasks.removeAll(oldTasks);
+      return oldTasks == newTasks || (oldTasks.size() == newTasks.size()
+        && removed.size() == 1 && added.size() == 1
+        && removed[0].get('assigneeId', '') != ''
+        && ownsMember(removed[0].assigneeId)
+        && added[0].diff(removed[0]).affectedKeys().hasOnly(['status'])
+        && added[0].status in ['pending', 'in_progress', 'completed']);
+    }
     match /meetings/{id} {
       allow read: if isMember();
       allow create: if isLeader() && validId(id);
       // Biên bản đã chốt chỉ tổ trưởng mở khóa; thành viên thêm ý kiến khi còn nháp
       allow update: if isLeader()
         || (canContribute() && resource.data.status != 'finalized'
-            && changedOnly(['memberOpinions', 'tasks', 'updatedAt']));
+            && changedOnly(['memberOpinions', 'tasks', 'updatedAt']) && ownMeetingTaskUpdate());
       allow delete: if isAdminOrHead();
     }
     match /lessonStudies/{id} {

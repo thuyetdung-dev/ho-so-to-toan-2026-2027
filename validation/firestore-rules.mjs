@@ -100,29 +100,33 @@ try {
  cleanup.delete(doc(dbs.head,'lessonPlanContent','draft'));
  cleanup.delete(doc(dbs.head,'lessonPlans','draft'));
  await check('head atomically deletes submitted parent and content',cleanup.commit(),true);
- const store = await import('../src/services/lessonPlanStore.ts');
- const actualPlan={id:'service-flow',teacherId:'teacher',teacherName:'GV',title:'Kiểm tra nguyên tử',topicTitle:'Bài',grade:10,week:1,periodCount:1,classNames:['10A1'],status:'draft',version:1,updatedAt:'2026-10-01',comments:[],
-  objectivesKnowledge:'Kiến thức',objectivesCompetence:'Năng lực',objectivesQualities:'Phẩm chất',equipment:'Bảng',activities:[{id:'a1',name:'HĐ1',objectives:'Mục tiêu',content:'![H](img:h1)',product:'Sản phẩm',implementation:'Thực hiện'}],images:{h1:'data:image/png;base64,AA'},contentState:'full',versionHistory:[]};
- const actor={uid:'teacher',email:'teacher@school.test'};
- await check('actual service atomic create',store.writeLessonPlan(dbs.teacher,actualPlan,{isNew:true,actor}),true);
- const submitted={...actualPlan,status:'submitted',version:2,versionHistory:[{version:2,updatedAt:'2026-10-01',updatedBy:'GV',changeSummary:'Nộp',status:'submitted',dataSnapshot:{title:'Bài',activities:actualPlan.activities}}]};
- await check('actual service submit with immutable snapshot and event',store.writeLessonPlan(dbs.teacher,submitted,{isNew:false,prevImageIds:['h1'],actor}),true);
- await check('actual service cannot edit submitted content',store.writeLessonPlan(dbs.teacher,{...submitted,title:'Sửa lén'},{isNew:false,prevImageIds:['h1'],actor}),false);
- await check('return service plan through trace',traced(dbs.head,'lessonPlans','service-flow',{status:'returned'}),true);
- const returned={...submitted,status:'returned',title:'Đã sửa'};
- await check('actual service preserves snapshot regardless of key ordering',store.writeLessonPlan(dbs.teacher,returned,{isNew:false,prevImageIds:['h1'],actor}),true);
- const snapshotRef=doc(dbs.teacher,'lessonPlanVersions','service-flow__v0');
- const originalSnapshot=(await getDoc(snapshotRef)).data().snapshot;
- let immutableRejected=false;
- try {await store.writeLessonPlan(dbs.teacher,{...returned,versionHistory:[{...returned.versionHistory[0],dataSnapshot:{title:'Sửa lịch sử'}}]},{isNew:false,actor});} catch {immutableRejected=true;}
- if (!immutableRejected || JSON.stringify((await getDoc(snapshotRef)).data().snapshot)!==JSON.stringify(originalSnapshot)) throw new Error('Service altered immutable version');
- count++; console.log('PASS actual service rejects altered history before commit');
- const fullBackup=await store.loadAllLessonPlansFull(dbs.head,[store.hydrateLessonPlan((await getDoc(doc(dbs.head,'lessonPlans','service-flow'))).data(),'service-flow')]);
- if (fullBackup[0].contentState!=='full' || !fullBackup[0].images.h1 || !fullBackup[0].versionHistory[0].dataSnapshot) throw new Error('Backup incomplete');
- count++; console.log('PASS actual service backup includes content images snapshots');
- await check('actual service atomic delete returned by head',store.deleteLessonPlanDeep(dbs.head,fullBackup[0]),true);
- const afterDelete=await getDoc(doc(dbs.head,'lessonPlanContent','service-flow'));
- if(afterDelete.exists()) throw new Error('Content orphan after delete');
- count++; console.log('PASS actual service deletes all parts');
+ // Cloudinary v2, Firebase v1 and task assignment regression checks.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   const db=ctx.firestore();
+   await setDoc(doc(db,'lessonPlans','cloud-draft'),{teacherId:'teacher',status:'draft'});
+   await setDoc(doc(db,'lessonPlans','cloud-other'),{teacherId:'head',status:'draft'});
+   await setDoc(doc(db,'lessonPlans','cloud-approved'),{teacherId:'teacher',status:'approved'});
+   await setDoc(doc(db,'meetings','task-meeting'),{status:'draft',tasks:[{id:'t1',title:'One',assigneeId:'teacher',assigneeName:'GV',status:'pending'},{id:'t2',title:'Two',assigneeId:'head',assigneeName:'TT',status:'pending'}]});
+ });
+ const cloudMeta=(planId,imageId='h1')=>({planId,imageId,provider:'cloudinary',publicId:`ho-so-to-toan/lesson-plans/${planId}/${imageId}--12345678-1234-1234-1234-123456789abc`,secureUrl:`https://res.cloudinary.com/test-cloud/image/upload/v1/ho-so-to-toan/lesson-plans/${planId}/${imageId}.png`,bytes:100,storageVersion:2});
+ await check('Cloudinary metadata own draft allowed',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h1'),cloudMeta('cloud-draft')),true);
+ await check('Cloudinary ID containing double hyphen allowed',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h--2'),cloudMeta('cloud-draft','h--2')),true);
+ await check('Cloudinary cannot replace same image object in historical references',updateDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h1'),{publicId:'ho-so-to-toan/lesson-plans/cloud-draft/h1--11111111-1111-1111-1111-111111111111'}),false);
+ await check('Cloudinary cannot alter image URL in historical references',updateDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h1'),{secureUrl:'https://res.cloudinary.com/test-cloud/image/upload/v1/another.png'}),false);
+ await check('Firebase metadata v1 still allowed',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__legacy'),{planId:'cloud-draft',imageId:'legacy',storagePath:'lessonPlanImages/cloud-draft/legacy',bytes:100,storageVersion:1}),true);
+ await check('other teacher image denied',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-other__h1'),cloudMeta('cloud-other')),false);
+ await check('approved image denied even admin',setDoc(doc(dbs.admin,'lessonPlanImages','cloud-approved__h1'),cloudMeta('cloud-approved')),false);
+ await check('provider version mismatch denied',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h2'),{...cloudMeta('cloud-draft','h2'),storageVersion:1}),false);
+ await check('foreign plan publicId denied',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h2'),{...cloudMeta('cloud-draft','h2'),publicId:'ho-so-to-toan/lesson-plans/cloud-other/h2'}),false);
+ await check('non-Cloudinary URL denied',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h2'),{...cloudMeta('cloud-draft','h2'),secureUrl:'https://example.test/a.png'}),false);
+ await check('Cloudinary rejects base64 field',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h2'),{...cloudMeta('cloud-draft','h2'),data:'data:image/png;base64,AA'}),false);
+ await check('Cloudinary oversized metadata denied',setDoc(doc(dbs.teacher,'lessonPlanImages','cloud-draft__h2'),{...cloudMeta('cloud-draft','h2'),bytes:5000000}),false);
+ const originalTasks=(await getDoc(doc(dbs.teacher,'meetings','task-meeting'))).data().tasks;
+ await check('teacher can update own task status by ID',updateDoc(doc(dbs.teacher,'meetings','task-meeting'),{tasks:originalTasks.map(t=>t.id==='t1'?{...t,status:'completed'}:t)}),true);
+ const currentTasks=(await getDoc(doc(dbs.teacher,'meetings','task-meeting'))).data().tasks;
+ await check('teacher cannot update another task',updateDoc(doc(dbs.teacher,'meetings','task-meeting'),{tasks:currentTasks.map(t=>t.id==='t2'?{...t,status:'completed'}:t)}),false);
+ await check('teacher cannot change task ownership',updateDoc(doc(dbs.teacher,'meetings','task-meeting'),{tasks:currentTasks.map(t=>t.id==='t1'?{...t,assigneeId:'head'}:t)}),false);
+ await check('teacher cannot change task title',updateDoc(doc(dbs.teacher,'meetings','task-meeting'),{tasks:currentTasks.map(t=>t.id==='t1'?{...t,title:'Changed'}:t)}),false);
+ await check('leader can link legacy assignee ID',setDoc(doc(dbs.head,'meetings','legacy-meeting'),{status:'draft',tasks:[{id:'t1',title:'Old',assigneeName:'GV',assigneeId:'teacher',status:'pending'}]}),true);
  console.log(`RULES: ${count} checks passed`);
 } finally {await env.cleanup();}

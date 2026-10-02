@@ -1,3 +1,4 @@
+import { linkTaskAssignees } from '../utils/management';
 import { archivedAuditLogs } from '../utils/archivedAudit';
 import { applyDepartmentProgress, type DepartmentProgress } from '../utils/departmentProgress';
 import { assertCompleteLessonBackup } from '../utils/backupValidation';
@@ -1168,7 +1169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setNotification({message: 'Không có quyền thay đổi nội dung hoặc trạng thái kế hoạch tổ.', type: 'error'}); return false;
     }
     // Lịch sử phiên bản không được làm bản ghi vượt 1 MB: bỏ nội dung các phiên bản cũ nhất nếu cần
-    const updatedPlan: DepartmentPlan = trimHistoryToFit({ ...plan, updatedAt: new Date().toISOString() });
+    const updatedPlan: DepartmentPlan = trimHistoryToFit({ ...plan, tasks: linkTaskAssignees(plan.tasks || [], currentMembers), updatedAt: new Date().toISOString() });
     if(bytesOf(updatedPlan)>MAX_DOC_BYTES){setNotification({message:'Kế hoạch vượt giới hạn lưu trữ một hồ sơ. Hãy giảm nội dung hoặc tách bảng trước khi lưu.',type:'error'});return false;}
     const ok = await upsertItem('departmentPlans', updatedPlan, setDemoDeptPlans, setRealDeptPlans);
     if (!ok) return false;
@@ -1651,7 +1652,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ---------- Họp tổ & dự giờ ----------
   const saveMeeting = async (meeting: Meeting, options: { silent?: boolean } = {}) => {
-    const updated = { ...meeting, updatedAt: new Date().toISOString() };
+    const updated = { ...meeting, tasks: permissions.isLeader ? linkTaskAssignees(meeting.tasks || [], currentMembers) : meeting.tasks, updatedAt: new Date().toISOString() };
     const ok = await upsertItem('meetings', updated, setDemoMeetings, setRealMeetings, true);
     if (ok && !options.silent) {
       setNotification({ message: 'Đã lưu biên bản sinh hoạt chuyên môn', type: 'success' });
@@ -1967,7 +1968,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {lessonPlansFull.forEach(assertCompleteLessonBackup);} catch (err) {setNotification({message: `Không thể sao lưu: ${(err as Error).message}`, type: 'error'}); return;}
     const backup = {
       app: 'so-sinh-hoat-chuyen-mon-to-toan',
-      version: '2.16.0',
+      version: '2.16.1',
       exportedAt: new Date().toISOString(),
       mode: isDemoMode ? 'demo' : 'real',
       config: currentConfig,
