@@ -4,11 +4,11 @@ import { teacherKpi } from '../../utils/management';
 import { pathId, pushRoute } from '../../utils/deepLink';
 import { Award, BookOpen, CalendarCheck, ClipboardCheck, Eye, Link2, UserRound } from 'lucide-react';
 export const Teacher360Module:React.FC=()=>{
- const {allMembers,assignments,teacherPlans,lessonPlans,observations,meetings,trainings,auditLogs,setNotification,config}=useApp();
+ const {allMembers,assignments,teacherPlans,lessonPlans,observations,meetings,trainings,workTasks,auditLogs,setNotification,config}=useApp();
  const [startDate,setStartDate]=useState(''); const [endDate,setEndDate]=useState('');
  const initial=pathId('teachers'); const [id,setId]=useState(initial&&allMembers.some(m=>m.id===initial)?initial:(allMembers[0]?.id||''));
  const m=allMembers.find(x=>x.id===id)||allMembers[0];
- const kpi=useMemo(()=>m?teacherKpi(m,{teacherPlans,lessonPlans,observations,meetings,trainings,members:allMembers},{academicYear:config.academicYear,startDate:startDate||undefined,endDate:endDate||undefined}):null,[m,teacherPlans,lessonPlans,observations,meetings,trainings,allMembers,config.academicYear,startDate,endDate]);
+ const kpi=useMemo(()=>m?teacherKpi(m,{teacherPlans,lessonPlans,observations,meetings,trainings,workTasks,members:allMembers},{academicYear:config.academicYear,startDate:startDate||undefined,endDate:endDate||undefined},config.kpiConfig?.weights):null,[m,teacherPlans,lessonPlans,observations,meetings,trainings,workTasks,allMembers,config.academicYear,config.kpiConfig,startDate,endDate]);
  if(!m||!kpi)return <div className="p-6 text-sm text-slate-500">Chưa có giáo viên.</div>;
  const asg=assignments.filter(a=>a.teacherId===m.id&&a.academicYear===config.academicYear); const logs=auditLogs.filter(l=>l.actorId===m.id||l.targetId===m.id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp)).slice(0,8);
  const copy=async()=>{pushRoute('teacher-360',m.id,true); await navigator.clipboard.writeText(window.location.href); setNotification({type:'success',message:'Đã sao chép liên kết hồ sơ 360°.'});};

@@ -85,6 +85,7 @@ export const SettingsModule: React.FC = () => {
   const [currentTerm, setCurrentTerm] = useState(config.currentTerm);
   const [standardPeriods, setStandardPeriods] = useState(config.standardPeriods || 17);
   const [weeksCount, setWeeksCount] = useState(config.weeksCount || 35);
+  const [kpiWeights, setKpiWeights] = useState(config.kpiConfig?.weights || { teacherPlans:25, lessonPlans:30, observations:20, professionalTasks:15, trainings:10 });
 
   // Modal: New Academic Year Transition (Lỗi 20)
   const [showYearModal, setShowYearModal] = useState(false);
@@ -174,6 +175,7 @@ export const SettingsModule: React.FC = () => {
     setCurrentTerm(config.currentTerm);
     setStandardPeriods(config.standardPeriods || 17);
     setWeeksCount(config.weeksCount || 35);
+    setKpiWeights(config.kpiConfig?.weights || { teacherPlans:25, lessonPlans:30, observations:20, professionalTasks:15, trainings:10 });
     setMilestones(config.academicCalendar || config.calendarMilestones || []);
     setTopics(config.curriculumTopics || []);
     setCompetencies(config.competencyTags || []);
@@ -202,6 +204,11 @@ export const SettingsModule: React.FC = () => {
         return;
       }
     }
+    const kpiTotal = Object.values(kpiWeights).reduce((sum, value) => sum + Number(value || 0), 0);
+    if (kpiTotal !== 100) {
+      setNotification({ message: `Tổng trọng số KPI phải bằng 100 (hiện tại ${kpiTotal}).`, type: 'error' });
+      return;
+    }
     await updateConfig({
       schoolName,
       departmentName,
@@ -209,6 +216,7 @@ export const SettingsModule: React.FC = () => {
       currentTerm,
       standardPeriods: Number(standardPeriods),
       weeksCount: Number(weeksCount),
+      kpiConfig: { enabled: true, label: 'Chỉ số tiến độ hồ sơ & nhiệm vụ', weights: kpiWeights },
       schoolLeaders: leaders
         .map(l => ({ ...l, title: l.title.trim(), name: l.name.trim() }))
         .filter(l => l.name || l.title),
@@ -592,6 +600,14 @@ export const SettingsModule: React.FC = () => {
                     Khung thời gian năm học do Bộ GD&ĐT quy định (HK1: 18 tuần, HK2: 17 tuần).
                   </p>
                 </div>
+              </div>
+
+              <div className="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-3">
+                <div><div className="font-bold text-slate-800">Cấu hình KPI / chỉ số tiến độ</div><p className="text-[11px] text-slate-500 mt-1">Trọng số được áp dụng cho Hồ sơ 360°. Tổng phải bằng 100; điểm được tính tự động từ minh chứng, không nhập tay.</p></div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {([['teacherPlans','Kế hoạch GD'],['lessonPlans','KH bài dạy'],['observations','Dự giờ'],['professionalTasks','Nhiệm vụ'],['trainings','Bồi dưỡng']] as const).map(([key,label])=><label key={key} className="text-[11px] font-semibold text-slate-600">{label}<input type="number" min={0} max={100} value={kpiWeights[key]} onChange={e=>setKpiWeights(w=>({...w,[key]:Number(e.target.value)}))} className="mt-1 w-full px-2 py-2 border border-slate-300 rounded-lg bg-white"/></label>)}
+                </div>
+                <div className="text-[11px] font-bold text-indigo-700">Tổng trọng số: {Object.values(kpiWeights).reduce((s,v)=>s+Number(v||0),0)}/100</div>
               </div>
 
               <div className="space-y-2 pt-2" data-testid="leaders-form">
@@ -1138,21 +1154,22 @@ export const SettingsModule: React.FC = () => {
             </table>
           </div>
 
-          {/* Switch Role Simulator – chỉ có ở chế độ demo (bản cũ cho mạo danh cả ở dữ liệu thật) */}
+          {/* Trình giả lập giao diện: dữ liệu mẫu cho mọi người; dữ liệu thật chỉ dành cho Quản trị. */}
           {canSimulateRoles && <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-xs font-bold text-slate-800">Mô phỏng vai trò (chỉ ở chế độ dữ liệu mẫu): </span>
+              <span className="text-xs font-bold text-slate-800">{isDemoMode ? 'Mô phỏng vai trò trên dữ liệu mẫu: ' : 'Xem như thành viên khác trên dữ liệu thật: '}</span>
               <span className="text-xs text-slate-500">
-                Bạn đang đóng vai <strong>{activeMember.displayName}</strong> ({activeMember.role.toUpperCase()})
+                Bạn đang xem như <strong>{activeMember.displayName}</strong> ({activeMember.role.toUpperCase()})
               </span>
               <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Dùng để xem thử giao diện của từng vai trò. Ở chế độ dữ liệu thật, vai trò lấy từ tài khoản Google đang
-                đăng nhập và không đổi được tại đây; quyền thật do Firestore Security Rules quyết định.
+                {isDemoMode
+                  ? 'Dùng để xem thử giao diện của từng vai trò; mọi thay đổi chỉ nằm trong dữ liệu mẫu.'
+                  : 'Chỉ Quản trị được dùng để kiểm thử giao diện. Dữ liệu là dữ liệu thật và thao tác vẫn được xác thực bằng tài khoản Quản trị; không dùng chế độ này để kết luận Firestore Rules của tài khoản giáo viên đã đúng.'}
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {allMembers.map(m => (
+              {allMembers.filter(m => m.status === 'active').map(m => (
                 <button
                   key={m.id}
                   onClick={() => {

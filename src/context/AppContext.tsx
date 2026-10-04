@@ -32,6 +32,7 @@ import {
   ExamResultRecord,
   ScoreRecord,
   SharedDocument,
+  WorkTask,
 } from '../types';
 import { ActiveModule, MODULE_IDS } from '../components/Sidebar';
 import { moduleFromPath, pushRoute } from '../utils/deepLink';
@@ -122,6 +123,11 @@ interface AppContextType {
   currentUser: User | null;
   authStatus: AuthStatus;
   activeMember: Member;
+  /** Thành viên thật gắn với tài khoản Google đang đăng nhập (không đổi khi giả lập). */
+  authenticatedMember: Member;
+  /** Đang giả lập giao diện của một thành viên khác trên dữ liệu thật. */
+  isSimulatingMember: boolean;
+  stopMemberSimulation: () => void;
   allMembers: Member[];
   permissions: Permissions;
   loginWithGoogle: (options?: { keepDemo?: boolean }) => Promise<void>;
@@ -192,6 +198,10 @@ interface AppContextType {
   observations: ObservationRecord[];
   saveObservation: (obs: ObservationRecord, options?: { silent?: boolean }) => Promise<boolean>;
   deleteObservation: (id: string) => Promise<void>;
+
+  workTasks: WorkTask[];
+  saveWorkTask: (task: WorkTask) => Promise<boolean>;
+  deleteWorkTask: (id: string) => Promise<void>;
 
   questions: Question[];
   saveQuestion: (q: Question) => Promise<boolean>;
@@ -264,6 +274,7 @@ const DEFAULT_REAL_CONFIG: DepartmentConfig = {
   endDate: '2027-05-28',
   weeksCount: 35,
   standardPeriods: 17,
+  kpiConfig: { enabled: true, label: 'Chỉ số tiến độ hồ sơ & nhiệm vụ', weights: { teacherPlans: 25, lessonPlans: 30, observations: 20, professionalTasks: 15, trainings: 10 } },
   // Ban giám hiệu Trường THPT Phan Đăng Lưu năm học 2026-2027 (sửa trong Cài đặt → Thông tin chung)
   schoolLeaders: [
     { id: 'bgh-ht', title: 'Hiệu trưởng', name: 'Trần Thị Thắm' },
@@ -292,7 +303,7 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 /** Các collection được sao lưu/phục hồi/xóa (không gồm members/auditLogs). */
 const CONTENT_COLLECTIONS = [
   'classes', 'assignments', 'departmentPlans', 'teacherPlans', 'lessonPlans',
-  'meetings', 'observations',
+  'meetings', 'workTasks', 'observations',
   'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots', 'departmentProgress',
 ] as const;
 /** Các bảng chứa nội dung/hình/phiên bản giáo án (lưu tách, bản 2.4) */
@@ -344,6 +355,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [realTeacherPlans, setRealTeacherPlans] = useState<TeacherPlan[]>([]);
   const [realLessonPlans, setRealLessonPlans] = useState<LessonPlan[]>([]);
   const [realMeetings, setRealMeetings] = useState<Meeting[]>([]);
+  const [realWorkTasks, setRealWorkTasks] = useState<WorkTask[]>([]);
   const [realObservations, setRealObservations] = useState<ObservationRecord[]>([]);
   const [realSpecialTopics, setRealSpecialTopics] = useState<SpecialTopic[]>([]);
   const [realSkknTopics, setRealSkknTopics] = useState<SkknTopic[]>([]);
@@ -370,6 +382,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [demoInvitations, setDemoInvitations] = useState<MemberInvitation[]>(() => clone(SAMPLE_INVITATIONS));
   const [demoAccessRequests, setDemoAccessRequests] = useState<AccessRequest[]>(() => clone(SAMPLE_ACCESS_REQUESTS));
   const [demoMeetings, setDemoMeetings] = useState<Meeting[]>(() => clone(SAMPLE_MEETINGS));
+  const [demoWorkTasks, setDemoWorkTasks] = useState<WorkTask[]>(() => [
+    { id:'work-demo-01', title:'Hoàn thiện minh chứng chuyên đề tháng 10', description:'Nộp tài liệu và đường dẫn minh chứng sau chuyên đề.', category:'meeting', assigneeId:'gv-02', assigneeName:SAMPLE_MEMBERS.find(m=>m.id==='gv-02')?.displayName || 'Giáo viên', deadline:'2026-10-06', priority:'high', status:'in_progress', academicYear:SAMPLE_DEPARTMENT_CONFIG.academicYear, createdById:'gv-01', createdByName:SAMPLE_MEMBERS.find(m=>m.id==='gv-01')?.displayName || 'Tổ trưởng', createdAt:'2026-10-01T08:00:00.000Z', updatedAt:'2026-10-02T08:00:00.000Z' },
+    { id:'work-demo-02', title:'Nộp hồ sơ bồi dưỡng chuyên môn', description:'Bổ sung chứng nhận/ghi chú minh chứng.', category:'training', assigneeId:'gv-03', assigneeName:SAMPLE_MEMBERS.find(m=>m.id==='gv-03')?.displayName || 'Giáo viên', deadline:'2026-10-03', priority:'urgent', status:'submitted', evidenceNote:'Đã hoàn thành nội dung, chờ tổ trưởng xác nhận.', academicYear:SAMPLE_DEPARTMENT_CONFIG.academicYear, createdById:'gv-01', createdByName:SAMPLE_MEMBERS.find(m=>m.id==='gv-01')?.displayName || 'Tổ trưởng', createdAt:'2026-09-28T08:00:00.000Z', updatedAt:'2026-10-03T01:00:00.000Z', submittedAt:'2026-10-03T01:00:00.000Z' },
+  ]);
+
   const [demoObservations, setDemoObservations] = useState<ObservationRecord[]>(() => clone(SAMPLE_OBSERVATIONS));
   const [demoSpecialTopics, setDemoSpecialTopics] = useState<SpecialTopic[]>(() => clone(SAMPLE_SPECIAL_TOPICS_ENRICHED));
   const [demoSkknTopics, setDemoSkknTopics] = useState<SkknTopic[]>(() => clone(SAMPLE_SKKN_TOPICS));
@@ -384,6 +401,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [demoDocuments, setDemoDocuments] = useState<SharedDocument[]>(() => clone(SAMPLE_DOCUMENTS));
 
   const [demoActiveMemberId, setDemoActiveMemberId] = useState<string>('gv-01');
+  // Quản trị có thể xem thử giao diện của giáo viên ngay trên dữ liệu thật mà không cần đăng nhập Gmail của giáo viên.
+  // Chỉ lưu trong phiên tab hiện tại; tải/đóng phiên sẽ trở về danh tính thật.
+  const [realSimulatedMemberId, setRealSimulatedMemberId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem('to-toan-simulated-member') || null; } catch { return null; }
+  });
 
   const persistMode = (mode: 'demo' | 'real') => {
     try {
@@ -571,6 +593,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ),
     );
     subscribeList<Meeting>('meetings', setRealMeetings);
+    subscribeList<WorkTask>('workTasks', setRealWorkTasks);
     subscribeList<ObservationRecord>('observations', setRealObservations);
     subscribeList<SpecialTopic>('specialTopics', setRealSpecialTopics);
     subscribeList<SkknTopic>('skknTopics', setRealSkknTopics);
@@ -654,6 +677,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRealTeacherPlans([]);
     setRealLessonPlans([]);
     setRealMeetings([]);
+    setRealWorkTasks([]);
     setRealObservations([]);
     setRealQuestions([]);
     setRealExamBlueprints([]);
@@ -686,6 +710,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentInvitations = isDemoMode ? demoInvitations : realInvitations;
   const currentAccessRequests = isDemoMode ? demoAccessRequests : realAccessRequests;
   const currentMeetings = isDemoMode ? demoMeetings : realMeetings;
+  const currentWorkTasks = isDemoMode ? demoWorkTasks : realWorkTasks;
   const currentObservations = isDemoMode ? demoObservations : realObservations;
   const currentSpecialTopics = isDemoMode ? demoSpecialTopics : realSpecialTopics;
   const currentSkknTopics = isDemoMode ? demoSkknTopics : realSkknTopics;
@@ -712,7 +737,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isUserAuthorized = isDemoMode || authStatus === 'authorized';
 
   // ---------- Người dùng hiện tại ----------
-  const activeMember: Member = useMemo(() => {
+  const authenticatedMember: Member = useMemo(() => {
     if (isDemoMode) {
       return (
         demoMembers.find(m => m.id === demoActiveMemberId) ||
@@ -727,9 +752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       );
     }
-    // Chế độ thật: danh tính luôn lấy từ tài khoản Google đang đăng nhập.
-    // Có thể có nhiều hồ sơ cùng email (vd hồ sơ tạo từ file Excel rồi gắn email) → lấy hồ sơ vai trò cao nhất.
-    // Chủ sở hữu hệ thống luôn là Quản trị (giống quy tắc isOwner() trên máy chủ).
+    // Danh tính thật luôn lấy từ tài khoản Google đang đăng nhập.
     const RANK: Record<string, number> = { admin: 0, head: 1, deputy: 2, teacher: 3, principal: 4 };
     const mine = realMembers.filter(m => normalizeEmail(m.email) === userEmail).sort((a, b) => (RANK[a.role] ?? 9) - (RANK[b.role] ?? 9));
     const byEmail = mine[0];
@@ -746,15 +769,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [isDemoMode, demoMembers, demoActiveMemberId, realMembers, userEmail, myAccess, currentUser, isOwner]);
 
+  // Chỉ Quản trị được giả lập người khác trên dữ liệu thật. Nếu hồ sơ đích không còn tồn tại thì tự thoát.
+  const realSimulatedMember = useMemo(() => {
+    if (isDemoMode || authStatus !== 'authorized' || authenticatedMember.role !== 'admin' || !realSimulatedMemberId) return null;
+    return realMembers.find(m => m.id === realSimulatedMemberId && m.status === 'active') || null;
+  }, [isDemoMode, authStatus, authenticatedMember.role, realSimulatedMemberId, realMembers]);
+  const isSimulatingMember = !!realSimulatedMember;
+  const activeMember: Member = realSimulatedMember || authenticatedMember;
+
+  useEffect(() => {
+    if (realSimulatedMemberId && !realSimulatedMember) {
+      setRealSimulatedMemberId(null);
+      try { sessionStorage.removeItem('to-toan-simulated-member'); } catch { /* bỏ qua */ }
+    }
+  }, [realSimulatedMemberId, realSimulatedMember]);
+
   const myIds = useMemo(() => {
     const ids = new Set<string>([activeMember.id]);
     if (!isDemoMode) {
-      realMembers.filter(m => normalizeEmail(m.email) === userEmail && userEmail).forEach(m => ids.add(m.id));
-      if (currentUser?.uid) ids.add(currentUser.uid);
-      if (myAccess?.memberId) ids.add(myAccess.memberId);
+      const identityEmail = isSimulatingMember ? normalizeEmail(activeMember.email) : userEmail;
+      realMembers.filter(m => normalizeEmail(m.email) === identityEmail && identityEmail).forEach(m => ids.add(m.id));
+      // Khi không giả lập mới gộp UID/memberId của tài khoản Google thật.
+      if (!isSimulatingMember) {
+        if (currentUser?.uid) ids.add(currentUser.uid);
+        if (myAccess?.memberId) ids.add(myAccess.memberId);
+      }
     }
     return ids;
-  }, [activeMember.id, isDemoMode, realMembers, userEmail, currentUser, myAccess]);
+  }, [activeMember.id, activeMember.email, isDemoMode, isSimulatingMember, realMembers, userEmail, currentUser, myAccess]);
   const isMe = useCallback((memberId?: string | null) => !!memberId && myIds.has(memberId), [myIds]);
 
   const permissions: Permissions = useMemo(() => {
@@ -842,11 +884,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newLog: AuditLog = {
       id: newId('log'),
       action,
-      actorId: activeMember.id,
-      actorName: activeMember.displayName,
+      actorId: (isSimulatingMember ? authenticatedMember : activeMember).id,
+      actorName: (isSimulatingMember ? authenticatedMember : activeMember).displayName,
       targetType,
       targetId,
-      details,
+      details: isSimulatingMember ? `${details} [Giả lập giao diện: ${activeMember.displayName}]` : details,
       timestamp: new Date().toISOString(),
     };
     if (isDemoMode) {
@@ -899,6 +941,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Chờ các thay đổi chưa gửi lên máy chủ (tối đa 8 giây) trước khi xóa bộ nhớ trên máy
       const synced = await Promise.race([waitForPendingWrites(db).then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), 8000))]);
       if (!synced && !(await confirmLeaveUnsynced())) return;
+      setRealSimulatedMemberId(null);
+      try { sessionStorage.removeItem('to-toan-simulated-member'); } catch { /* bỏ qua */ }
       await signOut(auth);
       setNotification({ message: 'Đã đăng xuất khỏi hệ thống.', type: 'info' });
       // Xóa dữ liệu lưu tạm trên máy (máy dùng chung ở trường) rồi tải lại trang
@@ -929,8 +973,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const selectActiveMember = (memberId: string) => {
-    if (!isDemoMode) return; // Chế độ thật: không cho phép mạo danh người khác
-    setDemoActiveMemberId(memberId);
+    if (isDemoMode) {
+      setDemoActiveMemberId(memberId);
+      return;
+    }
+    if (authStatus !== 'authorized' || authenticatedMember.role !== 'admin') return;
+    // Chọn chính mình = thoát giả lập.
+    if (memberId === authenticatedMember.id) {
+      setRealSimulatedMemberId(null);
+      try { sessionStorage.removeItem('to-toan-simulated-member'); } catch { /* bỏ qua */ }
+      setNotification({ message: 'Đã trở về tài khoản Quản trị thật.', type: 'info' });
+      return;
+    }
+    const target = realMembers.find(m => m.id === memberId && m.status === 'active');
+    if (!target) return;
+    setRealSimulatedMemberId(target.id);
+    try { sessionStorage.setItem('to-toan-simulated-member', target.id); } catch { /* bỏ qua */ }
+    setNotification({ message: `Đang xem hệ thống như ${target.displayName} (${target.role}). Dữ liệu vẫn là dữ liệu thật.`, type: 'info' });
+  };
+
+  const stopMemberSimulation = () => {
+    setRealSimulatedMemberId(null);
+    try { sessionStorage.removeItem('to-toan-simulated-member'); } catch { /* bỏ qua */ }
+    setNotification({ message: 'Đã thoát chế độ giả lập và trở về quyền Quản trị.', type: 'info' });
   };
 
   const setActiveMember = (m: Member) => selectActiveMember(m.id);
@@ -1683,6 +1748,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const saveWorkTask = async (task: WorkTask) => {
+    const updated: WorkTask = { ...task, updatedAt: new Date().toISOString() };
+    const ok = await upsertItem('workTasks', updated, setDemoWorkTasks, setRealWorkTasks, true);
+    if (ok) {
+      setNotification({ message: `Đã lưu công việc: ${task.title}`, type: 'success' });
+      void logAction('Cập nhật công việc', 'WorkTask', task.id, `${task.assigneeName} · ${updated.status}`);
+    }
+    return ok;
+  };
+
+  const deleteWorkTask = async (id: string) => {
+    const task = currentWorkTasks.find(t => t.id === id);
+    const ok = await removeItem('workTasks', id, setDemoWorkTasks, setRealWorkTasks);
+    if (ok) {
+      setNotification({ message: 'Đã xóa công việc', type: 'info' });
+      await logAction('Xóa công việc', 'WorkTask', id, task?.title || '');
+    }
+  };
+
   const saveObservation = async (obs: ObservationRecord, options: { silent?: boolean } = {}) => {
     const updated = { ...obs, updatedAt: new Date().toISOString() };
     const ok = await upsertItem('observations', updated, setDemoObservations, setRealObservations, true);
@@ -1873,7 +1957,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const total = Math.round((lessonPlansBytes + images + versions + other) * 1.2);
     return { total, lessonPlans: lessonPlansBytes, images, versions, other, planCount: currentLessonPlans.length };
   }, [
-    currentLessonPlans, currentMembers, currentClasses, currentAssignments, currentDeptPlans, currentTeacherPlans, currentMeetings,
+    currentLessonPlans, currentMembers, currentClasses, currentAssignments, currentDeptPlans, currentTeacherPlans, currentMeetings, currentWorkTasks,
     currentObservations, currentQuestions, currentExamBlueprints, currentExams, currentExamResults,
     currentSpecialTopics, currentSkknTopics, currentTrainings, currentInitiatives, currentDocuments, currentReportSnapshots,
   ]);
@@ -1891,6 +1975,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDemoInvitations(clone(SAMPLE_INVITATIONS));
     setDemoAccessRequests(clone(SAMPLE_ACCESS_REQUESTS));
     setDemoMeetings(clone(SAMPLE_MEETINGS));
+    setDemoWorkTasks([]);
     setDemoObservations(clone(SAMPLE_OBSERVATIONS));
     setDemoSpecialTopics(clone(SAMPLE_SPECIAL_TOPICS_ENRICHED));
     setDemoSkknTopics(clone(SAMPLE_SKKN_TOPICS));
@@ -1939,6 +2024,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRealTeacherPlans([]);
     setRealLessonPlans([]);
     setRealMeetings([]);
+    setRealWorkTasks([]);
     setRealObservations([]);
     setRealQuestions([]);
     setRealExamBlueprints([]);
@@ -2071,6 +2157,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDemoTeacherPlans(byKey.teacherPlans as TeacherPlan[]);
       setDemoLessonPlans(byKey.lessonPlans as LessonPlan[]);
       setDemoMeetings(byKey.meetings as Meeting[]);
+      setDemoWorkTasks((byKey.workTasks || []) as WorkTask[]);
       setDemoObservations(byKey.observations as ObservationRecord[]);
       setDemoQuestions(listOf('questions') as Question[]);
       setDemoExamBlueprints(listOf('examBlueprints') as ExamBlueprint[]);
@@ -2173,6 +2260,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentUser,
         authStatus,
         activeMember,
+        authenticatedMember,
+        isSimulatingMember,
+        stopMemberSimulation,
         allMembers: currentMembers,
         permissions,
         loginWithGoogle,
@@ -2180,7 +2270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchActiveRole,
         selectActiveMember,
         setActiveMember,
-        canSimulateRoles: isDemoMode && !currentUser,
+        canSimulateRoles: (isDemoMode && !currentUser) || (!isDemoMode && authStatus === 'authorized' && authenticatedMember.role === 'admin'),
         isMe,
         isUserAuthorized,
         saveMember,
@@ -2226,6 +2316,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         meetings: currentMeetings,
         saveMeeting,
         deleteMeeting,
+        workTasks: currentWorkTasks,
+        saveWorkTask,
+        deleteWorkTask,
         observations: currentObservations,
         saveObservation,
         deleteObservation,

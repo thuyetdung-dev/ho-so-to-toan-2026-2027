@@ -177,6 +177,51 @@ export interface AccessIndexEntry {
   updatedAt: string;
 }
 
+
+export type WorkTaskStatus = 'pending' | 'in_progress' | 'submitted' | 'completed' | 'returned';
+export type WorkTaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+/** Công việc điều hành độc lập: giao việc → nộp minh chứng → duyệt → KPI. */
+export interface WorkTask {
+  id: string;
+  title: string;
+  description?: string;
+  category: 'plan' | 'lesson' | 'observation' | 'meeting' | 'training' | 'other';
+  assigneeId: string;
+  assigneeName: string;
+  deadline: string;
+  priority: WorkTaskPriority;
+  status: WorkTaskStatus;
+  evidenceUrl?: string;
+  evidenceNote?: string;
+  sourceType?: string;
+  sourceId?: string;
+  academicYear: string;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt?: string;
+  completedAt?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
+export interface KpiWeights {
+  teacherPlans: number;
+  lessonPlans: number;
+  observations: number;
+  professionalTasks: number;
+  trainings: number;
+}
+
+export interface KpiConfig {
+  enabled: boolean;
+  label: string;
+  weights: KpiWeights;
+  countOnlyApprovedEvidence?: boolean;
+}
+
 export interface DepartmentConfig {
   id: string;
   schoolName: string;
@@ -188,6 +233,8 @@ export interface DepartmentConfig {
   weeksCount: number; // 35 tuần
   standardPeriods: number; // 17 tiết/tuần (chuẩn gợi ý cấp THPT theo Thông tư 28/2009/TT-BGDĐT)
   notes?: string;
+  /** Cấu hình chỉ số tiến độ hồ sơ; tổng trọng số nên bằng 100. */
+  kpiConfig?: KpiConfig;
   academicCalendar?: AcademicCalendarMilestone[];
   calendarMilestones?: AcademicCalendarMilestone[];
   curriculumTopics?: CurriculumTopic[];

@@ -28,6 +28,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
     isDemoMode,
     toggleDemoMode,
     activeMember,
+    authenticatedMember,
+    isSimulatingMember,
+    stopMemberSimulation,
     allMembers,
     selectActiveMember,
     canSimulateRoles,
@@ -139,23 +142,37 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
               aria-haspopup={canSimulateRoles ? 'menu' : undefined}
               aria-expanded={showRoleMenu}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-lg transition-colors border border-slate-200 ${canSimulateRoles ? 'hover:bg-slate-200' : 'cursor-default'}`}
-              title={canSimulateRoles ? 'Đổi vai trò thử nghiệm' : currentUser?.email || ''}
+              title={canSimulateRoles ? (isDemoMode ? 'Đổi vai trò thử nghiệm' : 'Xem hệ thống như một thành viên khác') : currentUser?.email || ''}
             >
               {canSimulateRoles ? <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> : <UserIcon className="w-3.5 h-3.5 text-blue-600" />}
               <span className="hidden md:inline font-semibold max-w-40 truncate">{activeMember.displayName}</span>
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${roleLabels[activeMember.role]?.color || 'bg-slate-200'}`}>
                 {roleLabels[activeMember.role]?.label || activeMember.role}
               </span>
+              {isSimulatingMember && <span className="px-1.5 py-0.5 rounded text-[9px] font-black border bg-amber-100 text-amber-800 border-amber-300">GIẢ LẬP</span>}
             </button>
 
             {showRoleMenu && canSimulateRoles && (
               <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50" role="menu">
                 <div className="px-3 py-2 border-b border-slate-100">
-                  <p className="text-xs font-semibold text-slate-700">Chuyển vai trò thử nghiệm (chỉ ở chế độ demo)</p>
-                  <p className="text-[11px] text-slate-500">Kiểm tra phân quyền Tổ trưởng, Giáo viên, BGH</p>
+                  <p className="text-xs font-semibold text-slate-700">{isDemoMode ? 'Chuyển vai trò thử nghiệm' : 'Xem như thành viên khác'}</p>
+                  <p className="text-[11px] text-slate-500">{isDemoMode ? 'Kiểm tra phân quyền Tổ trưởng, Giáo viên, BGH' : 'Chỉ Quản trị dùng để kiểm thử giao diện trên dữ liệu thật'}</p>
                 </div>
                 <div className="max-h-60 overflow-y-auto py-1">
-                  {allMembers.map(m => (
+                  {!isDemoMode && isSimulatingMember && (
+                    <button
+                      role="menuitem"
+                      onClick={() => { stopMemberSimulation(); setShowRoleMenu(false); }}
+                      className="w-full text-left px-3 py-2 text-xs flex items-center justify-between bg-purple-50 hover:bg-purple-100 border-b border-purple-100"
+                    >
+                      <div>
+                        <div className="font-semibold text-purple-800">Trở về tài khoản Quản trị</div>
+                        <div className="text-[10px] text-purple-500">{authenticatedMember.displayName}</div>
+                      </div>
+                      <ShieldCheck className="w-4 h-4 text-purple-600" />
+                    </button>
+                  )}
+                  {allMembers.filter(m => m.status === 'active').map(m => (
                     <button
                       key={m.id}
                       role="menuitem"
@@ -207,6 +224,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
         </div>
       </div>
     </header>
+    {!isDemoMode && isSimulatingMember && <div role="status" className="bg-purple-50 border-b border-purple-200 px-4 py-2.5 text-xs text-purple-900 print:hidden">
+      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+        <span><strong>CHẾ ĐỘ GIẢ LẬP GIAO DIỆN:</strong> đang xem như <strong>{activeMember.displayName}</strong> ({roleLabels[activeMember.role]?.label}). Dữ liệu vẫn là dữ liệu thật; thao tác được xác thực bằng tài khoản Quản trị và nhật ký ghi rõ người giả lập.</span>
+        <button onClick={stopMemberSimulation} className="px-2.5 py-1 rounded-lg bg-purple-700 text-white font-bold hover:bg-purple-800">Thoát giả lập</button>
+      </div>
+    </div>}
     {isDemoMode && <div role="status" className="bg-amber-100 border-b border-amber-300 px-4 py-3 text-sm font-semibold text-amber-900 print:hidden">DỮ LIỆU MẪU — thay đổi chỉ lưu trong phiên này, tải lại trang sẽ mất. <button className="underline ml-2" onClick={toggleDemoMode}>Đăng nhập để làm việc chính thức</button></div>}
     </>
   );

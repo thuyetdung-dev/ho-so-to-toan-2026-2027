@@ -21,6 +21,7 @@ import {
 // Tách mã theo phân hệ: trang đầu tải nhanh hơn (trước đây 1 tệp JS ~1,8 MB)
 const OverviewModule = lazy(() => import('./components/modules/OverviewModule').then(m => ({ default: m.OverviewModule })));
 const MembersModule = lazy(() => import('./components/modules/MembersModule').then(m => ({ default: m.MembersModule })));
+const OperationsModule = lazy(() => import('./components/modules/OperationsModule').then(m => ({ default: m.OperationsModule })));
 const PlansModule = lazy(() => import('./components/modules/PlansModule').then(m => ({ default: m.PlansModule })));
 const LessonPlansModule = lazy(() => import('./components/modules/LessonPlansModule').then(m => ({ default: m.LessonPlansModule })));
 const LessonStudyModule = lazy(() => import('./components/modules/LessonStudyModule').then(m => ({ default: m.LessonStudyModule })));
@@ -116,6 +117,8 @@ const MainLayout: React.FC = () => {
     switch (activeTab) {
       case 'members':
         return <MembersModule />;
+      case 'operations':
+        return <OperationsModule />;
       case 'plans':
         return <PlansModule />;
       case 'lesson-plans':
