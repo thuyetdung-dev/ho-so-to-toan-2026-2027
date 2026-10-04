@@ -69,14 +69,19 @@ export function buildWorkCenter(args:{departmentPlans:DepartmentPlan[];teacherPl
 export interface KpiEvidence {label:string;value:string;refs:string[];score:number;max:number;hasData:boolean}
 export interface TeacherKpi {total:number;evidence:KpiEvidence[];hasData:boolean;missingGroups:number;unassignedTasks:number}
 /** An indicative document progress score, never a formal personnel assessment. */
-export function teacherKpi(member:Member,data:{teacherPlans:TeacherPlan[];lessonPlans:LessonPlan[];observations:ObservationRecord[];meetings:Meeting[];trainings:TrainingRecord[];workTasks?:WorkTask[];members?:Member[]},scope:ManagementScope={},weights:KpiWeights={teacherPlans:25,lessonPlans:30,observations:20,professionalTasks:15,trainings:10}):TeacherKpi {
+export function teacherKpi(member:Member,data:{teacherPlans:TeacherPlan[];lessonPlans:LessonPlan[];observations:ObservationRecord[];meetings:Meeting[];trainings:TrainingRecord[];workTasks?:WorkTask[];members?:Member[];today?:string},scope:ManagementScope={},weights:KpiWeights={teacherPlans:25,lessonPlans:30,observations:20,professionalTasks:15,trainings:10}):TeacherKpi {
   const tp=data.teacherPlans.filter(p=>p.teacherId===member.id&&recordInScope(p,scope,p.updatedAt));
   const lp=data.lessonPlans.filter(p=>p.teacherId===member.id&&recordInScope(p,scope,p.createdAt||p.updatedAt));
   const obs=data.observations.filter(o=>o.observerId===member.id&&recordInScope(o,scope,o.date));
   const relevantMeetings=data.meetings.filter(m=>m.status==='finalized'&&recordInScope(m,scope,m.date));
   const allTasks=relevantMeetings.flatMap(m=>(m.tasks||[]).map(t=>({...t,meeting:m.title})));
   const members=data.members||[];
-  const centralTasks=(data.workTasks||[]).filter(t=>t.assigneeId===member.id&&recordInScope(t,scope,t.createdAt));
+  const mineCentral=(data.workTasks||[]).filter(t=>t.assigneeId===member.id&&recordInScope(t,scope,t.createdAt));
+  // Việc chưa đến hạn (vd. đầu việc vừa chọn từ công văn) không bị tính là "chưa hoàn thành"
+  const now=new Date();
+  const today=data.today||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const centralTasks=mineCentral.filter(t=>t.status==='completed'||!t.deadline||t.deadline<today);
+  const notDue=mineCentral.length-centralTasks.length;
   const tasks=[...allTasks.filter(t=>resolveAssigneeId(t,members)===member.id),...centralTasks.map(t=>({...t,meeting:'Trung tâm điều hành'}))];
   const tr=data.trainings.filter(t=>t.teacherId===member.id&&recordInScope(t,scope,t.updatedAt));
   const ratio=(done:number,total:number,max:number)=>total?Math.round(max*done/total):0;
@@ -88,7 +93,7 @@ export function teacherKpi(member:Member,data:{teacherPlans:TeacherPlan[];lesson
     {label:'Kế hoạch giáo dục',value:tp.length?`${approvedTp}/${tp.length} hồ sơ được duyệt`:'Chưa có dữ liệu',refs:tp.map(p=>`${p.id} · ${p.title}`),score:ratio(approvedTp,tp.length,weights.teacherPlans),max:weights.teacherPlans,hasData:tp.length>0},
     {label:'Kế hoạch bài dạy',value:lp.length?`${approvedLp}/${lp.length} giáo án được duyệt`:'Chưa có dữ liệu',refs:lp.map(p=>`${p.id} · ${p.title||p.topicTitle}`),score:ratio(approvedLp,lp.length,weights.lessonPlans),max:weights.lessonPlans,hasData:lp.length>0},
     {label:'Dự giờ & rút kinh nghiệm',value:obs.length?`${reviewedObs.length}/${obs.length} lượt dự đã rà soát, có rút kinh nghiệm`:'Chưa có dữ liệu',refs:obs.map(o=>`${o.id} · ${o.date} · ${o.lessonName}`),score:ratio(reviewedObs.length,obs.length,weights.observations),max:weights.observations,hasData:obs.length>0},
-    {label:'Nhiệm vụ SHCM',value:tasks.length?`${tasks.filter(t=>t.status==='completed').length}/${tasks.length} nhiệm vụ hoàn thành`:'Chưa có nhiệm vụ xác định người thực hiện',refs:tasks.map(t=>`${t.id} · ${t.meeting}: ${t.title}`),score:ratio(tasks.filter(t=>t.status==='completed').length,tasks.length,weights.professionalTasks),max:weights.professionalTasks,hasData:tasks.length>0},
+    {label:'Nhiệm vụ SHCM',value:(tasks.length?`${tasks.filter(t=>t.status==='completed').length}/${tasks.length} nhiệm vụ đến hạn đã hoàn thành`:(notDue?'Chưa có nhiệm vụ đến hạn':'Chưa có nhiệm vụ xác định người thực hiện'))+(notDue?` · ${notDue} việc chưa đến hạn`:''),refs:tasks.map(t=>`${t.id} · ${t.meeting}: ${t.title}`),score:ratio(tasks.filter(t=>t.status==='completed').length,tasks.length,weights.professionalTasks),max:weights.professionalTasks,hasData:tasks.length>0},
     {label:'Bồi dưỡng chuyên môn',value:tr.length?`${trainDone.length}/${tr.length} nội dung hoàn thành`:'Chưa có dữ liệu',refs:tr.map(t=>`${t.id} · ${t.moduleName}`),score:ratio(trainDone.length,tr.length,weights.trainings),max:weights.trainings,hasData:tr.length>0},
   ];
   return {total:evidence.reduce((s,e)=>s+e.score,0),evidence,hasData:evidence.some(e=>e.hasData),missingGroups:evidence.filter(e=>!e.hasData).length,unassignedTasks:allTasks.filter(t=>!resolveAssigneeId(t,members)).length};

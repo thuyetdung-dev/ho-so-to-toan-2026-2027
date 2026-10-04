@@ -41,3 +41,12 @@ test('work center never assigns another teacher by substring and honors departme
  assert.equal(buildWorkCenter({...args,isLeader:true,canApproveDeptPlan:false}).some(x=>x.id==='dp-dp1'),false);
  assert.equal(buildWorkCenter({...args,canApproveDeptPlan:true}).some(x=>x.id==='dp-dp1'),true);
 });
+
+test('KPI: công việc chưa đến hạn không bị tính là chưa hoàn thành',()=>{
+ const wt=(id:string,deadline:string,status:any)=>({id,title:id,category:'other',assigneeId:member.id,assigneeName:'x',deadline,priority:'normal',status,academicYear:'2026-2027',createdById:'x',createdByName:'x',createdAt:'2026-10-01T00:00:00.000Z',updatedAt:'x'}) as any;
+ const k=teacherKpi(member,{...empty,workTasks:[wt('a','2026-10-03','completed'),wt('b','2026-10-20','pending'),wt('c','2026-10-25','pending')],today:'2026-10-05'});
+ const e=k.evidence.find(x=>x.label==='Nhiệm vụ SHCM')!;
+ assert.equal(e.score,e.max); assert.match(e.value,/1\/1 .*2 việc chưa đến hạn/);
+ const late=teacherKpi(member,{...empty,workTasks:[wt('a','2026-10-03','completed'),wt('b','2026-10-04','pending')],today:'2026-10-05'});
+ assert.equal(late.evidence.find(x=>x.label==='Nhiệm vụ SHCM')!.value.startsWith('1/2'),true);
+});
