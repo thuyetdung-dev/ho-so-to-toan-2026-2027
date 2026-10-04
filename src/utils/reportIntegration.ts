@@ -1,4 +1,13 @@
 const REPORT_URL_KEY = 'kpi.integration.reportAppUrl';
+const DEFAULT_REPORT_APP_URL = 'https://bao-cao-tu-dong-to-toan.vercel.app';
+
+function envReportAppUrl() {
+  try {
+    return (import.meta.env?.VITE_REPORT_APP_URL || '').trim();
+  } catch {
+    return '';
+  }
+}
 
 type MemberLike = { id?: string; displayName?: string; email?: string };
 type TaskLike = {
@@ -15,7 +24,8 @@ function cleanBaseUrl(value: string) {
   const raw = value.trim();
   if (!raw) return '';
   try {
-    const url = new URL(raw, window.location.origin);
+    const base = typeof window !== "undefined" ? window.location.origin : "https://integration.local";
+    const url = new URL(raw, base);
     url.search = '';
     url.hash = '';
     return url.toString().replace(/\/$/, '');
@@ -25,8 +35,9 @@ function cleanBaseUrl(value: string) {
 }
 
 export function getReportAppUrl() {
-  if (typeof window === 'undefined') return '';
-  return cleanBaseUrl(window.localStorage.getItem(REPORT_URL_KEY) || '');
+  if (typeof window === 'undefined') return cleanBaseUrl(envReportAppUrl() || DEFAULT_REPORT_APP_URL);
+  const saved = window.localStorage.getItem(REPORT_URL_KEY) || '';
+  return cleanBaseUrl(saved || envReportAppUrl() || DEFAULT_REPORT_APP_URL);
 }
 
 export function setReportAppUrl(value: string) {
@@ -38,14 +49,19 @@ export function setReportAppUrl(value: string) {
 }
 
 export function ensureReportAppUrl() {
-  const current = getReportAppUrl();
-  if (current) return current;
+  return getReportAppUrl();
+}
+
+export function changeReportAppUrl() {
   if (typeof window === 'undefined') return '';
+  const current = getReportAppUrl();
   const entered = window.prompt(
-    'Nhập URL App Báo cáo tự động (chỉ cần thiết lập một lần trên trình duyệt này):',
-    '',
+    'URL App Báo cáo tự động. Để trống để dùng URL mặc định/biến môi trường:',
+    current,
   );
-  return entered == null ? '' : setReportAppUrl(entered);
+  if (entered == null) return current;
+  const next = setReportAppUrl(entered);
+  return next || getReportAppUrl();
 }
 
 function memberEmail(member?: unknown) {

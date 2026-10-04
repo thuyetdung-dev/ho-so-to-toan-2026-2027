@@ -15,6 +15,7 @@ import {
   FileText,
   Gauge,
   ListChecks,
+  Link2,
   PlusCircle,
   ShieldCheck,
   TrendingUp,
@@ -22,7 +23,7 @@ import {
 } from 'lucide-react';
 import { buildWorkCenter, teacherKpi, todayIso } from '../../utils/management';
 import { pushRoute } from '../../utils/deepLink';
-import { openReportApp } from '../../utils/reportIntegration';
+import { changeReportAppUrl, getReportAppUrl, openReportApp } from '../../utils/reportIntegration';
 
 interface OverviewModuleProps {
   onNavigate: (module: ActiveModule) => void;
@@ -217,6 +218,13 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
           </button>
           <button onClick={() => openReportApp({ member: activeMember })} className="px-3 py-2 text-xs font-semibold bg-white hover:bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200 flex items-center gap-1.5">
             <BookOpen className="w-3.5 h-3.5" /> Báo cáo tự động
+          </button>
+          <button
+            onClick={() => changeReportAppUrl()}
+            className="px-3 py-2 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-600 rounded-lg border border-slate-200 flex items-center gap-1.5"
+            title={`Đổi URL App Báo cáo. Hiện tại: ${getReportAppUrl()}`}
+          >
+            <Link2 className="w-3.5 h-3.5" /> Đổi liên kết
           </button>
         </div>
       </div>
