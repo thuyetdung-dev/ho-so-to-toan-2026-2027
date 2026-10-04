@@ -31,6 +31,8 @@ import { findDuplicateAssignments, summarizeTeacher, teacherComparator } from '.
 import { exportPeriodDossier } from '../../utils/periodDossier';
 import { db, storage } from '../../firebase';
 import { loadAllLessonPlansFull } from '../../services/lessonPlanStore';
+import { MonthlyReportPanel } from '../monthly/MonthlyReportPanel';
+import { monthlyRouteParams } from '../../report/navigation';
 
 export const ReportsModule: React.FC = () => {
   const {
@@ -57,7 +59,8 @@ export const ReportsModule: React.FC = () => {
   const [exportOpen,setExportOpen] = useState(false);
   const isLeader = permissions.isLeader;
 
-  const [activeReportTab, setActiveReportTab] = useState<'summary' | 'teacher_stats' | 'so_sinh_hoat'>('summary');
+  const [activeReportTab, setActiveReportTab] = useState<'monthly' | 'summary' | 'teacher_stats' | 'so_sinh_hoat'>(() =>
+    monthlyRouteParams().monthly || !permissions.isLeader ? 'monthly' : 'summary');
 
   // Selected Snapshot ID or 'new'
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string>('snap-current');
@@ -311,7 +314,15 @@ export const ReportsModule: React.FC = () => {
         </div>
 
         {/* Tab Buttons */}
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+        <div className="flex flex-wrap items-center gap-2 bg-slate-100 p-1 rounded-lg">
+          <button
+            onClick={() => setActiveReportTab('monthly')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              activeReportTab === 'monthly' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Báo cáo tháng
+          </button>
           <button
             onClick={() => setActiveReportTab('summary')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
@@ -642,6 +653,7 @@ export const ReportsModule: React.FC = () => {
       )}
 
       {activeReportTab === 'so_sinh_hoat' && <Booklet />}
+      {activeReportTab === 'monthly' && <MonthlyReportPanel />}
     </div>
   );
 };

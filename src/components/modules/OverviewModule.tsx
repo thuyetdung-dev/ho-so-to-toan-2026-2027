@@ -15,7 +15,6 @@ import {
   FileText,
   Gauge,
   ListChecks,
-  Link2,
   PlusCircle,
   ShieldCheck,
   TrendingUp,
@@ -23,7 +22,7 @@ import {
 } from 'lucide-react';
 import { buildWorkCenter, teacherKpi, todayIso } from '../../utils/management';
 import { pushRoute } from '../../utils/deepLink';
-import { changeReportAppUrl, getReportAppUrl, openReportApp } from '../../utils/reportIntegration';
+import { openMonthlyReport } from '../../report/navigation';
 
 interface OverviewModuleProps {
   onNavigate: (module: ActiveModule) => void;
@@ -216,15 +215,8 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
           <button onClick={() => onNavigate('teacher-360')} className="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg border border-slate-200 flex items-center gap-1.5">
             <Gauge className="w-3.5 h-3.5 text-violet-600" /> Hồ sơ 360° & KPI
           </button>
-          <button onClick={() => openReportApp({ member: activeMember })} className="px-3 py-2 text-xs font-semibold bg-white hover:bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200 flex items-center gap-1.5">
-            <BookOpen className="w-3.5 h-3.5" /> Báo cáo tự động
-          </button>
-          <button
-            onClick={() => changeReportAppUrl()}
-            className="px-3 py-2 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-600 rounded-lg border border-slate-200 flex items-center gap-1.5"
-            title={`Đổi URL App Báo cáo. Hiện tại: ${getReportAppUrl()}`}
-          >
-            <Link2 className="w-3.5 h-3.5" /> Đổi liên kết
+          <button onClick={() => openMonthlyReport({ memberId: activeMember.id })} className="px-3 py-2 text-xs font-semibold bg-white hover:bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200 flex items-center gap-1.5">
+            <BookOpen className="w-3.5 h-3.5" /> Báo cáo tháng
           </button>
         </div>
       </div>
@@ -288,7 +280,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
                             <div className="font-bold text-slate-800 truncate group-hover:text-blue-700 group-hover:underline">{member.displayName}</div>
                             <div className="text-[10px] lg:text-xs text-slate-500 truncate">{member.subject || 'Toán'}</div>
                           </button>
-                          <button onClick={() => openReportApp({ member })} className="text-[10px] font-semibold text-indigo-600 hover:underline shrink-0" title={`Mở báo cáo của ${member.displayName}`}>Báo cáo</button>
+                          <button onClick={() => openMonthlyReport({ memberId: member.id })} className="text-[10px] font-semibold text-indigo-600 hover:underline shrink-0" title={`Mở báo cáo tháng của ${member.displayName}`}>Báo cáo</button>
                         </div>
                       </td>
                       <td className="p-2 lg:p-4 text-center"><button onClick={() => openOperations('open', member.id)} className="font-bold text-slate-800 min-w-8 h-8 rounded-lg hover:bg-blue-50 hover:text-blue-700" title={`Xem việc đang mở của ${member.displayName}`}>{open}</button></td>

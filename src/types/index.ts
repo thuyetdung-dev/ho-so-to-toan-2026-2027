@@ -205,6 +205,58 @@ export interface WorkTask {
   completedAt?: string;
   reviewedAt?: string;
   reviewNote?: string;
+  /** Đầu việc giáo viên tự chọn từ công văn (sourceType = 'document') */
+  sourceName?: string;
+  /** Cụm thời gian gốc trong văn bản, vd. "Tuần 2", "Trước 20/10" */
+  timeText?: string;
+  /** Giờ thực hiện, vd. "08g00" */
+  clock?: string;
+  /** Người/nhóm được văn bản giao */
+  target?: string;
+  /** true = ngày do phần mềm tự xếp vì văn bản không ghi ngày */
+  autoDate?: boolean;
+}
+
+export type MonthlyReportStatus = 'draft' | 'submitted' | 'approved' | 'returned';
+export type MonthlyReportTemplate = 'admin' | 'notebook';
+
+/** Một dòng đầu việc được chốt trong báo cáo tháng khi nộp (để bản đã nộp không đổi theo dữ liệu sau này). */
+export interface MonthlyReportTaskSnapshot {
+  id: string;
+  title: string;
+  date?: string;
+  clock?: string;
+  timeText?: string;
+  target?: string;
+  source?: string;
+  status: WorkTaskStatus;
+}
+
+/** Báo cáo công việc tháng của một giáo viên (thay cho app Báo cáo tự động). */
+export interface MonthlyReport {
+  id: string;
+  memberId: string;
+  memberName: string;
+  month: string;
+  year: string;
+  academicYear: string;
+  template: MonthlyReportTemplate;
+  school: string;
+  department: string;
+  agency: string;
+  place: string;
+  selfAssessment: string;
+  proposals: string;
+  /** Các văn bản đã đọc để chọn đầu việc trong tháng */
+  sources: { name: string; size: string; lines: number }[];
+  status: MonthlyReportStatus;
+  tasksSnapshot?: MonthlyReportTaskSnapshot[];
+  reviewNote?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  submittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface KpiWeights {

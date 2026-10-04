@@ -33,6 +33,7 @@ import {
   ScoreRecord,
   SharedDocument,
   WorkTask,
+  MonthlyReport,
 } from '../types';
 import { ActiveModule, MODULE_IDS } from '../components/Sidebar';
 import { moduleFromPath, pushRoute } from '../utils/deepLink';
@@ -202,6 +203,10 @@ interface AppContextType {
   workTasks: WorkTask[];
   saveWorkTask: (task: WorkTask) => Promise<boolean>;
   deleteWorkTask: (id: string) => Promise<void>;
+  /** Thêm nhiều công việc một lần (đầu việc chọn từ công văn) */
+  addWorkTasks: (tasks: WorkTask[]) => Promise<boolean>;
+  monthlyReports: MonthlyReport[];
+  saveMonthlyReport: (report: MonthlyReport, options?: { silent?: boolean }) => Promise<boolean>;
 
   questions: Question[];
   saveQuestion: (q: Question) => Promise<boolean>;
@@ -303,7 +308,7 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 /** Các collection được sao lưu/phục hồi/xóa (không gồm members/auditLogs). */
 const CONTENT_COLLECTIONS = [
   'classes', 'assignments', 'departmentPlans', 'teacherPlans', 'lessonPlans',
-  'meetings', 'workTasks', 'observations',
+  'meetings', 'workTasks', 'monthlyReports', 'observations',
   'specialTopics', 'skknTopics', 'trainings', 'initiatives', 'documents', 'reportSnapshots', 'departmentProgress',
 ] as const;
 /** Các bảng chứa nội dung/hình/phiên bản giáo án (lưu tách, bản 2.4) */
@@ -356,6 +361,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [realLessonPlans, setRealLessonPlans] = useState<LessonPlan[]>([]);
   const [realMeetings, setRealMeetings] = useState<Meeting[]>([]);
   const [realWorkTasks, setRealWorkTasks] = useState<WorkTask[]>([]);
+  const [realMonthlyReports, setRealMonthlyReports] = useState<MonthlyReport[]>([]);
+  const [demoMonthlyReports, setDemoMonthlyReports] = useState<MonthlyReport[]>([]);
   const [realObservations, setRealObservations] = useState<ObservationRecord[]>([]);
   const [realSpecialTopics, setRealSpecialTopics] = useState<SpecialTopic[]>([]);
   const [realSkknTopics, setRealSkknTopics] = useState<SkknTopic[]>([]);
@@ -594,6 +601,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     subscribeList<Meeting>('meetings', setRealMeetings);
     subscribeList<WorkTask>('workTasks', setRealWorkTasks);
+    subscribeList<MonthlyReport>('monthlyReports', setRealMonthlyReports);
     subscribeList<ObservationRecord>('observations', setRealObservations);
     subscribeList<SpecialTopic>('specialTopics', setRealSpecialTopics);
     subscribeList<SkknTopic>('skknTopics', setRealSkknTopics);
@@ -711,6 +719,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentAccessRequests = isDemoMode ? demoAccessRequests : realAccessRequests;
   const currentMeetings = isDemoMode ? demoMeetings : realMeetings;
   const currentWorkTasks = isDemoMode ? demoWorkTasks : realWorkTasks;
+  const currentMonthlyReports = isDemoMode ? demoMonthlyReports : realMonthlyReports;
   const currentObservations = isDemoMode ? demoObservations : realObservations;
   const currentSpecialTopics = isDemoMode ? demoSpecialTopics : realSpecialTopics;
   const currentSkknTopics = isDemoMode ? demoSkknTopics : realSkknTopics;
@@ -1758,6 +1767,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return ok;
   };
 
+  const addWorkTasks = async (tasks: WorkTask[]) => {
+    if (!tasks.length) return true;
+    const now = new Date().toISOString();
+    const items = tasks.map(t => ({ ...t, createdAt: t.createdAt || now, updatedAt: now }));
+    if (isDemoMode) {
+      setDemoWorkTasks(prev => [...items, ...prev]);
+      return true;
+    }
+    const ok = await persist(async () => {
+      // Firestore giới hạn 500 thao tác/lô
+      for (let i = 0; i < items.length; i += 400) {
+        const batch = writeBatch(db);
+        items.slice(i, i + 400).forEach(t => batch.set(doc(db, 'workTasks', t.id), t));
+        await batch.commit();
+      }
+    });
+    if (ok) {
+      setRealWorkTasks(prev => [...items.filter(t => !prev.some(p => p.id === t.id)), ...prev]);
+      void logAction('Chọn đầu việc từ công văn', 'WorkTask', items[0].id, `${items[0].assigneeName} · ${items.length} đầu việc`);
+    }
+    return ok;
+  };
+
+  const saveMonthlyReport = async (report: MonthlyReport, options: { silent?: boolean } = {}) => {
+    const updated: MonthlyReport = { ...report, updatedAt: new Date().toISOString() };
+    const ok = await upsertItem('monthlyReports', updated, setDemoMonthlyReports, setRealMonthlyReports);
+    if (ok && !options.silent) {
+      const label = { draft: 'Đã lưu', submitted: 'Đã nộp', approved: 'Đã duyệt', returned: 'Đã trả lại' }[updated.status];
+      setNotification({ message: `${label} báo cáo tháng ${updated.month}/${updated.year} – ${updated.memberName}`, type: 'success' });
+      void logAction('Báo cáo tháng', 'MonthlyReport', updated.id, `${updated.memberName} · ${updated.status}`);
+    }
+    return ok;
+  };
+
   const deleteWorkTask = async (id: string) => {
     const task = currentWorkTasks.find(t => t.id === id);
     const ok = await removeItem('workTasks', id, setDemoWorkTasks, setRealWorkTasks);
@@ -1976,6 +2019,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDemoAccessRequests(clone(SAMPLE_ACCESS_REQUESTS));
     setDemoMeetings(clone(SAMPLE_MEETINGS));
     setDemoWorkTasks([]);
+    setDemoMonthlyReports([]);
     setDemoObservations(clone(SAMPLE_OBSERVATIONS));
     setDemoSpecialTopics(clone(SAMPLE_SPECIAL_TOPICS_ENRICHED));
     setDemoSkknTopics(clone(SAMPLE_SKKN_TOPICS));
@@ -2158,6 +2202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDemoLessonPlans(byKey.lessonPlans as LessonPlan[]);
       setDemoMeetings(byKey.meetings as Meeting[]);
       setDemoWorkTasks((byKey.workTasks || []) as WorkTask[]);
+      setDemoMonthlyReports((byKey.monthlyReports || []) as MonthlyReport[]);
       setDemoObservations(byKey.observations as ObservationRecord[]);
       setDemoQuestions(listOf('questions') as Question[]);
       setDemoExamBlueprints(listOf('examBlueprints') as ExamBlueprint[]);
@@ -2319,6 +2364,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         workTasks: currentWorkTasks,
         saveWorkTask,
         deleteWorkTask,
+        addWorkTasks,
+        monthlyReports: currentMonthlyReports,
+        saveMonthlyReport,
         observations: currentObservations,
         saveObservation,
         deleteObservation,

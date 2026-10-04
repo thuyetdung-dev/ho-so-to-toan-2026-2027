@@ -154,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       id: 'reports' as ActiveModule,
       label: '10. Báo cáo & In',
-      desc: 'Báo cáo tháng, học kỳ, xuất Excel',
+      desc: 'Đọc công văn, báo cáo tháng, học kỳ',
       icon: Printer,
       badge: null,
     },

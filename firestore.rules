@@ -384,9 +384,16 @@ service cloud.firestore {
         && added[0].status in ['pending', 'in_progress', 'completed']);
     }
     // Công việc điều hành: lãnh đạo giao việc; người được giao cập nhật tiến độ/minh chứng; lãnh đạo duyệt.
+    // Đầu việc giáo viên tự chọn từ công văn (sourceType == 'document')
+    function ownDocumentTask(data) {
+      return data.get('sourceType', '') == 'document' && ownsMember(data.assigneeId);
+    }
     match /workTasks/{id} {
       allow read: if isMember();
       allow create: if isLeader() && validId(id);
+      allow create: if validId(id) && canContribute() && ownDocumentTask(request.resource.data)
+        && request.resource.data.status == 'pending'
+        && (request.resource.data.createdById == myMemberId() || ownsMember(request.resource.data.createdById));
       // Tổ trưởng/Quản trị xác nhận được cả việc của mình; tổ phó cần người khác xác nhận việc của mình.
       // Người được giao chỉ chuyển giữa: chưa làm / đang làm / đã nộp (không tự đánh dấu hoàn thành).
       allow update: if isAdminOrHead()
@@ -398,8 +405,36 @@ service cloud.firestore {
             && request.resource.data.createdById == resource.data.createdById
             && resource.data.status in ['pending', 'in_progress', 'returned']
             && request.resource.data.status in ['pending', 'in_progress', 'submitted']
-            && changedOnly(['status','evidenceUrl','evidenceNote','submittedAt','updatedAt']));
-      allow delete: if isLeader();
+            && changedOnly(['status','evidenceUrl','evidenceNote','submittedAt','updatedAt']))
+        // Giáo viên chỉnh tên/ngày đầu việc tự chọn khi chưa nộp minh chứng
+        || (canContribute() && ownDocumentTask(resource.data)
+            && resource.data.status in ['pending', 'in_progress', 'returned']
+            && request.resource.data.status == resource.data.status
+            && changedOnly(['title', 'deadline', 'clock', 'autoDate', 'description', 'updatedAt']));
+      allow delete: if isLeader()
+        || (canContribute() && ownDocumentTask(resource.data) && resource.data.status in ['pending', 'in_progress']);
+    }
+
+    // Báo cáo công việc tháng của từng giáo viên
+    match /monthlyReports/{id} {
+      allow create, update: if adminRestore();
+      allow read: if isMember();
+      allow create: if validId(id) && canContribute() && ownsMember(request.resource.data.memberId)
+        && request.resource.data.status in ['draft', 'submitted'];
+      allow update: if (canContribute() && ownsMember(resource.data.memberId)
+            && request.resource.data.memberId == resource.data.memberId
+            && resource.data.status in ['draft', 'returned']
+            && (request.resource.data.status in ['draft', 'submitted']
+                || (resource.data.status == 'returned' && request.resource.data.status == 'returned')))
+        // Duyệt: tổ trưởng/quản trị duyệt cả báo cáo của mình; tổ phó không tự duyệt
+        || (isLeader() && resource.data.status == 'submitted'
+            && request.resource.data.status in ['approved', 'returned']
+            && changedOnly(['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'updatedAt'])
+            && (isAdminOrHead() || !ownsMember(resource.data.memberId)))
+        // Mở lại báo cáo đã duyệt để sửa
+        || (isAdminOrHead() && resource.data.status == 'approved' && request.resource.data.status == 'returned'
+            && changedOnly(['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'updatedAt']));
+      allow delete: if isAdminOrHead();
     }
 
     match /meetings/{id} {

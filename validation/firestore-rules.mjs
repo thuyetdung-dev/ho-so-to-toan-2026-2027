@@ -151,5 +151,31 @@ try {
  await check('deputy still creates teacher member',setDoc(doc(dbs.deputy,'members','new-gv'),{email:'gv2@school.test',role:'teacher',displayName:'GV 2'}),true);
  await check('teacher cannot write legacy lessonStudies',setDoc(doc(dbs.teacher,'lessonStudies','ls1'),{title:'NCBH'}),false);
  await check('leader writes legacy lessonStudies',setDoc(doc(dbs.head,'lessonStudies','ls1'),{title:'NCBH'}),true);
+ // Đầu việc tự chọn từ công văn và báo cáo tháng
+ const docTask=(id,assigneeId,extra={})=>({...wt(assigneeId,'pending'),createdById:assigneeId,sourceType:'document',sourceName:'cv-10293.pdf',...extra});
+ await check('teacher creates own document task',setDoc(doc(dbs.teacher,'workTasks','dt-1'),docTask('dt-1','teacher')),true);
+ await check('teacher cannot create document task for others',setDoc(doc(dbs.teacher,'workTasks','dt-2'),docTask('dt-2','head')),false);
+ await check('teacher cannot create completed document task',setDoc(doc(dbs.teacher,'workTasks','dt-3'),docTask('dt-3','teacher',{status:'completed'})),false);
+ await check('teacher cannot create non-document task',setDoc(doc(dbs.teacher,'workTasks','dt-4'),{...docTask('dt-4','teacher'),sourceType:'manual'}),false);
+ await check('teacher edits own document task date',updateDoc(doc(dbs.teacher,'workTasks','dt-1'),{deadline:'2026-10-20',title:'Sửa tên'}),true);
+ await check('teacher cannot self-complete document task',updateDoc(doc(dbs.teacher,'workTasks','dt-1'),{status:'completed'}),false);
+ await check('teacher deletes own pending document task',deleteDoc(doc(dbs.teacher,'workTasks','dt-1')),true);
+ await check('teacher cannot delete assigned task',deleteDoc(doc(dbs.teacher,'workTasks','wt-teacher')),false);
+ const mr=(memberId,status)=>({memberId,memberName:memberId,month:'10',year:'2026',academicYear:'2026-2027',template:'admin',school:'THPT',department:'Tổ Toán',agency:'Sở',place:'TP',selfAssessment:'',proposals:'',sources:[],status,createdAt:'x',updatedAt:'x'});
+ await check('teacher creates own monthly report',setDoc(doc(dbs.teacher,'monthlyReports','teacher__2026-10'),mr('teacher','draft')),true);
+ await check('teacher cannot create report for others',setDoc(doc(dbs.teacher,'monthlyReports','head__2026-10'),mr('head','draft')),false);
+ await check('teacher cannot self-approve report',updateDoc(doc(dbs.teacher,'monthlyReports','teacher__2026-10'),{status:'approved'}),false);
+ await check('teacher submits report',updateDoc(doc(dbs.teacher,'monthlyReports','teacher__2026-10'),{status:'submitted'}),true);
+ await check('teacher cannot edit submitted report',updateDoc(doc(dbs.teacher,'monthlyReports','teacher__2026-10'),{proposals:'Sửa'}),false);
+ await check('head cannot edit content while approving',updateDoc(doc(dbs.head,'monthlyReports','teacher__2026-10'),{status:'approved',proposals:'Sửa'}),false);
+ await check('head approves teacher report',updateDoc(doc(dbs.head,'monthlyReports','teacher__2026-10'),{status:'approved',reviewedBy:'Tổ trưởng'}),true);
+ await check('head reopens approved report',updateDoc(doc(dbs.head,'monthlyReports','teacher__2026-10'),{status:'returned',reviewNote:'Bổ sung'}),true);
+ await check('teacher saves returned report draft',updateDoc(doc(dbs.teacher,'monthlyReports','teacher__2026-10'),{status:'returned',proposals:'Đã bổ sung'}),true);
+ await check('teacher resubmits returned report',updateDoc(doc(dbs.teacher,'monthlyReports','teacher__2026-10'),{status:'submitted'}),true);
+ await check('head creates and submits own report',setDoc(doc(dbs.head,'monthlyReports','head__2026-10'),mr('head','submitted')),true);
+ await check('head approves own report',updateDoc(doc(dbs.head,'monthlyReports','head__2026-10'),{status:'approved'}),true);
+ await check('deputy creates and submits own report',setDoc(doc(dbs.deputy,'monthlyReports','deputy__2026-10'),mr('deputy','submitted')),true);
+ await check('deputy cannot approve own report',updateDoc(doc(dbs.deputy,'monthlyReports','deputy__2026-10'),{status:'approved'}),false);
+ await check('BGH cannot approve report',updateDoc(doc(dbs.principal,'monthlyReports','deputy__2026-10'),{status:'approved'}),false);
  console.log(`RULES: ${count} checks passed`);
 } finally {await env.cleanup();}

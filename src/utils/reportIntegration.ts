@@ -1,3 +1,4 @@
+/** Không còn dùng từ bản 2.18: báo cáo tháng đã gộp vào phân hệ 10 (src/components/monthly). */
 const REPORT_URL_KEY = 'kpi.integration.reportAppUrl';
 const DEFAULT_REPORT_APP_URL = 'https://bao-cao-tu-dong-to-toan.vercel.app';
 
