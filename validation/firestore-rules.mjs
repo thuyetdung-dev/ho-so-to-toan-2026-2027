@@ -21,7 +21,7 @@ try {
  await env.withSecurityRulesDisabled(async ctx=>{
    const db=ctx.firestore();
    for(const role of Object.keys(names)) {await setDoc(doc(db,'members',role),{email:`${role}@school.test`,role,displayName:names[role]});await setDoc(doc(db,'accessIndex',`${role}@school.test`),{memberId:role,role,email:`${role}@school.test`});}
-   for(const c of ['teacherPlans','lessonPlans']) for(const owner of ['teacher','head','admin']) await setDoc(doc(db,c,`${owner}-submitted`),{teacherId:owner,status:'submitted',title:'Bài 1',version:1,comments:[]});
+   for(const c of ['teacherPlans','lessonPlans']) for(const owner of ['teacher','head','admin','deputy']) await setDoc(doc(db,c,`${owner}-submitted`),{teacherId:owner,status:'submitted',title:'Bài 1',version:1,comments:[]});
    await setDoc(doc(db,'lessonPlans','approved'),{teacherId:'teacher',status:'approved',title:'Đã duyệt',version:1});
    await setDoc(doc(db,'lessonPlans','draft'),{teacherId:'teacher',status:'draft',title:'Nháp',version:1});
    await setDoc(doc(db,'departmentPlans','own-principal'),{createdBy:'Tên cũ',createdById:'principal',status:'submitted',title:'Kế hoạch',version:1});
@@ -29,11 +29,12 @@ try {
    await setDoc(doc(db,'reportSnapshots','locked'),{title:'Báo cáo',isLocked:true,metrics:{meetingsCount:2}});
  });
  for(const c of ['teacherPlans','lessonPlans']) {
-   await check(c+' self head denied',traced(dbs.head,c,'head-submitted',{status:'approved'}),false);
-   await check(c+' self admin denied',traced(dbs.admin,c,'admin-submitted',{status:'approved'}),false);
+   await check(c+' self head allowed',traced(dbs.head,c,'head-submitted',{status:'approved'}),true);
+   await check(c+' self admin allowed',traced(dbs.admin,c,'admin-submitted',{status:'approved'}),true);
    await check(c+' teacher self denied',traced(dbs.teacher,c,'teacher-submitted',{status:'approved'}),false);
    await check(c+' review content denied',traced(dbs.head,c,'teacher-submitted',{status:'approved',title:'Sửa'}),false);
-   await check(c+' BGH reviews leader',traced(dbs.principal,c,'head-submitted',{status:'approved'}),true);
+   await check(c+' self deputy denied',traced(dbs.deputy,c,'deputy-submitted',{status:'approved'}),false);
+   await check(c+' BGH reviews leader',traced(dbs.principal,c,'deputy-submitted',{status:'approved'}),true);
    await check(c+' head reviews teacher',traced(dbs.head,c,'teacher-submitted',{status:'returned'}),true);
  }
  for(const c of ['teacherPlans','lessonPlans']) await check(c+' create approved denied even admin',setDoc(doc(dbs.admin,c,'new-approved'),{teacherId:'admin',status:'approved'}),false);
@@ -49,8 +50,8 @@ try {
  await check('submitted split content denied',setDoc(doc(dbs.teacher,'lessonPlanContent','draft'),{planId:'draft',text:'Sửa'}),false);
  await check('BGH cannot self approve department by id',traced(dbs.principal,'departmentPlans','own-principal',{status:'approved'}),false);
  await check('BGH cannot edit department content',traced(dbs.principal,'departmentPlans','dp',{title:'Sửa'}),false);
- await check('head cannot approve department',traced(dbs.head,'departmentPlans','dp',{status:'approved'}),false);
- await check('BGH approves department',traced(dbs.principal,'departmentPlans','dp',{status:'approved'}),true);
+ await check('deputy cannot approve department',traced(dbs.deputy,'departmentPlans','dp',{status:'approved'}),false);
+ await check('head approves department',traced(dbs.head,'departmentPlans','dp',{status:'approved'}),true);
  await check('department cannot silently edit approved',traced(dbs.head,'departmentPlans','dp',{title:'Sửa'}),false);
  await check('new department revision',traced(dbs.head,'departmentPlans','dp',{status:'draft',version:2,title:'Điều chỉnh'}),true);
  await check('locked report content denied even admin',updateDoc(doc(dbs.admin,'reportSnapshots','locked'),{title:'Sửa'}),false);
@@ -128,5 +129,27 @@ try {
  await check('teacher cannot change task ownership',updateDoc(doc(dbs.teacher,'meetings','task-meeting'),{tasks:currentTasks.map(t=>t.id==='t1'?{...t,assigneeId:'head'}:t)}),false);
  await check('teacher cannot change task title',updateDoc(doc(dbs.teacher,'meetings','task-meeting'),{tasks:currentTasks.map(t=>t.id==='t1'?{...t,title:'Changed'}:t)}),false);
  await check('leader can link legacy assignee ID',setDoc(doc(dbs.head,'meetings','legacy-meeting'),{status:'draft',tasks:[{id:'t1',title:'Old',assigneeName:'GV',assigneeId:'teacher',status:'pending'}]}),true);
+ // Công việc điều hành: không tự duyệt, giáo viên không tự đánh dấu hoàn thành; phân quyền gán BGH.
+ const wt=(assigneeId,status)=>({title:'Việc',assigneeId,assigneeName:assigneeId,createdById:'head',status,deadline:'2026-10-30',priority:'normal',category:'other',academicYear:'2026-2027'});
+ await env.withSecurityRulesDisabled(async ctx=>{
+   const db=ctx.firestore();
+   await setDoc(doc(db,'workTasks','wt-teacher'),wt('teacher','in_progress'));
+   await setDoc(doc(db,'workTasks','wt-teacher-sub'),wt('teacher','submitted'));
+   await setDoc(doc(db,'workTasks','wt-head-sub'),wt('head','submitted'));
+   await setDoc(doc(db,'workTasks','wt-deputy-sub'),wt('deputy','submitted'));
+ });
+ await check('teacher submits own work task',updateDoc(doc(dbs.teacher,'workTasks','wt-teacher'),{status:'submitted',evidenceNote:'Đã nộp'}),true);
+ await check('teacher cannot self-complete work task',updateDoc(doc(dbs.teacher,'workTasks','wt-teacher'),{status:'completed'}),false);
+ await check('teacher cannot reopen submitted to completed',updateDoc(doc(dbs.teacher,'workTasks','wt-teacher-sub'),{status:'completed'}),false);
+ await check('deputy cannot approve own work task',updateDoc(doc(dbs.deputy,'workTasks','wt-deputy-sub'),{status:'completed'}),false);
+ await check('head approves own work task',updateDoc(doc(dbs.head,'workTasks','wt-head-sub'),{status:'completed'}),true);
+ await check('head approves deputy work task',updateDoc(doc(dbs.head,'workTasks','wt-deputy-sub'),{status:'completed'}),true);
+ await check('head approves teacher work task',updateDoc(doc(dbs.head,'workTasks','wt-teacher-sub'),{status:'completed'}),true);
+ await check('deputy cannot create principal member',setDoc(doc(dbs.deputy,'members','new-bgh'),{email:'bgh2@school.test',role:'principal',displayName:'BGH 2'}),false);
+ await check('deputy cannot invite principal',setDoc(doc(dbs.deputy,'invitations','bgh3@school.test'),{email:'bgh3@school.test',role:'principal',status:'pending'}),false);
+ await check('head creates principal member',setDoc(doc(dbs.head,'members','new-bgh'),{email:'bgh2@school.test',role:'principal',displayName:'BGH 2'}),true);
+ await check('deputy still creates teacher member',setDoc(doc(dbs.deputy,'members','new-gv'),{email:'gv2@school.test',role:'teacher',displayName:'GV 2'}),true);
+ await check('teacher cannot write legacy lessonStudies',setDoc(doc(dbs.teacher,'lessonStudies','ls1'),{title:'NCBH'}),false);
+ await check('leader writes legacy lessonStudies',setDoc(doc(dbs.head,'lessonStudies','ls1'),{title:'NCBH'}),true);
  console.log(`RULES: ${count} checks passed`);
 } finally {await env.cleanup();}

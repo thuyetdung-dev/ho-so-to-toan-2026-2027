@@ -7,9 +7,11 @@ export function canUpdatePlan(before: Record<string, any> | undefined, after: Re
   if (department && after.createdById !== before.createdById) return false;
   if (department ? after.createdBy !== before.createdBy : after.teacherId !== before.teacherId) return false;
   const changed = Object.keys({...before,...after}).filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
-  const reviewing = department ? role === 'principal' : leader || role === 'principal';
+  const headOrAdmin = role === 'admin' || role === 'head';
+  const reviewing = headOrAdmin || (department ? role === 'principal' : leader || role === 'principal');
   if (before.status === 'submitted' && ['approved','returned'].includes(after.status)) {
-    return reviewing && !own && changed.every(k => reviewFields.includes(k));
+    // Tổ trưởng/Quản trị được duyệt cả hồ sơ của chính mình
+    return reviewing && (!own || headOrAdmin) && changed.every(k => reviewFields.includes(k));
   }
   if (department) {
     return leader && (['draft','returned'].includes(before.status) && (['draft','submitted'].includes(after.status) || before.status === 'returned' && after.status === 'returned')

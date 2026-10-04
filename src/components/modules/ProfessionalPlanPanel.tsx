@@ -185,7 +185,7 @@ export const ProfessionalPlanPanel: React.FC = () => {
       !plan ||
       !permissions.canApproveDeptPlan ||
       plan.status !== "submitted" ||
-      plan.createdBy === activeMember.displayName
+      (plan.createdBy === activeMember.displayName && !permissions.isAdminOrHead)
     )
       return;
     const note = window.prompt(
@@ -279,7 +279,7 @@ export const ProfessionalPlanPanel: React.FC = () => {
             </button>
           )}
           {plan?.status === "submitted" &&
-            plan.createdBy !== activeMember.displayName &&
+            (plan.createdBy !== activeMember.displayName || permissions.isAdminOrHead) &&
             permissions.canApproveDeptPlan && (
               <>
                 <button

@@ -732,7 +732,7 @@ export const LessonPlansModule: React.FC = () => {
                   </button>
 
                   {/* Approval controls for Leader */}
-                  {(isLeader || activeMember.role === 'principal') && selectedPlan.status === 'submitted' && !isOwner && (
+                  {(isLeader || activeMember.role === 'principal') && selectedPlan.status === 'submitted' && (!isOwner || permissions.isAdminOrHead) && (
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => {

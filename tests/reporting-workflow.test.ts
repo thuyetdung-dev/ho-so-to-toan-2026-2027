@@ -20,9 +20,12 @@ test('Báo cáo loại họp chưa chốt, họp tương lai, hoạt động ngo
   assert.deepEqual(result.pendingMeetings.map(p=>p.id),['b','c']);
 });
 const before:any={teacherId:'t1',status:'submitted',title:'Bài 1',version:1};
-test('Không tự duyệt với cả tổ trưởng và quản trị; BGH có thể duyệt',()=>{
+test('Tổ trưởng/Quản trị tự duyệt được; tổ phó, giáo viên thì không; BGH có thể duyệt',()=>{
   const after={...before,status:'approved',comments:[]};
-  for(const role of ['admin','head','deputy'] as const) assert.equal(canUpdatePlan(before,after,role,true),false);
+  for(const role of ['admin','head'] as const) assert.equal(canUpdatePlan(before,after,role,true),true);
+  for(const role of ['deputy','teacher','principal'] as const) assert.equal(canUpdatePlan(before,after,role,true),false);
+  assert.equal(canUpdatePlan(before,after,'head',true,true),true);
+  assert.equal(canUpdatePlan(before,after,'deputy',false,true),false);
   assert.equal(canUpdatePlan(before,after,'head',false),true);
   assert.equal(canUpdatePlan(before,after,'principal',false),true);
   assert.equal(canUpdatePlan(before,after,'teacher',false),false);

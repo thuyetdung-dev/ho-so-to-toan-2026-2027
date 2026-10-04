@@ -630,7 +630,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (isDemoMode || authStatus !== 'authorized' || !iAmLeader || realMembers.length === 0) return;
     const canAssign = (role: UserRole) =>
-      role === 'admin' ? myRole === 'admin' : role === 'head' ? myRole === 'admin' || myRole === 'head' : true;
+      role === 'admin' ? myRole === 'admin' : role === 'head' || role === 'principal' ? myRole === 'admin' || myRole === 'head' : true;
     const indexByEmail = new Map(realAccessIndex.map(e => [e.id, e]));
     const batch = writeBatch(db);
     let changes = 0;
@@ -1298,7 +1298,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ],
     };
     if (!(await saveDepartmentPlan(updatedPlan, { silent: true }))) return;
-    setNotification({ message: 'Đã trình Kế hoạch dạy học lên BGH phê duyệt!', type: 'success' });
+    setNotification({ message: 'Đã trình Kế hoạch tổ chờ phê duyệt!', type: 'success' });
     await logAction('Nộp kế hoạch tổ', 'DepartmentPlan', planId, `Nộp phiên bản v${nextVersion}`);
   };
 
@@ -1528,7 +1528,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const plan = currentLessonPlans.find(p => p.id === planId);
     if (!plan) return;
-    if (plan.status !== 'submitted' || isMe(plan.teacherId)) { setNotification({message: 'Không được tự duyệt; chỉ duyệt hồ sơ đang chờ.', type: 'error'}); return; }
+    if (plan.status !== 'submitted' || (isMe(plan.teacherId) && !permissions.isAdminOrHead)) { setNotification({message: 'Không được tự duyệt; chỉ duyệt hồ sơ đang chờ.', type: 'error'}); return; }
     if (action === 'returned' && !note.trim()) {setNotification({message: 'Hãy ghi lý do trả lại.', type: 'error'}); return;}
     const isApprove = action === 'approve';
     const nextStatus = isApprove ? ('approved' as const) : ('returned' as const);

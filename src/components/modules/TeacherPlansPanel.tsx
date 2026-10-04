@@ -221,7 +221,7 @@ export const TeacherPlansPanel: React.FC = () => {
 
   const canEdit = (p: TeacherPlan) => (isLeader || isMe(p.teacherId)) && (p.status === 'draft' || p.status === 'returned');
   const canSubmit = (p: TeacherPlan) => isMe(p.teacherId) && (p.status === 'draft' || p.status === 'returned');
-  const canReview = (p: TeacherPlan) => (isLeader || activeMember.role === 'principal') && !isMe(p.teacherId) && p.status === 'submitted';
+  const canReview = (p: TeacherPlan) => (isLeader || activeMember.role === 'principal') && (!isMe(p.teacherId) || permissions.isAdminOrHead) && p.status === 'submitted';
 
   const closeEditor = () => {
     setEditing(null);

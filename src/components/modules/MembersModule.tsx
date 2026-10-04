@@ -1114,7 +1114,7 @@ export const MembersModule: React.FC = () => {
                         >
                           <option value="teacher">Giáo viên</option>
                           <option value="deputy">Tổ phó</option>
-                          <option value="principal">Ban Giám hiệu</option>
+                          {permissions.isAdminOrHead && <option value="principal">Ban Giám hiệu</option>}
                           {permissions.isAdminOrHead && <option value="head">Tổ trưởng</option>}
                         </select>
                         <button
@@ -1283,7 +1283,7 @@ export const MembersModule: React.FC = () => {
                     <option value="teacher">Giáo viên</option>
                     <option value="deputy">Tổ phó</option>
                     {permissions.isAdminOrHead && <option value="head">Tổ trưởng</option>}
-                    <option value="principal">Ban Giám hiệu (chỉ xem & duyệt)</option>
+                    {permissions.isAdminOrHead && <option value="principal">Ban Giám hiệu (chỉ xem & duyệt)</option>}
                     {permissions.isAdmin && <option value="admin">Quản trị hệ thống</option>}
                   </select>
                 </div>
@@ -1554,7 +1554,7 @@ export const MembersModule: React.FC = () => {
                   <option value="teacher">Giáo viên</option>
                   <option value="deputy">Tổ phó</option>
                   {(permissions.isAdminOrHead || editingMember.role === 'head') && <option value="head">Tổ trưởng</option>}
-                  <option value="principal">Ban Giám hiệu</option>
+                  {(permissions.isAdminOrHead || editingMember.role === 'principal') && <option value="principal">Ban Giám hiệu</option>}
                   {(permissions.isAdmin || editingMember.role === 'admin') && <option value="admin">Quản trị hệ thống</option>}
                 </select>
               </label>

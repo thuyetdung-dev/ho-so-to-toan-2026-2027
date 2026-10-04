@@ -1,5 +1,5 @@
 import type { ActiveModule } from '../components/Sidebar';
-const map:Record<ActiveModule,string>={overview:'/',members:'/members',plans:'/plans','lesson-plans':'/lesson-plans','lesson-study':'/lesson-study',observations:'/observations','special-topics':'/special-topics',documents:'/documents',reports:'/reports','ai-assistant':'/ai-assistant',settings:'/settings','teacher-360':'/teachers','audit-trail':'/audit'};
+const map:Record<ActiveModule,string>={overview:'/',members:'/members',operations:'/operations',plans:'/plans','lesson-plans':'/lesson-plans','lesson-study':'/lesson-study',observations:'/observations','special-topics':'/special-topics',documents:'/documents',reports:'/reports','ai-assistant':'/ai-assistant',settings:'/settings','teacher-360':'/teachers','audit-trail':'/audit'};
 export function moduleFromPath(path=window.location.pathname):ActiveModule{
   if(path.startsWith('/teachers')) return 'teacher-360'; if(path.startsWith('/audit')) return 'audit-trail';
   const entry=(Object.entries(map) as [ActiveModule,string][]).find(([,p])=>p!=='/'&&path.startsWith(p)); return entry?.[0]||'overview';

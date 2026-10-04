@@ -43,16 +43,19 @@ function recordInScope(record:Record<string,any>,scope:ManagementScope,date?:str
 }
 export function buildWorkCenter(args:{departmentPlans:DepartmentPlan[];teacherPlans:TeacherPlan[];lessonPlans:LessonPlan[];meetings:Meeting[];workTasks?:WorkTask[];isLeader:boolean;canApproveDeptPlan?:boolean;activeMember:Member;members?:Member[];academicYear?:string;isMe:(id?:string|null)=>boolean;now?:Date}) {
   const {activeMember,isLeader,isMe}=args;
+  // Tổ trưởng/Quản trị tự duyệt được hồ sơ của mình nên vẫn thấy việc cần duyệt của chính mình
+  const selfReview=activeMember.role==='head'||activeMember.role==='admin';
+  const notReviewable=(id?:string|null)=>!selfReview&&isMe(id);
   const members=args.members || []; const scope={academicYear:args.academicYear};
   const departmentPlans=args.departmentPlans.filter(p=>recordInScope(p,scope));
   const teacherPlans=args.teacherPlans.filter(p=>recordInScope(p,scope));
   const lessonPlans=args.lessonPlans.filter(p=>recordInScope(p,scope,p.createdAt||p.updatedAt));
   const meetings=args.meetings.filter(p=>recordInScope(p,scope,p.date));
   const items:WorkItem[]=[];
-  if(args.canApproveDeptPlan) departmentPlans.filter(p=>p.status==='submitted' && !(isMe(p.createdById)||p.createdBy===activeMember.displayName)).forEach(p=>items.push({id:`dp-${p.id}`,title:'Duyệt kế hoạch của tổ',detail:p.title,priority:'today',module:'plans',kind:'approval'}));
+  if(args.canApproveDeptPlan) departmentPlans.filter(p=>p.status==='submitted' && !(notReviewable(p.createdById)||(!selfReview&&p.createdBy===activeMember.displayName))).forEach(p=>items.push({id:`dp-${p.id}`,title:'Duyệt kế hoạch của tổ',detail:p.title,priority:'today',module:'plans',kind:'approval'}));
   if(isLeader || activeMember.role==='principal') {
-    teacherPlans.filter(p=>p.status==='submitted'&&!isMe(p.teacherId)).forEach(p=>items.push({id:`tp-${p.id}`,title:'Duyệt kế hoạch giáo viên',detail:`${p.teacherName} · ${p.title}`,priority:'today',module:'plans',owner:p.teacherName,kind:'approval'}));
-    lessonPlans.filter(p=>p.status==='submitted'&&!isMe(p.teacherId)).forEach(p=>items.push({id:`lp-${p.id}`,title:'Duyệt kế hoạch bài dạy',detail:`${p.teacherName} · ${p.title||p.topicTitle}`,priority:'today',module:'lesson-plans',owner:p.teacherName,kind:'approval'}));
+    teacherPlans.filter(p=>p.status==='submitted'&&!notReviewable(p.teacherId)).forEach(p=>items.push({id:`tp-${p.id}`,title:'Duyệt kế hoạch giáo viên',detail:`${p.teacherName} · ${p.title}`,priority:'today',module:'plans',owner:p.teacherName,kind:'approval'}));
+    lessonPlans.filter(p=>p.status==='submitted'&&!notReviewable(p.teacherId)).forEach(p=>items.push({id:`lp-${p.id}`,title:'Duyệt kế hoạch bài dạy',detail:`${p.teacherName} · ${p.title||p.topicTitle}`,priority:'today',module:'lesson-plans',owner:p.teacherName,kind:'approval'}));
   }
   teacherPlans.filter(p=>isMe(p.teacherId)&&p.status==='returned').forEach(p=>items.push({id:`tp-${p.id}`,title:'Kế hoạch bị trả lại',detail:p.title,priority:'today',module:'plans',kind:'revision'}));
   lessonPlans.filter(p=>isMe(p.teacherId)&&p.status==='returned').forEach(p=>items.push({id:`lp-${p.id}`,title:'Giáo án cần chỉnh sửa',detail:p.title||p.topicTitle,priority:'today',module:'lesson-plans',kind:'revision'}));

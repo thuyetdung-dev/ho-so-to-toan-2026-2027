@@ -137,11 +137,14 @@ service cloud.firestore {
       return resource.data.status == 'submitted'
         && request.resource.data.status in ['approved', 'returned']
         && changedOnly(['status', 'approvedBy', 'updatedAt', 'comments', 'versionHistory', 'version', '_eventId'])
-        && (department ? isPrincipal() : myRole() in ['admin', 'head', 'deputy', 'principal'])
-        && (department ? (resource.data.get('createdById', '') == ''
-          ? resource.data.createdBy != request.auth.token.get('name', '')
-          : resource.data.createdById != request.auth.uid && resource.data.createdById != myMemberId() && !ownsMember(resource.data.createdById))
-          : !ownsPlan());
+        // Tổ trưởng/Quản trị duyệt được mọi hồ sơ, kể cả của chính mình (tổ tự quản, chưa có BGH trên app).
+        // Tổ phó và BGH không tự duyệt hồ sơ của mình.
+        && (isAdminOrHead()
+          || (department ? isPrincipal() : myRole() in ['deputy', 'principal'])
+            && (department ? (resource.data.get('createdById', '') == ''
+              ? resource.data.createdBy != request.auth.token.get('name', '')
+              : resource.data.createdById != request.auth.uid && resource.data.createdById != myMemberId() && !ownsMember(resource.data.createdById))
+              : !ownsPlan()));
     }
     function personalPlanEdit() {
       return resource.data.status in ['draft', 'returned']
@@ -149,10 +152,11 @@ service cloud.firestore {
         && (request.resource.data.status in ['draft', 'submitted'] || resource.data.status == 'returned' && request.resource.data.status == 'returned')
         && (isLeader() || (canContribute() && ownsPlan()));
     }
-    // Ai được gán vai trò nào: admin ← chỉ Quản trị; head ← Tổ trưởng/Quản trị; còn lại ← Tổ trưởng/Tổ phó
+    // Ai được gán vai trò nào: admin ← chỉ Quản trị; head, principal (BGH duyệt kế hoạch tổ) ← Tổ trưởng/Quản trị;
+    // deputy, teacher ← Tổ trưởng/Tổ phó/Quản trị
     function canAssignRole(role) {
       return role in ['admin', 'head', 'deputy', 'teacher', 'principal']
-        && (role == 'admin' ? isAdmin() : (role == 'head' ? isAdminOrHead() : isLeader()));
+        && (role == 'admin' ? isAdmin() : (role in ['head', 'principal'] ? isAdminOrHead() : isLeader()));
     }
     function validId(id) {
       return id is string && id.size() <= 160 && id.matches('^[a-zA-Z0-9_@.+\\-]+$');
@@ -379,6 +383,25 @@ service cloud.firestore {
         && added[0].diff(removed[0]).affectedKeys().hasOnly(['status'])
         && added[0].status in ['pending', 'in_progress', 'completed']);
     }
+    // Công việc điều hành: lãnh đạo giao việc; người được giao cập nhật tiến độ/minh chứng; lãnh đạo duyệt.
+    match /workTasks/{id} {
+      allow read: if isMember();
+      allow create: if isLeader() && validId(id);
+      // Tổ trưởng/Quản trị xác nhận được cả việc của mình; tổ phó cần người khác xác nhận việc của mình.
+      // Người được giao chỉ chuyển giữa: chưa làm / đang làm / đã nộp (không tự đánh dấu hoàn thành).
+      allow update: if isAdminOrHead()
+        || (isLeader()
+          && !(ownsMember(resource.data.assigneeId)
+               && request.resource.data.status == 'completed' && resource.data.status != 'completed'))
+        || (canContribute() && ownsMember(resource.data.assigneeId)
+            && request.resource.data.assigneeId == resource.data.assigneeId
+            && request.resource.data.createdById == resource.data.createdById
+            && resource.data.status in ['pending', 'in_progress', 'returned']
+            && request.resource.data.status in ['pending', 'in_progress', 'submitted']
+            && changedOnly(['status','evidenceUrl','evidenceNote','submittedAt','updatedAt']));
+      allow delete: if isLeader();
+    }
+
     match /meetings/{id} {
       allow read: if isMember();
       allow create: if isLeader() && validId(id);
@@ -388,9 +411,10 @@ service cloud.firestore {
             && changedOnly(['memberOpinions', 'tasks', 'updatedAt']) && ownMeetingTaskUpdate());
       allow delete: if isAdminOrHead();
     }
+    // Bộ sưu tập cũ (ứng dụng hiện ghi NCBH trong /meetings): chỉ lãnh đạo được ghi.
     match /lessonStudies/{id} {
       allow read: if isMember();
-      allow write: if canContribute();
+      allow write: if isLeader();
     }
     // Phiếu dự giờ: người dự viết phiếu; người được dự chỉ thêm phản hồi của mình,
     // không sửa được nhận xét mà đồng nghiệp đã ghi về tiết dạy của mình.
