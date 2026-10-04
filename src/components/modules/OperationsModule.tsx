@@ -4,7 +4,7 @@ import type { WorkTask, WorkTaskPriority, WorkTaskStatus } from '../../types';
 import { newId, safeUrl } from '../../utils/ids';
 import { priorityFor, todayIso } from '../../utils/management';
 import { openReportApp } from '../../utils/reportIntegration';
-import { AlertTriangle, CheckCircle2, ClipboardList, ExternalLink, Filter, Plus, Send, Trash2, UserCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardList, ExternalLink, Filter, Pencil, Plus, Send, Trash2, UserCheck } from 'lucide-react';
 
 const STATUS: Record<WorkTaskStatus, {label:string; cls:string}> = {
   pending:{label:'Chưa thực hiện',cls:'bg-slate-100 text-slate-700'},
@@ -45,6 +45,7 @@ export const OperationsModule: React.FC = () => {
   const [deadline,setDeadline] = useState(todayIso()); const [category,setCategory] = useState<WorkTask['category']>('other');
   const [priority,setPriority] = useState<WorkTaskPriority>('normal');
   const [saving,setSaving] = useState(false);
+  const [editingId,setEditingId] = useState<string | null>(null);
   const [busyTaskId,setBusyTaskId] = useState<string | null>(null);
 
   const scoped = useMemo(()=>workTasks.filter(t=>t.academicYear===config.academicYear),[workTasks,config.academicYear]);
@@ -97,11 +98,28 @@ export const OperationsModule: React.FC = () => {
     if(matched) setMemberFilter(matched.id);
   },[permissions.isLeader,memberFilter,memberEmailFilter,allMembers]);
 
+  const closeForm = () => {setTitle('');setDescription('');setEditingId(null);setShowForm(false);};
+  const startEdit = (task:WorkTask) => {
+    setEditingId(task.id);setTitle(task.title);setDescription(task.description||'');setAssigneeId(task.assigneeId);
+    setDeadline(task.deadline);setCategory(task.category);setPriority(task.priority);setShowForm(true);
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
   const createTask = async (e:React.FormEvent) => {
     e.preventDefault();
     if(saving) return;
     const member=allMembers.find(m=>m.id===assigneeId); if(!member||!title.trim()) return;
     const now=new Date().toISOString();
+    const editing=editingId ? workTasks.find(t=>t.id===editingId) : undefined;
+    if(editing){
+      setSaving(true);
+      try {
+        const changes:Partial<WorkTask>={title:title.trim(),description:description.trim(),category,deadline,priority};
+        // Việc đã hoàn thành giữ nguyên người phụ trách để không làm lệch KPI
+        if(editing.status!=='completed'){changes.assigneeId=member.id;changes.assigneeName=member.displayName;}
+        if(await saveWorkTask({...editing,...changes,updatedAt:now})){closeForm();}
+      } finally { setSaving(false); }
+      return;
+    }
     const task:WorkTask={id:newId('work'),title:title.trim(),description:description.trim(),category,assigneeId:member.id,assigneeName:member.displayName,deadline,priority,status:'pending',academicYear:config.academicYear,createdById:activeMember.id,createdByName:activeMember.displayName,createdAt:now,updatedAt:now};
     setSaving(true);
     try {
@@ -129,17 +147,17 @@ export const OperationsModule: React.FC = () => {
   return <div className="space-y-5">
     <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
       <div><div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-indigo-600"/><h1 className="text-xl font-bold">Điều hành công việc & minh chứng</h1></div><p className="text-xs text-slate-500 mt-1">Giao việc → thực hiện → nộp minh chứng → duyệt → tự động đưa vào tiến độ/KPI.</p></div>
-      {permissions.isLeader&&<button onClick={()=>setShowForm(v=>!v)} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2"><Plus className="w-4 h-4"/>Giao việc mới</button>}
+      {permissions.isLeader&&<button onClick={()=>{if(showForm)closeForm();else{setEditingId(null);setShowForm(true);}}} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2"><Plus className="w-4 h-4"/>Giao việc mới</button>}
     </div>
 
     {showForm&&permissions.isLeader&&<form onSubmit={createTask} className="bg-white border border-indigo-200 rounded-xl p-5 grid md:grid-cols-2 gap-3">
-      <label className="text-xs font-semibold md:col-span-2">Tên công việc<input required value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 font-normal" placeholder="Ví dụ: Hoàn thiện hồ sơ chuyên đề tháng 10"/></label>
+      {editingId&&<div className="md:col-span-2 text-xs font-bold text-indigo-700">Sửa công việc{workTasks.find(t=>t.id===editingId)?.status==='completed'?' (đã hoàn thành: giữ nguyên người phụ trách và kết quả xác nhận)':''}</div>}<label className="text-xs font-semibold md:col-span-2">Tên công việc<input required value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 font-normal" placeholder="Ví dụ: Hoàn thiện hồ sơ chuyên đề tháng 10"/></label>
       <label className="text-xs font-semibold">Người phụ trách<select value={assigneeId} onChange={e=>setAssigneeId(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white font-normal">{allMembers.filter(m=>m.status==='active').map(m=><option key={m.id} value={m.id}>{m.displayName}</option>)}</select></label>
       <label className="text-xs font-semibold">Hạn hoàn thành<input required type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 font-normal"/></label>
       <label className="text-xs font-semibold">Nhóm công việc<select value={category} onChange={e=>setCategory(e.target.value as WorkTask['category'])} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white font-normal">{CATEGORIES.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
       <label className="text-xs font-semibold">Mức ưu tiên<select value={priority} onChange={e=>setPriority(e.target.value as WorkTaskPriority)} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white font-normal">{Object.entries(PRIORITY).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
       <label className="text-xs font-semibold md:col-span-2">Yêu cầu / sản phẩm cần nộp<textarea rows={2} value={description} onChange={e=>setDescription(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 font-normal"/></label>
-      <div className="md:col-span-2 flex justify-end gap-2"><button type="button" disabled={saving} onClick={()=>setShowForm(false)} className="px-3 py-2 text-xs border rounded-lg disabled:opacity-50">Hủy</button><button disabled={saving} className="px-3 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg disabled:opacity-60 disabled:cursor-not-allowed">{saving?'Đang lưu...':'Lưu & giao việc'}</button></div>
+      <div className="md:col-span-2 flex justify-end gap-2"><button type="button" disabled={saving} onClick={closeForm} className="px-3 py-2 text-xs border rounded-lg disabled:opacity-50">Hủy</button><button disabled={saving} className="px-3 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg disabled:opacity-60 disabled:cursor-not-allowed">{saving?'Đang lưu...':editingId?'Lưu thay đổi':'Lưu & giao việc'}</button></div>
     </form>}
 
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -158,7 +176,7 @@ export const OperationsModule: React.FC = () => {
             {mine&&['pending','in_progress','returned'].includes(task.status)&&<button disabled={busyTaskId===task.id} onClick={()=>submitEvidence(task)} className="px-2.5 py-1.5 text-[11px] font-semibold bg-blue-600 text-white rounded-lg flex items-center gap-1 disabled:opacity-50"><Send className="w-3 h-3"/>{busyTaskId===task.id?'Đang nộp...':'Nộp minh chứng'}</button>}
             {mine&&!permissions.isAdminOrHead&&task.status==='submitted'&&<span className="px-2.5 py-1.5 text-[11px] text-slate-500 italic">Chờ lãnh đạo khác xác nhận</span>}{permissions.isLeader&&(!mine||permissions.isAdminOrHead)&&task.status==='submitted'&&<><button disabled={busyTaskId===task.id} onClick={()=>review(task,'completed')} className="px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-600 text-white rounded-lg flex items-center gap-1 disabled:opacity-50"><CheckCircle2 className="w-3 h-3"/>{busyTaskId===task.id?'Đang duyệt...':'Xác nhận'}</button><button disabled={busyTaskId===task.id} onClick={()=>review(task,'returned')} className="px-2.5 py-1.5 text-[11px] font-semibold border border-rose-200 text-rose-700 rounded-lg disabled:opacity-50">Yêu cầu bổ sung</button></>}
             <button onClick={()=>{const member=allMembers.find(m=>m.id===task.assigneeId);openReportApp({task,member});}} className="px-2.5 py-1.5 text-[11px] font-semibold border border-indigo-200 text-indigo-700 rounded-lg flex items-center gap-1" title="Mở công việc này trong App Báo cáo"><ExternalLink className="w-3 h-3"/>Báo cáo</button>
-            {permissions.isLeader&&<button onClick={async()=>{if(window.confirm('Xóa công việc này?'))await deleteWorkTask(task.id)}} className="p-1.5 border rounded-lg text-slate-400 hover:text-rose-600" title="Xóa"><Trash2 className="w-3.5 h-3.5"/></button>}
+            {permissions.isLeader&&<button onClick={()=>startEdit(task)} className="p-1.5 border rounded-lg text-slate-400 hover:text-indigo-600" title="Sửa công việc"><Pencil className="w-3.5 h-3.5"/></button>}{permissions.isLeader&&<button onClick={async()=>{if(window.confirm('Xóa công việc này?'))await deleteWorkTask(task.id)}} className="p-1.5 border rounded-lg text-slate-400 hover:text-rose-600" title="Xóa"><Trash2 className="w-3.5 h-3.5"/></button>}
           </div></div>
         </div>})}</div>}
     </div>
