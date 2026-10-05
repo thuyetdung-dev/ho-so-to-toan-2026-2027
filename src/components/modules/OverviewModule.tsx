@@ -20,7 +20,8 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { buildWorkCenter, teacherKpi, todayIso } from '../../utils/management';
+import { buildWorkCenter, todayIso } from '../../utils/management';
+import { STATUS_TEXT, TERM_TEXT, teacherStandards } from '../../utils/standards';
 import { pushRoute } from '../../utils/deepLink';
 import { openMonthlyReport } from '../../report/navigation';
 
@@ -142,21 +143,22 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
       const completed = tasks.filter(t => t.status === 'completed').length;
       const overdue = tasks.filter(t => t.status !== 'completed' && !!t.deadline && t.deadline < today).length;
       const waiting = tasks.filter(t => t.status === 'submitted').length;
-      const kpi = teacherKpi(
+      const kpi = teacherStandards(
         member,
         { teacherPlans, lessonPlans, observations, meetings, trainings, workTasks, members: allMembers },
-        { academicYear: config.academicYear },
-        config.kpiConfig?.weights,
+        config,
+        config.currentTerm || 'HK1',
+        today,
       );
       return { member, tasks: tasks.length, open, completed, overdue, waiting, kpi };
     });
-  }, [isLeaderView, activeTeachers, workTasks, config.academicYear, config.kpiConfig?.weights, teacherPlans, lessonPlans, observations, meetings, trainings, allMembers, today]);
+  }, [isLeaderView, activeTeachers, workTasks, config.academicYear, config, teacherPlans, lessonPlans, observations, meetings, trainings, allMembers, today]);
 
-  const kpiRowsWithData = teacherRows.filter(r => r.kpi.hasData);
-  const averageProgress = kpiRowsWithData.length
-    ? Math.round(kpiRowsWithData.reduce((sum, r) => sum + r.kpi.total, 0) / kpiRowsWithData.length)
-    : null;
-  const teachersNeedAttention = teacherRows.filter(r => r.overdue > 0 || r.waiting > 0 || r.kpi.missingGroups >= 4).length;
+  const termLabel = TERM_TEXT[config.currentTerm || 'HK1'];
+  const teachersMet = teacherRows.filter(r => r.kpi.overall === 'dat').length;
+  const teachersFailed = teacherRows.filter(r => r.kpi.overall === 'chua_dat').length;
+  const myStandards = isLeaderView ? null : teacherStandards(activeMember, { teacherPlans, lessonPlans, observations, meetings, trainings, workTasks, members: allMembers }, config, config.currentTerm || 'HK1', today);
+  const teachersNeedAttention = teacherRows.filter(r => r.overdue > 0 || r.waiting > 0 || r.kpi.failed > 0).length;
 
   const futureMeetings = meetings.filter(m => (m.date || '') >= today).sort((a, b) => a.date.localeCompare(b.date));
   const upcomingMeetings = (futureMeetings.length
@@ -243,9 +245,9 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
           <div className="text-[10px] text-slate-500 mt-1">Tỷ lệ {completionRate}%</div>
         </button>
         <button onClick={() => onNavigate('teacher-360')} className="sm:col-span-2 xl:col-span-1 bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-2xl p-5 text-left hover:opacity-95 hover:shadow-md transition">
-          <div className="flex justify-between items-start"><span className="text-[11px] font-semibold text-indigo-100">Tiến độ hồ sơ</span><TrendingUp className="w-4 h-4 text-white" /></div>
-          <div className="text-4xl font-black mt-2">{isLeaderView ? (averageProgress ?? '—') : teacherKpi(activeMember, { teacherPlans, lessonPlans, observations, meetings, trainings, workTasks, members: allMembers }, { academicYear: config.academicYear }, config.kpiConfig?.weights).total}</div>
-          <div className="text-[10px] text-indigo-100 mt-1">{isLeaderView ? 'điểm tiến độ trung bình có dữ liệu' : '/ 100 điểm tiến độ tham khảo'}</div>
+          <div className="flex justify-between items-start"><span className="text-[11px] font-semibold text-indigo-100">Định mức {termLabel}</span><TrendingUp className="w-4 h-4 text-white" /></div>
+          <div className="text-4xl font-black mt-2">{isLeaderView ? `${teachersMet}/${teacherRows.length}` : (myStandards?.counted ? `${myStandards.met}/${myStandards.counted}` : '—')}</div>
+          <div className="text-[10px] text-indigo-100 mt-1">{isLeaderView ? `giáo viên đạt đủ${teachersFailed ? ` · ${teachersFailed} GV có nhóm chưa đạt` : ''}` : (myStandards?.counted ? `nhóm đã đạt · ${STATUS_TEXT[myStandards.overall]}` : 'Tổ chưa đặt định mức')}</div>
         </button>
       </div>
 
@@ -268,7 +270,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
                     <th className="text-center p-2 lg:p-4 w-[10%]">Quá hạn</th>
                     <th className="text-center p-2 lg:p-4 w-[11%]">Chờ duyệt</th>
                     <th className="text-center p-2 lg:p-4 w-[11%]">Hoàn thành</th>
-                    <th className="text-left p-3 lg:p-4 w-[34%]">Tiến độ hồ sơ</th>
+                    <th className="text-left p-3 lg:p-4 w-[34%]">Định mức {termLabel}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -289,8 +291,11 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
                       <td className="p-2 lg:p-4 text-center"><button onClick={() => openOperations('completed', member.id)} className="min-w-8 h-8 rounded-lg text-emerald-700 font-bold hover:bg-emerald-50" title={`Xem việc hoàn thành của ${member.displayName}`}>{completed}</button></td>
                       <td className="p-3 lg:p-4">
                         <button onClick={() => openTeacher360(member.id)} className="w-full text-left group" title={`Mở Hồ sơ 360° của ${member.displayName}`}>
-                          <div className="flex items-center gap-2"><div className="h-2 bg-slate-100 rounded-full overflow-hidden flex-1"><div className="h-full bg-indigo-500 rounded-full group-hover:bg-indigo-600" style={{ width: `${kpi.hasData ? kpi.total : 0}%` }} /></div><span className="font-bold text-slate-700 w-10 text-right group-hover:text-blue-700">{kpi.hasData ? `${kpi.total}` : '—'}</span></div>
-                          <div className="text-[10px] text-slate-400 mt-1 group-hover:text-blue-600">{kpi.missingGroups ? `Thiếu dữ liệu ${kpi.missingGroups}/5 nhóm` : 'Đủ 5 nhóm dữ liệu'}</div>
+                          <div className="flex items-center gap-1.5">
+                            {kpi.groups.map(g => <span key={g.key} title={`${g.label}: ${STATUS_TEXT[g.status]} (${g.detail})`} className={`h-2.5 flex-1 rounded-full ${g.status === 'dat' ? 'bg-emerald-500' : g.status === 'chua_dat' ? 'bg-rose-500' : g.status === 'chua_den_han' ? 'bg-amber-300' : 'bg-slate-200'}`} />)}
+                            <span className="font-bold text-slate-700 w-10 text-right group-hover:text-blue-700">{kpi.counted ? `${kpi.met}/${kpi.counted}` : '—'}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-1 group-hover:text-blue-600">{kpi.failed ? `${kpi.failed} nhóm chưa đạt` : kpi.pending ? `${kpi.pending} nhóm chưa đến hạn` : kpi.counted ? 'Đạt đủ định mức' : 'Tổ chưa đặt định mức'}</div>
                         </button>
                       </td>
                     </tr>
@@ -304,7 +309,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
             <button onClick={() => openOperations(overdueTasks.length ? 'overdue' : submittedTasks.length ? 'submitted' : 'open')} className={`border rounded-2xl p-5 text-left ${teachersNeedAttention ? 'bg-amber-50 border-amber-200 hover:border-amber-400' : 'bg-emerald-50 border-emerald-200 hover:border-emerald-400'}`} title="Mở danh sách cần xử lý">
               <div className="flex items-center gap-2"><ShieldCheck className={`w-5 h-5 ${teachersNeedAttention ? 'text-amber-600' : 'text-emerald-600'}`} /><span className="text-xs font-bold">Tình trạng toàn tổ</span></div>
               <div className="text-4xl font-black mt-2">{teachersNeedAttention}</div>
-              <div className="text-[11px] text-slate-600">giáo viên có việc quá hạn/chờ duyệt hoặc còn thiếu nhiều nhóm dữ liệu</div>
+              <div className="text-[11px] text-slate-600">giáo viên có việc quá hạn/chờ duyệt hoặc có nhóm định mức chưa đạt</div>
             </button>
             <button onClick={() => openOperations(overdueTasks.length ? 'overdue' : submittedTasks.length ? 'submitted' : 'open')} className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded-2xl p-5 text-left shadow-sm">
               <Clock3 className="w-5 h-5" /><div className="text-sm font-bold mt-2">Xử lý công việc tồn</div><div className="text-[11px] text-slate-300 mt-1">{overdueTasks.length} quá hạn · {submittedTasks.length} chờ duyệt · {returnedTasks.length} cần bổ sung.</div>

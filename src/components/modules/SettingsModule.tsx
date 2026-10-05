@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId, safeUrl } from '../../utils/ids';
 import { useApp } from '../../context/AppContext';
+import { DEFAULT_MINIMUMS, termBounds } from '../../utils/standards';
 import { StoragePanel } from '../common/StoragePanel';
 import { db, storage } from '../../firebase';
 import { migrateLegacyLessonImages } from '../../services/lessonImageStorage';
 import { parseSystemBackupFile } from '../../utils/systemBackupPackage';
-import type { SchoolLeader } from "../../types";
+import type { KpiMinimums, SchoolLeader } from "../../types";
 import {
   Settings,
   Shield,
@@ -86,6 +87,8 @@ export const SettingsModule: React.FC = () => {
   const [standardPeriods, setStandardPeriods] = useState(config.standardPeriods || 17);
   const [weeksCount, setWeeksCount] = useState(config.weeksCount || 35);
   const [kpiWeights, setKpiWeights] = useState(config.kpiConfig?.weights || { teacherPlans:25, lessonPlans:30, observations:20, professionalTasks:15, trainings:10 });
+  const [kpiMinimums, setKpiMinimums] = useState<KpiMinimums>({ ...DEFAULT_MINIMUMS, ...(config.kpiConfig?.minimums || {}) });
+  const [hk1EndDate, setHk1EndDate] = useState(config.kpiConfig?.hk1EndDate || termBounds(config, 'HK1').end);
 
   // Modal: New Academic Year Transition (Lỗi 20)
   const [showYearModal, setShowYearModal] = useState(false);
@@ -176,6 +179,8 @@ export const SettingsModule: React.FC = () => {
     setStandardPeriods(config.standardPeriods || 17);
     setWeeksCount(config.weeksCount || 35);
     setKpiWeights(config.kpiConfig?.weights || { teacherPlans:25, lessonPlans:30, observations:20, professionalTasks:15, trainings:10 });
+    setKpiMinimums({ ...DEFAULT_MINIMUMS, ...(config.kpiConfig?.minimums || {}) });
+    setHk1EndDate(config.kpiConfig?.hk1EndDate || termBounds(config, 'HK1').end);
     setMilestones(config.academicCalendar || config.calendarMilestones || []);
     setTopics(config.curriculumTopics || []);
     setCompetencies(config.competencyTags || []);
@@ -204,9 +209,8 @@ export const SettingsModule: React.FC = () => {
         return;
       }
     }
-    const kpiTotal = Object.values(kpiWeights).reduce((sum, value) => sum + Number(value || 0), 0);
-    if (kpiTotal !== 100) {
-      setNotification({ message: `Tổng trọng số KPI phải bằng 100 (hiện tại ${kpiTotal}).`, type: 'error' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(hk1EndDate)) {
+      setNotification({ message: 'Hãy nhập ngày kết thúc học kỳ I.', type: 'error' });
       return;
     }
     await updateConfig({
@@ -216,7 +220,7 @@ export const SettingsModule: React.FC = () => {
       currentTerm,
       standardPeriods: Number(standardPeriods),
       weeksCount: Number(weeksCount),
-      kpiConfig: { enabled: true, label: 'Chỉ số tiến độ hồ sơ & nhiệm vụ', weights: kpiWeights },
+      kpiConfig: { enabled: true, label: 'Định mức minh chứng theo học kỳ', weights: kpiWeights, minimums: kpiMinimums, hk1EndDate },
       schoolLeaders: leaders
         .map(l => ({ ...l, title: l.title.trim(), name: l.name.trim() }))
         .filter(l => l.name || l.title),
@@ -603,11 +607,23 @@ export const SettingsModule: React.FC = () => {
               </div>
 
               <div className="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-3">
-                <div><div className="font-bold text-slate-800">Cấu hình KPI / chỉ số tiến độ</div><p className="text-[11px] text-slate-500 mt-1">Trọng số được áp dụng cho Hồ sơ 360°. Tổng phải bằng 100; điểm được tính tự động từ minh chứng, không nhập tay.</p></div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {([['teacherPlans','Kế hoạch GD'],['lessonPlans','KH bài dạy'],['observations','Dự giờ'],['professionalTasks','Nhiệm vụ'],['trainings','Bồi dưỡng']] as const).map(([key,label])=><label key={key} className="text-[11px] font-semibold text-slate-600">{label}<input type="number" min={0} max={100} value={kpiWeights[key]} onChange={e=>setKpiWeights(w=>({...w,[key]:Number(e.target.value)}))} className="mt-1 w-full px-2 py-2 border border-slate-300 rounded-lg bg-white"/></label>)}
+                <div><div className="font-bold text-slate-800">Định mức minh chứng tối thiểu của mỗi giáo viên</div><p className="text-[11px] text-slate-500 mt-1">Tổ thống nhất số tối thiểu cho mỗi học kỳ. Hồ sơ 360° và Tổng quan chỉ ghi Đạt / Chưa đạt / Chưa đến hạn, không quy ra điểm. Để 0 nếu tổ không yêu cầu. Nhóm "Nhiệm vụ được giao" tự đối chiếu: mọi việc đã đến hạn phải hoàn thành.</p></div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead><tr className="text-left text-slate-500"><th className="py-1 pr-2">Nhóm minh chứng</th><th className="py-1 px-2 w-24">Học kỳ I</th><th className="py-1 px-2 w-24">Học kỳ II</th></tr></thead>
+                    <tbody>
+                      {([['teacherPlans','Kế hoạch giáo dục cá nhân được duyệt'],['lessonPlans','Kế hoạch bài dạy được duyệt'],['observations','Tiết dự giờ có rút kinh nghiệm'],['trainings','Nội dung bồi dưỡng hoàn thành']] as const).map(([key,label])=>(
+                        <tr key={key} className="border-t border-indigo-100">
+                          <td className="py-1.5 pr-2 font-semibold text-slate-700">{label}</td>
+                          {(['hk1','hk2'] as const).map(h=><td key={h} className="py-1.5 px-2"><input type="number" min={0} max={200} aria-label={`${label} ${h==='hk1'?'học kỳ I':'học kỳ II'}`} value={kpiMinimums[key][h]} onChange={e=>setKpiMinimums(m=>({...m,[key]:{...m[key],[h]:Math.max(0,Number(e.target.value)||0)}}))} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white"/></td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="text-[11px] font-bold text-indigo-700">Tổng trọng số: {Object.values(kpiWeights).reduce((s,v)=>s+Number(v||0),0)}/100</div>
+                <label className="block text-[11px] font-semibold text-slate-600 max-w-xs">Ngày kết thúc học kỳ I
+                  <input type="date" value={hk1EndDate} onChange={e=>setHk1EndDate(e.target.value)} className="mt-1 w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white font-normal"/>
+                </label>
               </div>
 
               <div className="space-y-2 pt-2" data-testid="leaders-form">

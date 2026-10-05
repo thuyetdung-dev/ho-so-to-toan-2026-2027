@@ -25,3 +25,15 @@
 3. Mở app, bấm Ctrl + F5.
 
 App "Báo cáo tự động" cũ (Supabase) không còn cần dùng; có thể để nguyên hoặc gỡ sau.
+
+---
+
+# V2.19.0 – Định mức theo học kỳ thay cho điểm KPI
+
+- Bỏ điểm phần trăm (30/30, 57/100…). Mỗi nhóm minh chứng chỉ ghi **Đạt / Chưa đạt / Chưa đến hạn / Không yêu cầu**.
+- Tổ đặt **định mức tối thiểu mỗi học kỳ** trong 12. Cài đặt → Thông tin chung (mặc định: KHGD cá nhân 1 ở HK I;
+  KH bài dạy 8/HK; dự giờ có rút kinh nghiệm 4/HK; bồi dưỡng 0) và **ngày kết thúc học kỳ I**.
+- Còn trong học kỳ mà chưa đủ → "Chưa đến hạn" (không bị coi là kém). Hết học kỳ mà chưa đủ → "Chưa đạt".
+- Nhóm tổ đặt 0 và chưa có minh chứng → "Không yêu cầu", không tính.
+- Nhiệm vụ được giao: chỉ xét việc đã đến hạn; có việc quá hạn chưa xong → "Chưa đạt".
+- Hồ sơ 360° chọn Học kỳ I / Học kỳ II / Cả năm; Tổng quan hiện số giáo viên đạt đủ định mức và 5 vạch màu cho từng người.

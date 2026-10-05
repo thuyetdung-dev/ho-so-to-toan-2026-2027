@@ -29,7 +29,7 @@ export function linkTaskAssignees<T extends {assigneeId?:string;assigneeName?:st
   return tasks.map(t=>{const id=resolveAssigneeId(t,members);return id?{...t,assigneeId:id}:t;});
 }
 export interface ManagementScope { academicYear?:string;startDate?:string;endDate?:string }
-function recordInScope(record:Record<string,any>,scope:ManagementScope,date?:string):boolean {
+export function recordInScope(record:Record<string,any>,scope:ManagementScope,date?:string):boolean {
   if ((scope.startDate && !validDay(scope.startDate)) || (scope.endDate && !validDay(scope.endDate)) || (scope.startDate && scope.endDate && scope.startDate > scope.endDate)) return false;
   if(scope.academicYear && record.academicYear && record.academicYear!==scope.academicYear)return false;
   const year=/^(\d{4})-(\d{4})$/.exec(scope.academicYear || '');

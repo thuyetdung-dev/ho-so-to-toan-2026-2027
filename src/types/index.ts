@@ -267,10 +267,23 @@ export interface KpiWeights {
   trainings: number;
 }
 
+/** Định mức tối thiểu mỗi học kỳ cho một giáo viên */
+export interface KpiMinimums {
+  teacherPlans: { hk1: number; hk2: number };
+  lessonPlans: { hk1: number; hk2: number };
+  observations: { hk1: number; hk2: number };
+  trainings: { hk1: number; hk2: number };
+}
+
 export interface KpiConfig {
   enabled: boolean;
   label: string;
+  /** Không còn dùng để hiển thị từ bản 2.19 (giữ để đọc dữ liệu cũ) */
   weights: KpiWeights;
+  /** Định mức minh chứng tối thiểu theo học kỳ */
+  minimums?: KpiMinimums;
+  /** Ngày kết thúc học kỳ I (yyyy-mm-dd) */
+  hk1EndDate?: string;
   countOnlyApprovedEvidence?: boolean;
 }
 
