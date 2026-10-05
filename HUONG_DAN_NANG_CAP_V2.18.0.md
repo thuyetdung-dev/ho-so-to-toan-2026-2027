@@ -37,3 +37,18 @@ App "Báo cáo tự động" cũ (Supabase) không còn cần dùng; có thể �
 - Nhóm tổ đặt 0 và chưa có minh chứng → "Không yêu cầu", không tính.
 - Nhiệm vụ được giao: chỉ xét việc đã đến hạn; có việc quá hạn chưa xong → "Chưa đạt".
 - Hồ sơ 360° chọn Học kỳ I / Học kỳ II / Cả năm; Tổng quan hiện số giáo viên đạt đủ định mức và 5 vạch màu cho từng người.
+
+---
+
+# V2.20.0 – Giao diện rút gọn cho giáo viên
+
+- Giáo viên (vai trò "Giáo viên") thấy 6 mục chính: Trang của tôi, Việc của tôi, Giáo án của tôi, Dự giờ,
+  Sinh hoạt chuyên môn, Báo cáo tháng. Mục "Xem thêm": Kế hoạch tổ & cá nhân, Phân công chuyên môn,
+  Chuyên đề, Tài liệu, Trợ lý AI, Hồ sơ của tôi. Không hiện Cài đặt, Lịch sử & Audit.
+- Trên điện thoại có thanh nút cuối màn hình: Trang chủ · Việc · Giáo án · Báo cáo · Thêm.
+- Trang của tôi: việc cần làm, việc cần sửa, định mức học kỳ, trạng thái báo cáo tháng, buổi họp tổ sắp tới.
+- Phân công: mặc định "Của tôi", có nút "Cả tổ (chỉ xem)"; không có nút Excel; không hiện Thư mời & Phê duyệt.
+- Việc của tôi: chỉ hiện việc của chính giáo viên. Hồ sơ 360°: giáo viên chỉ xem hồ sơ của mình.
+- Báo cáo & In: giáo viên chỉ có Báo cáo tháng của mình.
+- Việc đã nộp minh chứng, đang chờ lãnh đạo xác nhận không bị tính là "quá hạn".
+- Tổ trưởng, tổ phó, quản trị và BGH vẫn thấy đầy đủ như trước.

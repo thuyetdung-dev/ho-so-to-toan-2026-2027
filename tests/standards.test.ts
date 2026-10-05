@@ -50,3 +50,9 @@ test('cả năm cộng định mức hai học kỳ; việc kỳ khác không t�
   const hk1 = teacherStandards(member, { ...empty, lessonPlans: [lp('b', '2027-02-01')] }, config, 'HK1', '2026-10-05');
   assert.equal(hk1.groups.find(x => x.key === 'lessonPlans')!.actual, 0);
 });
+
+test('nhiệm vụ đã nộp minh chứng, chờ xác nhận: không tính quá hạn', () => {
+  const r = teacherStandards(member, { ...empty, workTasks: [wt('a', '2026-10-03', 'submitted')] }, config, 'HK1', '2026-10-05');
+  const g = r.groups.find(x => x.key === 'professionalTasks')!;
+  assert.equal(g.status, 'chua_den_han'); assert.match(g.detail, /1 chờ xác nhận/);
+});

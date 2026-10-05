@@ -2,7 +2,7 @@ import appPackage from '../package.json';
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, TeacherBottomNav, TEACHER_HIDDEN } from './components/Sidebar';
 import { ConfirmProvider } from './components/common/ConfirmDialog';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import {
@@ -32,6 +32,7 @@ const ReportsModule = lazy(() => import('./components/modules/ReportsModule').th
 const AiAssistantModule = lazy(() => import('./components/modules/AiAssistantModule').then(m => ({ default: m.AiAssistantModule })));
 const SettingsModule = lazy(() => import('./components/modules/SettingsModule').then(m => ({ default: m.SettingsModule })));
 const Teacher360Module = lazy(() => import('./components/modules/Teacher360Module').then(m => ({ default: m.Teacher360Module })));
+const TeacherHomeModule = lazy(() => import('./components/modules/TeacherHomeModule').then(m => ({ default: m.TeacherHomeModule })));
 const AuditTrailModule = lazy(() => import('./components/modules/AuditTrailModule').then(m => ({ default: m.AuditTrailModule })));
 
 const CenteredCard: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -44,7 +45,7 @@ const Toast: React.FC = () => {
   const { notification, setNotification } = useApp();
   if (!notification) return null;
   return (
-    <div id="system-notification-toast" className="fixed bottom-4 right-4 left-4 sm:left-auto z-[60] sm:max-w-md print:hidden" role="status" aria-live="polite">
+    <div id="system-notification-toast" className="fixed bottom-20 md:bottom-4 right-4 left-4 sm:left-auto z-[60] sm:max-w-md print:hidden" role="status" aria-live="polite">
       <div
         className={`p-3.5 rounded-xl shadow-lg border flex items-start gap-3 ${
           notification.type === 'error'
@@ -78,7 +79,11 @@ const MainLayout: React.FC = () => {
     accessRequests,
     loginWithGoogle,
     isLoading,
+    permissions,
+    activeMember,
   } = useApp();
+  // Giao diện rút gọn cho giáo viên (không phải lãnh đạo tổ, không phải BGH)
+  const teacherView = !permissions.isLeader && activeMember.role !== 'principal';
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [requestName, setRequestName] = useState('');
@@ -114,6 +119,9 @@ const MainLayout: React.FC = () => {
   };
 
   const renderModule = () => {
+    if (teacherView && (TEACHER_HIDDEN.includes(activeTab) || activeTab === 'overview')) {
+      return <TeacherHomeModule onNavigate={setActiveTab} />;
+    }
     switch (activeTab) {
       case 'members':
         return <MembersModule />;
@@ -281,7 +289,7 @@ const MainLayout: React.FC = () => {
           isOpen={isSidebarOpen}
           onCloseMobile={() => setIsSidebarOpen(false)}
         />
-        <main className="flex-1 min-w-0">
+        <main className={`flex-1 min-w-0 ${teacherView ? 'pb-20 md:pb-0' : ''}`}>
           <ErrorBoundary key={activeTab}>
             <Suspense
               fallback={
@@ -296,7 +304,9 @@ const MainLayout: React.FC = () => {
         </main>
       </div>
 
-      <footer className="border-t border-slate-200 bg-white py-4 mt-auto print:hidden">
+      {teacherView && <TeacherBottomNav activeModule={activeTab} onSelectModule={setActiveTab} onOpenMenu={() => setIsSidebarOpen(true)} />}
+
+      <footer className={`border-t border-slate-200 bg-white py-4 mt-auto print:hidden ${teacherView ? 'pb-20 md:pb-4' : ''}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div>Sổ Sinh Hoạt Chuyên Môn Số – Tổ Toán THPT (GDPT 2018 & CV 5512/BGDĐT-GDTrH)</div>
           <div className="flex items-center gap-4 text-[11px]">

@@ -106,7 +106,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
     [workTasks, config.academicYear, isLeaderView, isMe],
   );
   const openTasks = visibleTasks.filter(t => t.status !== 'completed');
-  const overdueTasks = openTasks.filter(t => !!t.deadline && t.deadline < today);
+  const overdueTasks = openTasks.filter(t => t.status !== 'submitted' && !!t.deadline && t.deadline < today);
   const dueSoonTasks = openTasks.filter(t => {
     if (!t.deadline || t.deadline < today) return false;
     const diff = (Date.parse(t.deadline) - Date.parse(today)) / 86400000;
@@ -141,7 +141,7 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({ onNavigate }) =>
       const tasks = workTasks.filter(t => t.academicYear === config.academicYear && t.assigneeId === member.id);
       const open = tasks.filter(t => t.status !== 'completed').length;
       const completed = tasks.filter(t => t.status === 'completed').length;
-      const overdue = tasks.filter(t => t.status !== 'completed' && !!t.deadline && t.deadline < today).length;
+      const overdue = tasks.filter(t => !['completed', 'submitted'].includes(t.status) && !!t.deadline && t.deadline < today).length;
       const waiting = tasks.filter(t => t.status === 'submitted').length;
       const kpi = teacherStandards(
         member,

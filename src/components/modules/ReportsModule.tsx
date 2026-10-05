@@ -59,7 +59,7 @@ export const ReportsModule: React.FC = () => {
   const [exportOpen,setExportOpen] = useState(false);
   const isLeader = permissions.isLeader;
 
-  const [activeReportTab, setActiveReportTab] = useState<'monthly' | 'summary' | 'teacher_stats' | 'so_sinh_hoat'>(() =>
+  const [reportTab, setActiveReportTab] = useState<'monthly' | 'summary' | 'teacher_stats' | 'so_sinh_hoat'>(() =>
     monthlyRouteParams().monthly || !permissions.isLeader ? 'monthly' : 'summary');
 
   // Selected Snapshot ID or 'new'
@@ -297,6 +297,10 @@ export const ReportsModule: React.FC = () => {
     exportToExcel([{ name: 'ThongKeGiaoVien', data: rows }], `Thong_Ke_Tien_Do_To_Toan_${reportYear}`);
   };
 
+  // Giáo viên chỉ dùng báo cáo tháng của mình; các tab tổng hợp dành cho lãnh đạo tổ và BGH
+  const seeTeamReports = permissions.isLeader || activeMember.role === 'principal';
+  const activeReportTab = seeTeamReports ? reportTab : 'monthly';
+
   return (
     <div className="space-y-6">
       {exportOpen && <DocumentExportDialog model={reportDocument({title:reportTitle || `Báo cáo ${reportTerm}`,academicYear:reportYear,startDate,endDate,isLocked,metrics:shownMetrics,executiveSummary,advantages,limitations,futureDirections,finalizedBy,evidence},config)} onClose={() => setExportOpen(false)} />}
@@ -306,14 +310,17 @@ export const ReportsModule: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <PieChart className="w-5 h-5 text-blue-600" />
-            <span>Báo cáo & Thống kê hoạt động Tổ Toán</span>
+            <span>{seeTeamReports ? 'Báo cáo & Thống kê hoạt động Tổ Toán' : 'Báo cáo tháng của tôi'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Tổng hợp dữ liệu chuyên môn, theo dõi tiến độ hoàn thành nhiệm vụ và xuất cuốn Sổ Sinh hoạt Chuyên môn
+            {seeTeamReports
+              ? 'Tổng hợp dữ liệu chuyên môn, theo dõi tiến độ hoàn thành nhiệm vụ và xuất cuốn Sổ Sinh hoạt Chuyên môn'
+              : 'Đọc công văn, chọn đầu việc của mình, nộp minh chứng và nộp báo cáo tháng'}
           </p>
         </div>
 
         {/* Tab Buttons */}
+        {seeTeamReports && (
         <div className="flex flex-wrap items-center gap-2 bg-slate-100 p-1 rounded-lg">
           <button
             onClick={() => setActiveReportTab('monthly')}
@@ -348,6 +355,7 @@ export const ReportsModule: React.FC = () => {
             Đóng cuốn Sổ chuyên môn (A4)
           </button>
         </div>
+        )}
       </div>
 
       {/* Tab 1: General Summary Report */}

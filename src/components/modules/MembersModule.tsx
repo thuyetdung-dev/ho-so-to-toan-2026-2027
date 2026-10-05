@@ -109,6 +109,8 @@ export const MembersModule: React.FC = () => {
   const [replaceTerms, setReplaceTerms] = useState(true);
   const [termFilter, setTermFilter] = useState<'HK1' | 'HK2'>(config.currentTerm);
   const [asgView, setAsgView] = useState<'teacher' | 'class'>('teacher');
+  // Giáo viên mặc định chỉ thấy phân công của mình; có thể xem cả tổ (chỉ xem)
+  const [asgScope, setAsgScope] = useState<'mine' | 'all'>(() => (permissions.isLeader ? 'all' : 'mine'));
   const [asgSearch, setAsgSearch] = useState('');
   const [asgGrade, setAsgGrade] = useState<0 | 10 | 11 | 12>(0);
   const [importErrors, setImportErrors] = useState<string[]>([]);
@@ -535,11 +537,12 @@ export const MembersModule: React.FC = () => {
         a =>
           a.term === termFilter &&
           (!asgGrade || a.grade === asgGrade) &&
+          (asgScope === 'all' || isMe(a.teacherId)) &&
           (!q || fold(a.teacherName).includes(q) || fold(a.className).includes(q) || fold(a.subject).includes(q)),
       ),
       allMembers,
     );
-  }, [assignments, termFilter, asgGrade, asgSearch, allMembers]);
+  }, [assignments, termFilter, asgGrade, asgSearch, allMembers, asgScope, isMe]);
   const teacherGroups = useMemo(() => groupByTeacher(viewAssignments), [viewAssignments]);
   const classGroups = useMemo(() => {
     const map = new Map<string, { className: string; grade: number; items: Assignment[] }>();
@@ -559,10 +562,12 @@ export const MembersModule: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-600" />
-            <span>Thành viên & Phân công chuyên môn</span>
+            <span>{isLeader ? 'Thành viên & Phân công chuyên môn' : 'Phân công chuyên môn'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Quản lý phân công chuyên môn, hồ sơ thành viên, thư mời email và phê duyệt quyền truy cập hệ thống
+            {isLeader
+              ? 'Quản lý phân công chuyên môn, hồ sơ thành viên, thư mời email và phê duyệt quyền truy cập hệ thống'
+              : 'Lớp, môn và số tiết được phân công. Có thể xem phân công của cả tổ (chỉ xem).'}
           </p>
         </div>
 
@@ -592,6 +597,7 @@ export const MembersModule: React.FC = () => {
           >
             Danh sách lớp ({classes.length})
           </button>
+          {isLeader && (
           <button
             onClick={() => setActiveTab('invitations')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
@@ -606,11 +612,12 @@ export const MembersModule: React.FC = () => {
               </span>
             )}
           </button>
+          )}
         </div>
       </div>
 
       {/* Warning Box: Unassigned Classes */}
-      {unassignedClasses.length > 0 && activeTab === 'assignments' && (
+      {isLeader && unassignedClasses.length > 0 && activeTab === 'assignments' && (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
           <div className="text-xs text-amber-900">
@@ -621,7 +628,7 @@ export const MembersModule: React.FC = () => {
       )}
 
       {/* Cảnh báo: một lớp có nhiều giáo viên cùng dạy một môn */}
-      {classConflicts.length > 0 && activeTab === 'assignments' && (
+      {isLeader && classConflicts.length > 0 && activeTab === 'assignments' && (
         <div className="bg-rose-50 border border-rose-300 rounded-xl p-4 flex items-start gap-3" data-testid="class-conflicts">
           <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           <div className="text-xs text-rose-900 space-y-1">
@@ -653,6 +660,12 @@ export const MembersModule: React.FC = () => {
                   </button>
                 ))}
               </div>
+              {!isLeader && (
+                <div className="flex bg-slate-100 p-0.5 rounded-lg" role="tablist" aria-label="Phạm vi">
+                  <button onClick={() => setAsgScope('mine')} className={`px-2.5 py-1 rounded-md font-semibold ${asgScope === 'mine' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>Của tôi</button>
+                  <button onClick={() => setAsgScope('all')} className={`px-2.5 py-1 rounded-md font-semibold ${asgScope === 'all' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>Cả tổ (chỉ xem)</button>
+                </div>
+              )}
               <div className="flex bg-slate-100 p-0.5 rounded-lg" role="tablist" aria-label="Cách xem">
                 <button onClick={() => setAsgView('teacher')} className={`px-2.5 py-1 rounded-md font-semibold ${asgView === 'teacher' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>Theo giáo viên</button>
                 <button onClick={() => setAsgView('class')} className={`px-2.5 py-1 rounded-md font-semibold ${asgView === 'class' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'}`}>Theo lớp</button>
@@ -667,6 +680,7 @@ export const MembersModule: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {isLeader && (
               <button
                 onClick={downloadAssignmentTemplate}
                 className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5"
@@ -674,6 +688,7 @@ export const MembersModule: React.FC = () => {
                 <Download className="w-3.5 h-3.5" />
                 <span>Tải mẫu Excel</span>
               </button>
+              )}
 
               {isLeader && (
               <label className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5 cursor-pointer">
@@ -683,6 +698,7 @@ export const MembersModule: React.FC = () => {
               </label>
               )}
 
+              {isLeader && (
               <button
                 onClick={handleExportExcel}
                 className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5"
@@ -690,6 +706,7 @@ export const MembersModule: React.FC = () => {
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Xuất Excel</span>
               </button>
+              )}
 
               {isLeader && (
                 <button
@@ -1045,7 +1062,7 @@ export const MembersModule: React.FC = () => {
       )}
 
       {/* Tab 4: Member Invitations & Access Requests (Lỗi 23) */}
-      {activeTab === 'invitations' && (
+      {activeTab === 'invitations' && isLeader && (
         <div className="space-y-6">
           {/* Top banner */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { safeUrl } from '../utils/ids';
 import {
@@ -18,6 +18,10 @@ import {
   HardDrive,
   History,
   ClipboardList,
+  Home,
+  MoreHorizontal,
+  ChevronDown,
+  UserRound,
 } from 'lucide-react';
 
 export const MODULE_IDS = [
@@ -38,6 +42,49 @@ export const MODULE_IDS = [
 ] as const;
 
 export type ActiveModule = (typeof MODULE_IDS)[number];
+
+/** Phân hệ quản trị, không hiện với giáo viên */
+export const TEACHER_HIDDEN: readonly ActiveModule[] = ['settings', 'audit-trail'];
+/** Mục chính của giáo viên (cũng là thanh nút trên điện thoại) */
+const TEACHER_MAIN: { id: ActiveModule; label: string; short: string; desc: string; icon: React.ElementType }[] = [
+  { id: 'overview', label: 'Trang của tôi', short: 'Trang chủ', desc: 'Hôm nay cần làm gì', icon: Home },
+  { id: 'operations', label: 'Việc của tôi', short: 'Việc', desc: 'Việc được giao, nộp minh chứng', icon: ClipboardList },
+  { id: 'lesson-plans', label: 'Giáo án của tôi', short: 'Giáo án', desc: 'Soạn, nộp, xem nhận xét', icon: FileText },
+  { id: 'observations', label: 'Dự giờ', short: 'Dự giờ', desc: 'Phiếu dự và phản hồi', icon: Eye },
+  { id: 'lesson-study', label: 'Sinh hoạt chuyên môn', short: 'Họp tổ', desc: 'Biên bản, góp ý, nhiệm vụ', icon: Presentation },
+  { id: 'reports', label: 'Báo cáo tháng', short: 'Báo cáo', desc: 'Đọc công văn, nộp báo cáo', icon: Printer },
+];
+const TEACHER_MORE: { id: ActiveModule; label: string; desc: string; icon: React.ElementType }[] = [
+  { id: 'plans', label: 'Kế hoạch tổ & cá nhân', desc: 'Kế hoạch giáo dục của tôi', icon: CalendarDays },
+  { id: 'members', label: 'Phân công chuyên môn', desc: 'Của tôi và cả tổ (chỉ xem)', icon: Users },
+  { id: 'special-topics', label: 'Chuyên đề & Sáng kiến', desc: 'HSG, BDTX, GeoGebra & STEM', icon: Award },
+  { id: 'documents', label: 'Tài liệu dùng chung', desc: 'Văn bản, mẫu biểu, bài giảng', icon: FolderOpen },
+  { id: 'ai-assistant', label: 'Trợ lý AI Toán học', desc: 'Soạn đề, giải toán', icon: Bot },
+  { id: 'teacher-360', label: 'Hồ sơ của tôi', desc: 'Minh chứng & định mức học kỳ', icon: UserRound },
+];
+
+const ROLE_TEXT: Record<string, string> = {
+  admin: 'Quản trị', head: 'Tổ trưởng', deputy: 'Tổ phó', teacher: 'Giáo viên', principal: 'Ban giám hiệu',
+};
+
+/** Thanh nút cuối màn hình điện thoại cho giáo viên */
+export const TeacherBottomNav: React.FC<{ activeModule: ActiveModule; onSelectModule: (m: ActiveModule) => void; onOpenMenu: () => void }> = ({ activeModule, onSelectModule, onOpenMenu }) => {
+  const items = TEACHER_MAIN.filter(i => i.id !== 'observations' && i.id !== 'lesson-study');
+  return (
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 grid grid-cols-5 print:hidden pb-[env(safe-area-inset-bottom)]" aria-label="Điều hướng nhanh">
+      {items.map(i => {
+        const Icon = i.icon;
+        const on = activeModule === i.id;
+        return (
+          <button key={i.id} onClick={() => onSelectModule(i.id)} className={`py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold ${on ? 'text-blue-700' : 'text-slate-500'}`} aria-current={on ? 'page' : undefined}>
+            <Icon className="w-5 h-5" />{i.short}
+          </button>
+        );
+      })}
+      <button onClick={onOpenMenu} className="py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold text-slate-500"><MoreHorizontal className="w-5 h-5" />Thêm</button>
+    </nav>
+  );
+};
 
 interface SidebarProps {
   activeModule: ActiveModule;
@@ -60,6 +107,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     accessRequests,
     permissions,
   } = useApp();
+  const teacherView = !permissions.isLeader && activeMember.role !== 'principal';
+  const [showMore, setShowMore] = useState(() => TEACHER_MORE.some(i => i.id === activeModule));
 
   // Badges: chỉ hiện số việc cần xử lý với người có quyền xử lý
   const pendingLessonPlans = permissions.isLeader ? lessonPlans.filter(p => p.status === 'submitted').length : 0;
@@ -189,43 +238,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  return (
-    <>
-      {/* Mobile overlay */}
-      {isOpen && (
-        <div
-          onClick={onCloseMobile}
-          className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs z-40 md:hidden"
-        />
-      )}
-
-      <aside
-        className={`fixed md:sticky top-16 left-0 z-40 print:hidden h-[calc(100vh-4rem)] w-64 lg:w-72 bg-slate-50 border-r border-slate-200 overflow-y-auto flex flex-col transition-transform duration-200 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        }`}
-      >
-        {(config.schoolLeaders || []).some(l => l.name.trim()) && (
-          <div className="p-3 border-b border-slate-200" data-testid="school-leaders">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">Ban giám hiệu</div>
-            <ul className="mt-1 space-y-1.5 px-2">
-              {(config.schoolLeaders || []).filter(l => l.name.trim()).map(l => (
-                <li key={l.id} className="text-xs leading-tight">
-                  <div className="font-semibold text-slate-800">{l.name}</div>
-                  <div className="text-[10px] text-slate-500">{l.title}</div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <div className="p-3 border-b border-slate-200">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">
-            Phân hệ Quản lý Chuyên môn
-          </div>
-        </div>
-
-        <nav className="p-2 space-y-1 flex-1">
-          {navItems.map(item => {
-            const Icon = item.icon;
+  const renderItem = (item: { id: ActiveModule; label: string; desc: string; icon: React.ElementType; badge: string | null; badgeColor?: string }) => {
+    const Icon = item.icon;
             const isActive = activeModule === item.id;
 
             return (
@@ -271,9 +285,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </button>
             );
+  };
+
+  return (
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          onClick={onCloseMobile}
+          className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs z-40 md:hidden"
+        />
+      )}
+
+      <aside
+        className={`fixed md:sticky top-16 left-0 z-40 print:hidden h-[calc(100vh-4rem)] w-64 lg:w-72 bg-slate-50 border-r border-slate-200 overflow-y-auto flex flex-col transition-transform duration-200 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        {(config.schoolLeaders || []).some(l => l.name.trim()) && (
+          <div className="p-3 border-b border-slate-200" data-testid="school-leaders">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">Ban giám hiệu</div>
+            <ul className="mt-1 space-y-1.5 px-2">
+              {(config.schoolLeaders || []).filter(l => l.name.trim()).map(l => (
+                <li key={l.id} className="text-xs leading-tight">
+                  <div className="font-semibold text-slate-800">{l.name}</div>
+                  <div className="text-[10px] text-slate-500">{l.title}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="p-3 border-b border-slate-200">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">
+            {teacherView ? 'Công việc của tôi' : 'Phân hệ Quản lý Chuyên môn'}
+          </div>
+        </div>
+
+        <nav className="p-2 space-y-1 flex-1">
+          {teacherView ? (
+            <>
+              {TEACHER_MAIN.map(item => renderItem({ ...item, badge: null }))}
+              <button
+                type="button"
+                onClick={() => setShowMore(v => !v)}
+                className="w-full text-left px-3 py-2 mt-2 rounded-lg flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-200/70"
+                aria-expanded={showMore}
+              >
+                Xem thêm <ChevronDown className={`w-4 h-4 transition-transform ${showMore ? 'rotate-180' : ''}`} />
+              </button>
+              {showMore && TEACHER_MORE.map(item => renderItem({ ...item, badge: null }))}
+            </>
+          ) : navItems.map(item => {
+            return renderItem(item);
           })}
 
           {/* Liên kết ngoài: mở trang khác ở tab mới, không đồng bộ dữ liệu */}
+          {(!teacherView || externalItems.some(i => i.url)) && (
           <div className="pt-3 mt-2 border-t border-slate-200">
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3 py-1">
               Liên kết ngoài
@@ -284,6 +351,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 const common = 'w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-xs font-medium transition-all group';
 
                 if (!item.url) {
+                  if (teacherView) return null;
                   return (
                     <button
                       key={item.key}
@@ -328,6 +396,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               })}
             </div>
           </div>
+          )}
         </nav>
 
         {/* Footer info in sidebar */}
@@ -338,7 +407,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <div className="flex items-center justify-between mt-1">
             <span>Vai trò đang duyệt:</span>
-            <span className="font-semibold text-blue-700">{activeMember.role.toUpperCase()}</span>
+            <span className="font-semibold text-blue-700">{ROLE_TEXT[activeMember.role] || activeMember.role}</span>
           </div>
         </div>
       </aside>

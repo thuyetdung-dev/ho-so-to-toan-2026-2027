@@ -120,9 +120,11 @@ export function teacherStandards(
   const inTerm = allTasks.filter(t => t.deadline && t.deadline >= start && t.deadline <= end);
   const due = inTerm.filter(t => t.deadline < today);
   const dueDone = due.filter(t => t.status === 'completed');
-  const overdue = due.length - dueDone.length;
+  // Đã nộp minh chứng đúng hạn, đang chờ lãnh đạo xác nhận: không tính là quá hạn
+  const waitingReview = due.filter(t => t.status === 'submitted').length;
+  const overdue = due.length - dueDone.length - waitingReview;
   const notDue = inTerm.length - due.length;
-  const taskStatus: StandardStatus = overdue > 0 ? 'chua_dat' : due.length > 0 ? 'dat' : inTerm.length ? 'chua_den_han' : 'khong_yeu_cau';
+  const taskStatus: StandardStatus = overdue > 0 ? 'chua_dat' : waitingReview > 0 ? 'chua_den_han' : due.length > 0 ? 'dat' : inTerm.length ? 'chua_den_han' : 'khong_yeu_cau';
 
   const quota = (key: keyof KpiMinimums, label: string, list: { id: string }[], unit: string, refOf: (x: never) => string): StandardGroup => {
     const required = minimumOf(minimums, key, term);
@@ -140,7 +142,7 @@ export function teacherStandards(
     quota('observations', 'Dự giờ & rút kinh nghiệm', obs, 'tiết dự có rút kinh nghiệm', (o: ObservationRecord) => `${o.date} · ${o.lessonName || ''}`),
     {
       key: 'professionalTasks', label: 'Nhiệm vụ được giao', actual: dueDone.length, required: due.length, status: taskStatus,
-      detail: (due.length ? `${dueDone.length}/${due.length} việc đến hạn đã hoàn thành${overdue ? ` · ${overdue} quá hạn` : ''}` : 'Chưa có việc đến hạn')
+      detail: (due.length ? `${dueDone.length}/${due.length} việc đến hạn đã hoàn thành${overdue ? ` · ${overdue} quá hạn` : ''}${waitingReview ? ` · ${waitingReview} chờ xác nhận` : ''}` : 'Chưa có việc đến hạn')
         + (notDue ? ` · ${notDue} việc chưa đến hạn` : ''),
       refs: inTerm.map(t => `${t.deadline} · ${t.title} (${t.from})${t.status === 'completed' ? ' ✓' : t.deadline < today ? ' – quá hạn' : ''}`),
     },

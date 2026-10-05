@@ -48,12 +48,13 @@ export const OperationsModule: React.FC = () => {
   const [editingId,setEditingId] = useState<string | null>(null);
   const [busyTaskId,setBusyTaskId] = useState<string | null>(null);
 
-  const scoped = useMemo(()=>workTasks.filter(t=>t.academicYear===config.academicYear),[workTasks,config.academicYear]);
+  // Giáo viên chỉ thấy việc của mình; lãnh đạo tổ thấy toàn tổ
+  const scoped = useMemo(()=>workTasks.filter(t=>t.academicYear===config.academicYear&&(permissions.isLeader||isMe(t.assigneeId))),[workTasks,config.academicYear,permissions.isLeader,isMe]);
   const memberScoped = useMemo(()=>memberFilter ? scoped.filter(t=>t.assigneeId===memberFilter) : scoped,[scoped,memberFilter]);
   const visible = useMemo(()=>memberScoped.filter(t=>{
     if(filter==='mine') return isMe(t.assigneeId);
     if(filter==='open') return t.status!=='completed';
-    if(filter==='overdue') return t.status!=='completed' && priorityFor(t.deadline)==='overdue';
+    if(filter==='overdue') return !['completed','submitted'].includes(t.status) && priorityFor(t.deadline)==='overdue';
     if(filter==='submitted') return t.status==='submitted';
     if(filter==='completed') return t.status==='completed';
     return permissions.isLeader || isMe(t.assigneeId);
@@ -67,7 +68,7 @@ export const OperationsModule: React.FC = () => {
   const stats = {
     total: memberScoped.length,
     open: memberScoped.filter(t=>t.status!=='completed').length,
-    overdue: memberScoped.filter(t=>t.status!=='completed'&&priorityFor(t.deadline)==='overdue').length,
+    overdue: memberScoped.filter(t=>!['completed','submitted'].includes(t.status)&&priorityFor(t.deadline)==='overdue').length,
     submitted: memberScoped.filter(t=>t.status==='submitted').length,
     completed: memberScoped.filter(t=>t.status==='completed').length,
   };
@@ -146,7 +147,7 @@ export const OperationsModule: React.FC = () => {
 
   return <div className="space-y-5">
     <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
-      <div><div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-indigo-600"/><h1 className="text-xl font-bold">Điều hành công việc & minh chứng</h1></div><p className="text-xs text-slate-500 mt-1">Giao việc → thực hiện → nộp minh chứng → duyệt → tự động đưa vào tiến độ/KPI.</p></div>
+      <div><div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-indigo-600"/><h1 className="text-xl font-bold">{permissions.isLeader?'Điều hành công việc & minh chứng':'Việc của tôi'}</h1></div><p className="text-xs text-slate-500 mt-1">{permissions.isLeader?'Giao việc → thực hiện → nộp minh chứng → duyệt → tự động đưa vào định mức.':'Việc tổ giao và đầu việc tự chọn từ công văn: bắt đầu → nộp minh chứng → chờ lãnh đạo tổ xác nhận.'}</p></div>
       {permissions.isLeader&&<button onClick={()=>{if(showForm)closeForm();else{setEditingId(null);setShowForm(true);}}} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2"><Plus className="w-4 h-4"/>Giao việc mới</button>}
     </div>
 
@@ -166,9 +167,9 @@ export const OperationsModule: React.FC = () => {
 
     <div className="bg-white border rounded-xl p-4">
       {selectedMember&&<div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2"><div className="text-xs text-blue-900"><strong>Đang lọc giáo viên:</strong> {selectedMember.displayName}</div><button onClick={()=>syncRoute(filter,'')} className="text-[11px] font-semibold text-blue-700 hover:underline">Bỏ lọc giáo viên</button></div>}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4"><div className="flex items-center gap-2 text-xs font-bold"><Filter className="w-4 h-4 text-slate-500"/>Danh sách công việc</div><div className="flex flex-wrap gap-1">{([['mine','Của tôi'],['all','Toàn tổ'],['open','Đang mở'],['overdue','Quá hạn'],['submitted','Chờ duyệt'],['completed','Hoàn thành']] as const).map(([v,l])=><button key={v} onClick={()=>syncRoute(v)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold ${filter===v?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}</div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4"><div className="flex items-center gap-2 text-xs font-bold"><Filter className="w-4 h-4 text-slate-500"/>Danh sách công việc</div><div className="flex flex-wrap gap-1">{(([...(permissions.isLeader?[['mine','Của tôi'],['all','Toàn tổ']]:[['mine','Tất cả']]),['open','Đang mở'],['overdue','Quá hạn'],['submitted','Chờ duyệt'],['completed','Hoàn thành']]) as [TaskFilter,string][]).map(([v,l])=><button key={v} onClick={()=>syncRoute(v)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold ${filter===v?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}</div></div>
       {visible.length===0?<div className="py-10 text-center text-xs text-slate-500 border border-dashed rounded-lg">Không có công việc phù hợp bộ lọc.</div>:<div className="space-y-3">{visible.map(task=>{
-        const overdue=task.status!=='completed'&&priorityFor(task.deadline)==='overdue'; const mine=isMe(task.assigneeId); const url=safeUrl(task.evidenceUrl);
+        const overdue=!['completed','submitted'].includes(task.status)&&priorityFor(task.deadline)==='overdue'; const mine=isMe(task.assigneeId); const url=safeUrl(task.evidenceUrl);
         return <div key={task.id} ref={focusTaskId===task.id?focusRef:undefined} className={`border rounded-xl p-4 transition ${focusTaskId===task.id?'ring-2 ring-indigo-300 border-indigo-300 bg-indigo-50/30':overdue?'border-rose-200 bg-rose-50/30':'border-slate-200'}`}>
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold text-slate-900">{task.title}</h3><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${STATUS[task.status].cls}`}>{STATUS[task.status].label}</span>{overdue&&<span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/>Quá hạn</span>}</div><div className="text-[11px] text-slate-500 mt-1">{task.assigneeName} · Hạn {new Date(task.deadline+'T00:00:00').toLocaleDateString('vi-VN')} · Ưu tiên {PRIORITY[task.priority]}{task.sourceType==='document'&&<> · Tự chọn từ {task.sourceName||'công văn'}</>}</div>{task.description&&<p className="text-xs text-slate-700 mt-2">{task.description}</p>}{task.evidenceNote&&<div className="mt-2 p-2 bg-slate-50 rounded text-[11px]"><strong>Minh chứng:</strong> {task.evidenceNote}{url&&<a href={url} target="_blank" rel="noreferrer" className="ml-2 text-blue-600 inline-flex items-center gap-1">Mở link <ExternalLink className="w-3 h-3"/></a>}</div>}{task.reviewNote&&<div className="mt-2 text-[11px] text-slate-600"><strong>Phản hồi:</strong> {task.reviewNote}</div>}{task.submittedAt&&<div className="mt-1 text-[10px] text-slate-400">Nộp minh chứng: {new Date(task.submittedAt).toLocaleString('vi-VN')}</div>}{task.completedAt&&<div className="mt-1 text-[10px] text-emerald-600 font-semibold">Xác nhận hoàn thành: {new Date(task.completedAt).toLocaleString('vi-VN')}</div>}</div>
           <div className="flex flex-wrap gap-2 shrink-0">
