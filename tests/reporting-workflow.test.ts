@@ -66,3 +66,19 @@ test('Không tự chuyển nháp sang trả lại; hồ sơ trả lại vẫn đ
   const dept:any = {createdBy:'Tổ trưởng',createdById:'head',status:'draft',version:1};
   assert.equal(canUpdatePlan(dept, {...dept,status:'returned'},'head',true,true),false);
 });
+
+test('V2.21: người soạn rút kế hoạch đã nộp/đã duyệt về bản nháp để sửa', () => {
+  const base = { id: 'p1', teacherId: 'gv-1', status: 'approved', version: 3, updatedAt: '2026-10-01', approvedBy: 'Tổ trưởng', sections: [] };
+  const reopen = { ...base, status: 'draft', version: 4, updatedAt: '2026-10-08', approvedBy: '' };
+  assert.equal(canUpdatePlan(base, reopen, 'teacher', true), true);
+  assert.equal(canUpdatePlan({ ...base, status: 'submitted' }, reopen, 'teacher', true), true);
+  // Không phải người soạn thì không rút được (trừ Tổ trưởng/Quản trị)
+  assert.equal(canUpdatePlan(base, reopen, 'teacher', false), false);
+  assert.equal(canUpdatePlan(base, reopen, 'deputy', false), false);
+  assert.equal(canUpdatePlan(base, reopen, 'head', false), true);
+  assert.equal(canUpdatePlan(base, reopen, 'principal', true), false);
+  // Không được kèm sửa nội dung trong bước rút về
+  assert.equal(canUpdatePlan(base, { ...reopen, sections: [{ id: 'x' }] }, 'teacher', true), false);
+  // Không được đổi chủ kế hoạch
+  assert.equal(canUpdatePlan(base, { ...reopen, teacherId: 'gv-2' }, 'teacher', true), false);
+});

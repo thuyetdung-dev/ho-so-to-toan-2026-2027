@@ -169,6 +169,7 @@ export const TeacherPlansPanel: React.FC = () => {
     teacherPlans,
     saveTeacherPlan,
     deleteTeacherPlan,
+    reopenTeacherPlan,
     allMembers,
     activeMember,
     config,
@@ -220,6 +221,9 @@ export const TeacherPlansPanel: React.FC = () => {
   );
 
   const canEdit = (p: TeacherPlan) => (isLeader || isMe(p.teacherId)) && (p.status === 'draft' || p.status === 'returned');
+  // Người lập (hoặc Tổ trưởng) sửa kế hoạch đã nộp / đã duyệt: rút về bản nháp rồi sửa, sau đó nộp lại
+  const canReopen = (p: TeacherPlan) => permissions.canContribute && (isMe(p.teacherId) || permissions.isAdminOrHead) && (p.status === 'submitted' || p.status === 'approved');
+  const canDelete = (p: TeacherPlan) => (permissions.canContribute && isMe(p.teacherId)) || (permissions.isAdminOrHead && p.status !== 'approved');
   const canSubmit = (p: TeacherPlan) => isMe(p.teacherId) && (p.status === 'draft' || p.status === 'returned');
   const canReview = (p: TeacherPlan) => (isLeader || activeMember.role === 'principal') && (!isMe(p.teacherId) || permissions.isAdminOrHead) && p.status === 'submitted';
 
@@ -423,10 +427,26 @@ export const TeacherPlansPanel: React.FC = () => {
     setReviewNote('');
   };
 
+  const handleEditClick = async (p: TeacherPlan) => {
+    if (canEdit(p)) {
+      openEdit(p);
+      return;
+    }
+    if (!canReopen(p)) return;
+    const ok = await confirm({
+      title: 'Sửa kế hoạch đã nộp?',
+      message: `Kế hoạch "${p.title}" ${p.status === 'approved' ? 'đã được duyệt' : 'đang chờ duyệt'}. Khi sửa, kế hoạch sẽ chuyển về bản nháp; sửa xong thầy/cô bấm "Nộp" để tổ duyệt lại.`,
+      confirmText: 'Chuyển về nháp và sửa',
+    });
+    if (!ok) return;
+    const reopened = await reopenTeacherPlan(p.id);
+    if (reopened) openEdit(reopened);
+  };
+
   const handleDelete = async (p: TeacherPlan) => {
     const ok = await confirm({
       title: 'Xóa kế hoạch giảng dạy?',
-      message: `"${p.title}" của ${p.teacherName} sẽ bị xóa vĩnh viễn.`,
+      message: `"${p.title}" của ${p.teacherName} sẽ bị xóa vĩnh viễn.${p.status === 'approved' ? ' Kế hoạch này đã được duyệt; sau khi xóa sẽ không còn tính vào định mức.' : ''}`,
       confirmText: 'Xóa',
       danger: true,
     });
@@ -723,8 +743,12 @@ export const TeacherPlansPanel: React.FC = () => {
                 </div>
 
                 <div className="flex flex-wrap gap-1.5 justify-end print:hidden">
-                  {canEdit(p) && (
-                    <button onClick={() => openEdit(p)} className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-slate-50 text-blue-700 rounded-lg border border-blue-200 flex items-center gap-1">
+                  {(canEdit(p) || canReopen(p)) && (
+                    <button
+                      onClick={() => handleEditClick(p)}
+                      title={canEdit(p) ? 'Sửa kế hoạch' : 'Chuyển kế hoạch về bản nháp để sửa (cần nộp lại)'}
+                      className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-slate-50 text-blue-700 rounded-lg border border-blue-200 flex items-center gap-1"
+                    >
                       <Edit3 className="w-3 h-3" /> Sửa
                     </button>
                   )}
@@ -743,7 +767,7 @@ export const TeacherPlansPanel: React.FC = () => {
                       </button>
                     </>
                   )}
-                  {permissions.isAdminOrHead && p.status !== 'approved' && (
+                  {canDelete(p) && (
                     <button onClick={() => handleDelete(p)} className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-rose-50 text-rose-600 rounded-lg border border-rose-200 flex items-center gap-1">
                       <Trash2 className="w-3 h-3" /> Xóa
                     </button>

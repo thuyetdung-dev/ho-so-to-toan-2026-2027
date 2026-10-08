@@ -407,7 +407,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <div className="flex items-center justify-between mt-1">
             <span>Vai trò đang duyệt:</span>
-            <span className="font-semibold text-blue-700">{ROLE_TEXT[activeMember.role] || activeMember.role}</span>
+            <span className="font-semibold text-blue-700">{ROLE_TEXT[activeMember.role] || activeMember.role}{activeMember.isSecretary && activeMember.role !== 'principal' ? ' · Thư ký' : ''}</span>
           </div>
         </div>
       </aside>

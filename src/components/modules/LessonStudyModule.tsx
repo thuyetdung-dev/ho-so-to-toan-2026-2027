@@ -35,6 +35,9 @@ export const LessonStudyModule: React.FC = () => {
   const confirm = useConfirm();
 
   const isLeader = permissions.isLeader;
+  // Thư ký tổ được tạo, sửa, xóa biên bản khi biên bản chưa chốt (không chốt/mở khóa, không giao việc)
+  const isSecretary = permissions.isSecretary;
+  const canManageMinutes = isLeader || isSecretary;
 
   const [selectedMeetingId, setSelectedMeetingId] = useState<string>('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,6 +63,9 @@ export const LessonStudyModule: React.FC = () => {
   const sortedMeetings = [...meetings].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const selectedMeeting = meetings.find(m => m.id === selectedMeetingId) || sortedMeetings[0];
   const activeMembers = allMembers.filter(m => m.status === 'active');
+  const secretaryNames = activeMembers.filter(m => m.isSecretary).map(m => m.displayName);
+  const canEditSelected = !!selectedMeeting && canManageMinutes && selectedMeeting.status !== 'finalized';
+  const canDeleteSelected = !!selectedMeeting && (permissions.isAdminOrHead || (isSecretary && selectedMeeting.status !== 'finalized'));
 
   const openCreate = () => {
     setEditingId(null);
@@ -68,8 +74,8 @@ export const LessonStudyModule: React.FC = () => {
       type: 'regular',
       date: todayISO(),
       location: 'Phòng họp tổ chuyên môn',
-      chairPerson: activeMember.displayName,
-      secretary: '',
+      chairPerson: isLeader ? activeMember.displayName : '',
+      secretary: isSecretary ? activeMember.displayName : secretaryNames.length === 1 ? secretaryNames[0] : '',
       content: '',
       conclusions: '',
     });
@@ -254,7 +260,7 @@ export const LessonStudyModule: React.FC = () => {
           </p>
         </div>
 
-        {isLeader && (
+        {canManageMinutes && (
           <button
             onClick={openCreate}
             id="btn-add-meeting"
@@ -394,14 +400,14 @@ export const LessonStudyModule: React.FC = () => {
                 <button onClick={() => window.print()} className="px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1 border border-slate-200">
                   <Printer className="w-3.5 h-3.5" /> In
                 </button>
-                {isLeader && selectedMeeting.status !== 'finalized' && (
+                {canEditSelected && (
                   <button onClick={() => openEdit(selectedMeeting)} className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 border border-blue-200 hover:bg-blue-50 rounded-lg flex items-center gap-1">
                     <Pencil className="w-3.5 h-3.5" /> Sửa
                   </button>
                 )}
-                {permissions.isAdminOrHead && (
-                  <button onClick={handleDeleteMeeting} className="px-2.5 py-1.5 text-xs text-rose-700 border border-rose-200 hover:bg-rose-50 rounded-lg" aria-label="Xóa biên bản">
-                    <Trash2 className="w-3.5 h-3.5" />
+                {canDeleteSelected && (
+                  <button onClick={handleDeleteMeeting} className="px-2.5 py-1.5 text-xs font-semibold text-rose-700 border border-rose-200 hover:bg-rose-50 rounded-lg flex items-center gap-1" aria-label="Xóa biên bản">
+                    <Trash2 className="w-3.5 h-3.5" /> Xóa
                   </button>
                 )}
                 {isLeader && (
@@ -428,6 +434,12 @@ export const LessonStudyModule: React.FC = () => {
                 )}
                 </div>
               </div>
+
+              {isSecretary && !isLeader && selectedMeeting.status === 'finalized' && (
+                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 print:hidden">
+                  Biên bản đã chốt. Thư ký cần Tổ trưởng/Tổ phó mở khóa thì mới sửa hoặc xóa được.
+                </div>
+              )}
 
               {/* Thông tin chung */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-slate-50 p-3.5 rounded-lg border border-slate-200">
@@ -613,7 +625,10 @@ export const LessonStudyModule: React.FC = () => {
               </label>
               <label className="font-semibold text-slate-700">
                 Thư ký
-                <input value={newMeeting.secretary} onChange={e => setNewMeeting(v => ({ ...v, secretary: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Họ tên thư ký" />
+                <input list="meeting-secretaries" value={newMeeting.secretary} onChange={e => setNewMeeting(v => ({ ...v, secretary: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Họ tên thư ký" />
+                <datalist id="meeting-secretaries">
+                  {secretaryNames.map(n => <option key={n} value={n} />)}
+                </datalist>
               </label>
               <fieldset className="sm:col-span-2">
                 <legend className="font-semibold text-slate-700 mb-1">Thành viên có mặt</legend>

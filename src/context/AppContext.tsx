@@ -113,6 +113,8 @@ export interface Permissions {
   canApproveDeptPlan: boolean;
   /** Mọi thành viên trừ BGH (chỉ xem & duyệt) */
   canContribute: boolean;
+  /** Thư ký tổ: tạo, sửa, xóa biên bản sinh hoạt chuyên môn chưa chốt */
+  isSecretary: boolean;
 }
 
 interface AppContextType {
@@ -177,9 +179,13 @@ interface AppContextType {
   teacherPlans: TeacherPlan[];
   saveTeacherPlan: (plan: TeacherPlan) => Promise<boolean>;
   deleteTeacherPlan: (id: string) => Promise<void>;
+  /** Rút kế hoạch cá nhân đang chờ duyệt / đã duyệt về bản nháp để sửa (cần nộp duyệt lại) */
+  reopenTeacherPlan: (id: string) => Promise<TeacherPlan | null>;
   lessonPlans: LessonPlan[];
   saveLessonPlan: (plan: LessonPlan, options?: { silent?: boolean }) => Promise<boolean>;
   deleteLessonPlan: (id: string) => Promise<void>;
+  /** Rút kế hoạch bài dạy đang chờ duyệt / đã duyệt (hoặc bị trả lại) về bản nháp để sửa hoặc xóa */
+  reopenLessonPlan: (id: string) => Promise<LessonPlan | null>;
   submitLessonPlan: (planId: string, comment?: string) => Promise<void>;
   reviewLessonPlan: (planId: string, action: 'approve' | 'returned', note: string) => Promise<void>;
   updateLessonPlanTeachingStatus: (planId: string, status: 'not_taught' | 'in_progress' | 'completed', taughtDate?: string, classes?: string[]) => Promise<void>;
@@ -812,7 +818,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const role = activeMember.role;
     const isRealUnauthorized = !isDemoMode && authStatus !== 'authorized';
     if (isRealUnauthorized) {
-      return { isLeader: false, isAdminOrHead: false, isAdmin: false, canApproveDeptPlan: false, canContribute: false };
+      return { isLeader: false, isAdminOrHead: false, isAdmin: false, canApproveDeptPlan: false, canContribute: false, isSecretary: false };
     }
     return {
       isLeader: LEADER_ROLES.includes(role),
@@ -820,8 +826,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isAdmin: role === 'admin',
       canApproveDeptPlan: role === 'principal' || role === 'admin' || role === 'head',
       canContribute: role !== 'principal',
+      isSecretary: role !== 'principal' && !!activeMember.isSecretary,
     };
-  }, [activeMember.role, isDemoMode, authStatus]);
+  }, [activeMember.role, activeMember.isSecretary, isDemoMode, authStatus]);
 
   // ---------- Ghi dữ liệu an toàn ----------
   /**
@@ -1406,6 +1413,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
+  const reopenTeacherPlan = async (id: string): Promise<TeacherPlan | null> => {
+    const plan = currentTeacherPlans.find(p => p.id === id);
+    if (!plan) return null;
+    if (plan.status === 'draft' || plan.status === 'returned') return plan;
+    if (!isMe(plan.teacherId) && !permissions.isAdminOrHead) {
+      setNotification({ message: 'Chỉ người lập kế hoạch (hoặc Tổ trưởng) được rút kế hoạch về để sửa.', type: 'error' });
+      return null;
+    }
+    const reopened: TeacherPlan = { ...plan, status: 'draft', version: (plan.version || 1) + 1, updatedAt: new Date().toISOString() };
+    if (!await upsertItem('teacherPlans', reopened, setDemoTeacherPlans, setRealTeacherPlans)) return null;
+    await logAction('Rút kế hoạch giáo dục về bản nháp', 'TeacherPlan', id, `${plan.teacherName} – từ "${plan.status}" về bản nháp (v${reopened.version})`);
+    return reopened;
+  };
+
   const deleteTeacherPlan = async (id: string) => {
     const target = currentTeacherPlans.find(p => p.id === id);
     const ok = await removeItem('teacherPlans', id, setDemoTeacherPlans, setRealTeacherPlans);
@@ -1454,14 +1475,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
+  const reopenLessonPlan = async (id: string): Promise<LessonPlan | null> => {
+    const plan = currentLessonPlans.find(p => p.id === id);
+    if (!plan) return null;
+    if (plan.status === 'draft') return plan;
+    if (!isMe(plan.teacherId) && !permissions.isAdminOrHead) {
+      setNotification({ message: 'Chỉ người soạn (hoặc Tổ trưởng) được rút giáo án về để sửa.', type: 'error' });
+      return null;
+    }
+    const now = new Date().toISOString();
+    const reopened: LessonPlan = {
+      ...plan,
+      status: 'draft',
+      approvedBy: '',
+      updatedAt: now,
+      versionHistory: [
+        ...(plan.versionHistory || []),
+        {
+          version: plan.version || 1,
+          updatedAt: now,
+          updatedBy: activeMember.displayName,
+          changeSummary: 'Người soạn rút giáo án về bản nháp để chỉnh sửa (cần trình duyệt lại)',
+          status: 'draft',
+        },
+      ],
+    };
+    const ok = isDemoMode
+      ? (setDemoLessonPlans(prev => upsertById(prev, reopened, true)), true)
+      : await persist(async () => {
+          const batch = writeBatch(db);
+          const eventRef = doc(collection(db, 'planEvents'));
+          batch.update(doc(db, 'lessonPlans', id), {
+            status: 'draft', approvedBy: '', _eventId: eventRef.id, updatedAt: now, versionHistory: reopened.versionHistory,
+          });
+          batch.set(eventRef, {collection: 'lessonPlans', planId: id,
+            from: plan.status, to: 'draft', actorUid: currentUser!.uid, actorEmail: userEmail, recordedAt: serverTimestamp()});
+          await batch.commit();
+        });
+    if (!ok) return null;
+    if (!isDemoMode) setRealLessonPlans(prev => upsertById(prev, reopened, true));
+    await logAction('Rút giáo án về bản nháp', 'LessonPlan', id, `Từ "${plan.status}" về bản nháp`);
+    return reopened;
+  };
+
   const deleteLessonPlan = async (id: string) => {
     let ok: boolean;
     if (isDemoMode) {
       setDemoLessonPlans(prev => prev.filter(p => p.id !== id));
       ok = true;
     } else {
-      const plan = realLessonPlans.find(p => p.id === id);
-      ok = !!plan && (await persist(() => deleteLessonPlanDeep(db, storage, plan)));
+      let plan = realLessonPlans.find(p => p.id === id);
+      // Người soạn xóa giáo án đã nộp/đã duyệt: rút về bản nháp trước (quy tắc chỉ cho xóa bản nháp)
+      if (plan && plan.status !== 'draft' && !(permissions.isAdminOrHead && plan.status !== 'approved')) {
+        const reopened = await reopenLessonPlan(id);
+        if (!reopened) return;
+        plan = reopened;
+      }
+      ok = !!plan && (await persist(() => deleteLessonPlanDeep(db, storage, plan!)));
       if (ok) setRealLessonPlans(prev => prev.filter(p => p.id !== id));
     }
     if (ok) {
@@ -2347,9 +2417,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         teacherPlans: currentTeacherPlans,
         saveTeacherPlan,
         deleteTeacherPlan,
+        reopenTeacherPlan,
         lessonPlans: currentLessonPlans,
         saveLessonPlan,
         deleteLessonPlan,
+        reopenLessonPlan,
         submitLessonPlan,
         reviewLessonPlan,
         updateLessonPlanTeachingStatus,

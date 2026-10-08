@@ -15,6 +15,8 @@ export interface Member {
   periodsPerWeek?: number;
   /** Thứ tự hiển thị trong bảng phân công (theo thứ tự trong file Excel đã nhập) */
   sortOrder?: number;
+  /** Thư ký tổ: được tạo, sửa, xóa biên bản sinh hoạt chuyên môn khi biên bản chưa chốt */
+  isSecretary?: boolean;
 }
 
 export interface AcademicCalendarMilestone {

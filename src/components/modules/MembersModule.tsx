@@ -926,6 +926,9 @@ export const MembersModule: React.FC = () => {
                       <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-100 text-blue-800">
                         {ROLE_LABEL[m.role] || m.role}
                       </span>
+                      {m.isSecretary && m.role !== 'principal' && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-violet-100 text-violet-800">Thư ký</span>
+                      )}
                       {isLeader && (
                         <button onClick={() => setEditingMember({ ...m })} className="p-1 text-slate-400 hover:text-blue-600" aria-label={`Sửa ${m.displayName}`}>
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1591,6 +1594,19 @@ export const MembersModule: React.FC = () => {
             </div>
             <label className="block font-semibold text-slate-700">Trình độ
               <input value={editingMember.qualifications || ''} onChange={e => setEditingMember({ ...editingMember, qualifications: e.target.value })} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+            </label>
+            <label className="flex items-start gap-2 p-2.5 rounded-lg border border-violet-200 bg-violet-50/60 text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={!!editingMember.isSecretary}
+                disabled={editingMember.role === 'principal'}
+                onChange={e => setEditingMember({ ...editingMember, isSecretary: e.target.checked })}
+              />
+              <span>
+                <span className="font-semibold">Thư ký tổ</span>
+                <span className="block text-[11px] text-slate-500 font-normal">Được lập, sửa và xóa biên bản sinh hoạt chuyên môn khi biên bản chưa chốt. Việc chốt / mở khóa biên bản vẫn do Tổ trưởng, Tổ phó.</span>
+              </span>
             </label>
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button type="button" onClick={() => setEditingMember(null)} className="px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>

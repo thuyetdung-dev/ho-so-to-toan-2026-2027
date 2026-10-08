@@ -50,6 +50,7 @@ export const LessonPlansModule: React.FC = () => {
     reviewLessonPlan,
     updateLessonPlanTeachingStatus,
     deleteLessonPlan,
+    reopenLessonPlan,
     classes,
     setNotification,
     permissions,
@@ -167,13 +168,37 @@ export const LessonPlansModule: React.FC = () => {
     [fullPlan],
   );
   const [doctorOpen, setDoctorOpen] = useState(false);
-  const canDelete = !!selectedPlan && ((isOwner && selectedPlan.status === 'draft') || (permissions.isAdminOrHead && selectedPlan.status !== 'approved'));
+  // Người soạn được sửa/xóa giáo án của mình ở mọi trạng thái: giáo án đang chờ duyệt / đã duyệt
+  // được rút về bản nháp trước, sửa xong phải trình duyệt lại.
+  const canReopen = !!selectedPlan && permissions.canContribute && (isOwner || permissions.isAdminOrHead)
+    && (selectedPlan.status === 'submitted' || selectedPlan.status === 'approved');
+  const canDelete = !!selectedPlan && ((permissions.canContribute && isOwner) || permissions.isAdminOrHead);
+  const STATUS_TEXT: Record<string, string> = { submitted: 'đang chờ duyệt', approved: 'đã được duyệt', returned: 'đang bị trả lại' };
+
+  const handleEdit = async () => {
+    if (!selectedPlan || !fullPlan) return;
+    if (canEdit) {
+      setEditingPlan(fullPlan);
+      return;
+    }
+    if (!canReopen) return;
+    const ok = await confirm({
+      title: 'Sửa giáo án đã nộp?',
+      message: `Giáo án "${selectedPlan.title}" ${STATUS_TEXT[selectedPlan.status] || ''}. Khi sửa, giáo án sẽ chuyển về bản nháp; sửa xong thầy/cô bấm "Trình duyệt" để tổ duyệt lại.`,
+      confirmText: 'Chuyển về nháp và sửa',
+    });
+    if (!ok) return;
+    const reopened = await reopenLessonPlan(selectedPlan.id);
+    if (!reopened) return;
+    setEditingPlan({ ...fullPlan, status: reopened.status, approvedBy: reopened.approvedBy, versionHistory: reopened.versionHistory, updatedAt: reopened.updatedAt });
+  };
 
   const handleDelete = async () => {
     if (!selectedPlan) return;
+    const extra = selectedPlan.status !== 'draft' ? ` Giáo án này ${STATUS_TEXT[selectedPlan.status] || ''}; sau khi xóa sẽ không còn tính vào định mức.` : '';
     const ok = await confirm({
       title: 'Xóa kế hoạch bài dạy?',
-      message: `"${selectedPlan.title}" sẽ bị xóa vĩnh viễn cùng các góp ý và lịch sử phiên bản.`,
+      message: `"${selectedPlan.title}" sẽ bị xóa vĩnh viễn cùng các góp ý và lịch sử phiên bản.${extra}`,
       confirmText: 'Xóa',
       danger: true,
     });
@@ -674,14 +699,15 @@ export const LessonPlansModule: React.FC = () => {
                     <span>Nhân bản</span>
                   </button>}
 
-                  {canEdit && (
+                  {(canEdit || canReopen) && (
                     <button
-                      onClick={() => fullPlan && setEditingPlan(fullPlan)}
+                      onClick={handleEdit}
                       disabled={!fullPlan}
-                      className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-blue-50 text-blue-700 rounded-lg flex items-center gap-1 border border-blue-200"
+                      title={canEdit ? 'Soạn / sửa nội dung giáo án' : 'Chuyển giáo án về bản nháp để sửa (cần trình duyệt lại)'}
+                      className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-blue-50 text-blue-700 rounded-lg flex items-center gap-1 border border-blue-200 disabled:opacity-50"
                     >
                       <Pencil className="w-3.5 h-3.5" />
-                      <span>Soạn / Sửa</span>
+                      <span>{canEdit ? 'Soạn / Sửa' : 'Sửa'}</span>
                     </button>
                   )}
                   {canFixFormula && formulaIssues.errors + formulaIssues.suggestions > 0 && (
@@ -705,9 +731,11 @@ export const LessonPlansModule: React.FC = () => {
                   {canDelete && (
                     <button
                       onClick={handleDelete}
-                      className="px-2.5 py-1.5 text-xs font-medium bg-white hover:bg-rose-50 text-rose-700 rounded-lg flex items-center gap-1 border border-rose-200"
+                      title="Xóa giáo án"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-white hover:bg-rose-50 text-rose-700 rounded-lg flex items-center gap-1 border border-rose-200"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa</span>
                     </button>
                   )}
 

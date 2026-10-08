@@ -177,5 +177,40 @@ try {
  await check('deputy creates and submits own report',setDoc(doc(dbs.deputy,'monthlyReports','deputy__2026-10'),mr('deputy','submitted')),true);
  await check('deputy cannot approve own report',updateDoc(doc(dbs.deputy,'monthlyReports','deputy__2026-10'),{status:'approved'}),false);
  await check('BGH cannot approve report',updateDoc(doc(dbs.principal,'monthlyReports','deputy__2026-10'),{status:'approved'}),false);
+ // ---------- V2.21: Thư ký tổ & người soạn sửa/xóa hồ sơ đã nộp ----------
+ const secDb=env.authenticatedContext('secretary',{email:'secretary@school.test',email_verified:true,name:'Thư ký'}).firestore();
+ await env.withSecurityRulesDisabled(async ctx=>{
+   const db=ctx.firestore();
+   await setDoc(doc(db,'members','secretary'),{email:'secretary@school.test',role:'teacher',displayName:'Thư ký',isSecretary:true});
+   await setDoc(doc(db,'accessIndex','secretary@school.test'),{memberId:'secretary',role:'teacher',email:'secretary@school.test'});
+   await setDoc(doc(db,'meetings','m-draft'),{title:'Họp',status:'draft',content:'A',tasks:[],memberOpinions:[]});
+   await setDoc(doc(db,'meetings','m-final'),{title:'Họp chốt',status:'finalized',content:'A',tasks:[],memberOpinions:[]});
+   await setDoc(doc(db,'meetings','m-del'),{title:'Họp xóa',status:'draft',content:'A',tasks:[],memberOpinions:[]});
+   await setDoc(doc(db,'lessonPlans','lp-own-approved'),{teacherId:'teacher',status:'approved',title:'GA',version:2,approvedBy:'Tổ trưởng'});
+   await setDoc(doc(db,'lessonPlans','lp-head-approved'),{teacherId:'head',status:'approved',title:'GA TT',version:2,approvedBy:'Tổ trưởng'});
+   await setDoc(doc(db,'teacherPlans','tp-own-submitted'),{teacherId:'teacher',status:'submitted',title:'KH',version:1});
+   await setDoc(doc(db,'teacherPlans','tp-own-approved'),{teacherId:'teacher',status:'approved',title:'KH duyệt',version:1});
+   await setDoc(doc(db,'teacherPlans','tp-head-approved'),{teacherId:'head',status:'approved',title:'KH TT',version:1});
+ });
+ dbs.secretary=secDb;
+ await check('secretary creates draft meeting',setDoc(doc(secDb,'meetings','m-new'),{title:'Mới',status:'draft',tasks:[],memberOpinions:[]}),true);
+ await check('secretary cannot create finalized meeting',setDoc(doc(secDb,'meetings','m-new2'),{title:'Mới',status:'finalized',tasks:[],memberOpinions:[]}),false);
+ await check('secretary edits draft minutes',updateDoc(doc(secDb,'meetings','m-draft'),{content:'Sửa biên bản',secretary:'Thư ký'}),true);
+ await check('secretary cannot finalize',updateDoc(doc(secDb,'meetings','m-draft'),{status:'finalized'}),false);
+ await check('secretary cannot edit finalized',updateDoc(doc(secDb,'meetings','m-final'),{content:'Sửa'}),false);
+ await check('secretary cannot delete finalized',deleteDoc(doc(secDb,'meetings','m-final')),false);
+ await check('plain teacher cannot edit minutes',updateDoc(doc(dbs.teacher,'meetings','m-draft'),{content:'Sửa'}),false);
+ await check('plain teacher cannot delete minutes',deleteDoc(doc(dbs.teacher,'meetings','m-del')),false);
+ await check('secretary deletes draft minutes',deleteDoc(doc(secDb,'meetings','m-del')),true);
+ await check('teacher cannot make self secretary',updateDoc(doc(dbs.teacher,'members','teacher'),{isSecretary:true}),false);
+ await check('teacher cannot reopen with content change',traced(dbs.teacher,'lessonPlans','lp-own-approved',{status:'draft',title:'Đổi'}),false);
+ await check('teacher cannot reopen others lesson plan',traced(dbs.teacher,'lessonPlans','lp-head-approved',{status:'draft',approvedBy:''}),false);
+ await check('teacher reopens own approved lesson plan',traced(dbs.teacher,'lessonPlans','lp-own-approved',{status:'draft',approvedBy:'',versionHistory:[{version:2,status:'draft'}]}),true);
+ await check('teacher edits reopened lesson content',setDoc(doc(dbs.teacher,'lessonPlanContent','lp-own-approved'),{planId:'lp-own-approved',text:'Sửa'}),true);
+ await check('teacher deletes reopened lesson plan',deleteDoc(doc(dbs.teacher,'lessonPlans','lp-own-approved')),true);
+ await check('teacher reopens own submitted teacher plan',traced(dbs.teacher,'teacherPlans','tp-own-submitted',{status:'draft',version:2}),true);
+ await check('teacher deletes own approved teacher plan',deleteDoc(doc(dbs.teacher,'teacherPlans','tp-own-approved')),true);
+ await check('teacher cannot delete others teacher plan',deleteDoc(doc(dbs.teacher,'teacherPlans','tp-head-approved')),false);
+ await check('teacher cannot reopen others teacher plan',traced(dbs.teacher,'teacherPlans','tp-head-approved',{status:'draft',version:2}),false);
  console.log(`RULES: ${count} checks passed`);
 } finally {await env.cleanup();}

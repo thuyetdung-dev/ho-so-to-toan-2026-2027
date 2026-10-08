@@ -149,6 +149,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${roleLabels[activeMember.role]?.color || 'bg-slate-200'}`}>
                 {roleLabels[activeMember.role]?.label || activeMember.role}
               </span>
+              {activeMember.isSecretary && activeMember.role !== 'principal' && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-violet-100 text-violet-800 border-violet-300" title="Thư ký tổ: lập, sửa, xóa biên bản sinh hoạt chuyên môn">Thư ký</span>
+              )}
               {isSimulatingMember && <span className="px-1.5 py-0.5 rounded text-[9px] font-black border bg-amber-100 text-amber-800 border-amber-300">GIẢ LẬP</span>}
             </button>
 
@@ -189,7 +192,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen, 
                         <div className="text-[10px] text-slate-400">{m.email}</div>
                       </div>
                       <span className={`px-1.5 py-0.5 rounded text-[10px] border ${roleLabels[m.role]?.color}`}>
-                        {roleLabels[m.role]?.label}
+                        {roleLabels[m.role]?.label}{m.isSecretary ? ' · Thư ký' : ''}
                       </span>
                     </button>
                   ))}
