@@ -58,6 +58,8 @@ export const LessonStudyModule: React.FC = () => {
     conclusions: '',
   });
   const [opinionText, setOpinionText] = useState('');
+  const [opinionAuthor, setOpinionAuthor] = useState('');
+  const [editingOpinion, setEditingOpinion] = useState<{ index: number; author: string; content: string } | null>(null);
   const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(2);
 
   const sortedMeetings = [...meetings].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -176,12 +178,49 @@ export const LessonStudyModule: React.FC = () => {
     }
   };
 
+  // Tổ trưởng/thư ký sửa, xóa mọi ý kiến; thành viên chỉ sửa, xóa ý kiến của chính mình (khi biên bản chưa chốt)
+  const canEditOpinion = (op: { author: string }) =>
+    !!selectedMeeting && selectedMeeting.status !== 'finalized' && (canManageMinutes || op.author === activeMember.displayName);
+
+  const handleSaveOpinion = async () => {
+    if (!selectedMeeting || !editingOpinion) return;
+    const content = editingOpinion.content.trim();
+    const author = editingOpinion.author.trim();
+    const current = selectedMeeting.memberOpinions?.[editingOpinion.index];
+    if (!content || !current || !canEditOpinion(current)) return;
+    const memberOpinions = (selectedMeeting.memberOpinions || []).map((op, i) =>
+      i === editingOpinion.index ? { author: canManageMinutes && author ? author : op.author, content } : op,
+    );
+    if (await saveMeeting({ ...selectedMeeting, memberOpinions, updatedAt: new Date().toISOString() }, { silent: true })) {
+      setEditingOpinion(null);
+      setNotification({ message: 'Đã cập nhật ý kiến thảo luận', type: 'success' });
+    }
+  };
+
+  const handleDeleteOpinion = async (index: number) => {
+    const op = selectedMeeting?.memberOpinions?.[index];
+    if (!selectedMeeting || !op || !canEditOpinion(op)) return;
+    const ok = await confirm({
+      title: 'Xóa ý kiến thảo luận?',
+      message: `Ý kiến của ${op.author} sẽ bị xóa khỏi biên bản.`,
+      confirmText: 'Xóa ý kiến',
+      danger: true,
+    });
+    if (!ok) return;
+    const memberOpinions = (selectedMeeting.memberOpinions || []).filter((_, i) => i !== index);
+    if (await saveMeeting({ ...selectedMeeting, memberOpinions, updatedAt: new Date().toISOString() }, { silent: true })) {
+      if (editingOpinion?.index === index) setEditingOpinion(null);
+      setNotification({ message: 'Đã xóa ý kiến khỏi biên bản', type: 'success' });
+    }
+  };
+
   const handleAddOpinion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!opinionText.trim() || !selectedMeeting || selectedMeeting.status === 'finalized') return;
 
     const newOp = {
-      author: activeMember.displayName,
+      // Thư ký/tổ trưởng ghi ý kiến thay cho người phát biểu
+      author: (canManageMinutes && opinionAuthor.trim()) || activeMember.displayName,
       content: opinionText.trim(),
     };
 
@@ -193,6 +232,7 @@ export const LessonStudyModule: React.FC = () => {
 
     if (await saveMeeting(updated, { silent: true })) {
       setOpinionText('');
+      setOpinionAuthor('');
       setNotification({ message: 'Đã lưu ý kiến phát biểu vào biên bản', type: 'success' });
     }
   };
@@ -348,7 +388,7 @@ export const LessonStudyModule: React.FC = () => {
               return (
                 <div
                   key={m.id}
-                  onClick={() => setSelectedMeetingId(m.id)}
+                  onClick={() => { setSelectedMeetingId(m.id); setEditingOpinion(null); }}
                   className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                     isSelected
                       ? 'bg-blue-50/70 border-blue-400 shadow-xs ring-1 ring-blue-300'
@@ -486,23 +526,98 @@ export const LessonStudyModule: React.FC = () => {
                 </h3>
 
                 <div className="space-y-2">
-                  {selectedMeeting.memberOpinions?.map((op, idx) => (
-                    <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-                      <div className="font-bold text-slate-800 mb-0.5">{op.author}:</div>
-                      <div className="text-slate-700">{op.content}</div>
-                    </div>
-                  ))}
+                  {selectedMeeting.memberOpinions?.map((op, idx) =>
+                    editingOpinion?.index === idx ? (
+                      <div key={idx} className="p-3 bg-amber-50 rounded-lg border border-amber-300 text-xs space-y-2">
+                        {canManageMinutes ? (
+                          <label className="block font-semibold text-slate-700">
+                            Người phát biểu
+                            <input
+                              list="meeting-opinion-authors"
+                              value={editingOpinion.author}
+                              onChange={e => setEditingOpinion(v => v && { ...v, author: e.target.value })}
+                              className="mt-1 w-full px-2 py-1.5 border border-slate-300 rounded-lg font-normal"
+                            />
+                          </label>
+                        ) : (
+                          <div className="font-bold text-slate-800">{op.author}:</div>
+                        )}
+                        <textarea
+                          rows={3}
+                          autoFocus
+                          value={editingOpinion.content}
+                          onChange={e => setEditingOpinion(v => v && { ...v, content: e.target.value })}
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setEditingOpinion(null)} className="px-3 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-white">
+                            Hủy
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!editingOpinion.content.trim()}
+                            onClick={handleSaveOpinion}
+                            className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-50"
+                          >
+                            Lưu ý kiến
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div key={idx} className="group p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="font-bold text-slate-800 mb-0.5">{op.author}:</div>
+                          {canEditOpinion(op) && (
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                type="button"
+                                title="Sửa ý kiến"
+                                onClick={() => setEditingOpinion({ index: idx, author: op.author, content: op.content })}
+                                className="p-1 rounded text-slate-500 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Xóa ý kiến"
+                                onClick={() => handleDeleteOpinion(idx)}
+                                className="p-1 rounded text-slate-500 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-slate-700 whitespace-pre-wrap">{op.content}</div>
+                      </div>
+                    ),
+                  )}
                 </div>
+                <datalist id="meeting-opinion-authors">
+                  {[...new Set([...(selectedMeeting.attendees || []), ...activeMembers.map(m => m.displayName)])].map(n => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
 
                 {/* Form thêm ý kiến */}
                 {selectedMeeting.status !== 'finalized' && (
-                  <form onSubmit={handleAddOpinion} className="flex gap-2 pt-2">
+                  <form onSubmit={handleAddOpinion} className="flex flex-wrap gap-2 pt-2">
+                    {canManageMinutes && (
+                      <input
+                        list="meeting-opinion-authors"
+                        value={opinionAuthor}
+                        onChange={e => setOpinionAuthor(e.target.value)}
+                        placeholder="Người phát biểu (để trống = bạn)"
+                        title="Thư ký ghi ý kiến thay cho người phát biểu"
+                        className="w-full sm:w-56 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    )}
                     <input
                       type="text"
-                      placeholder={`Nhập ý kiến phát biểu của ${activeMember.displayName}...`}
+                      placeholder={`Nhập ý kiến phát biểu của ${(canManageMinutes && opinionAuthor.trim()) || activeMember.displayName}...`}
                       value={opinionText}
                       onChange={e => setOpinionText(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      className="flex-1 min-w-[12rem] px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
                     />
                     <button
                       type="submit"

@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { MathText } from '../../utils/katex-renderer';
 import { inRange, reportRange, validRange, reportData, annualRecords } from '../../utils/reporting';
+import { FileText, FileSpreadsheet, Printer } from 'lucide-react';
+import { bookletFileName, bookletToExcel, bookletToWord, downloadBlob, type BookletInfo } from '../../utils/bookletExport';
 
 const labels: Record<string, string> = {
   periodLabel:'Kỳ báo cáo', sectionsIncluded:'Các phần báo cáo',
@@ -98,6 +100,28 @@ export function Booklet() {
     } catch(e) {setNotification({message:e instanceof Error ? e.message : 'Không thể tải đủ hồ sơ.',type:'error'});}
     finally {setBusy(false);}
   };
+  const [exporting, setExporting] = useState<'' | 'word' | 'excel'>('');
+  const bookInfo = (): BookletInfo => ({schoolName: config.schoolName, departmentName: config.departmentName, academicYear: config.academicYear, start, end, head: allMembers.find(m => m.role === 'head')?.displayName || ''});
+  const exportWord = async () => {
+    if (!prepared || !ref.current) return;
+    setExporting('word');
+    try {
+      const info = bookInfo();
+      downloadBlob(await bookletToWord(ref.current, info), bookletFileName(info, 'docx'));
+      setNotification({message:'Đã xuất file Word. Công thức được chuyển thành công thức Word (Equation), có thể sửa tiếp trong Word.',type:'success'});
+    } catch (e) {console.error(e); setNotification({message:'Không thể xuất file Word. Hãy thử lại.',type:'error'});}
+    finally {setExporting('');}
+  };
+  const exportExcel = async () => {
+    if (!prepared) return;
+    setExporting('excel');
+    try {
+      const info = bookInfo();
+      downloadBlob(bookletToExcel(prepared, info, {labels, statuses, hidden, names}), bookletFileName(info, 'xlsx'));
+      setNotification({message:'Đã xuất file Excel (mỗi phần hồ sơ một trang tính).',type:'success'});
+    } catch (e) {console.error(e); setNotification({message:'Không thể xuất file Excel. Hãy thử lại.',type:'error'});}
+    finally {setExporting('');}
+  };
   const print = async () => {
     if (!prepared || !ref.current) return;
     const frame = document.createElement('iframe');
@@ -122,7 +146,8 @@ export function Booklet() {
       <p className="text-xs">Chọn phần hồ sơ và tải bản xem trước trước khi in. Kế hoạch, thành viên và sáng kiến lấy theo năm học; phân công lấy học kỳ hiện tại. Khoảng ngày áp dụng cho các hoạt động và giáo án. Biên bản chỉ lấy bản đã chốt và đã diễn ra; nghiên cứu bài học chỉ in một lần khi chọn cả hai phần. Giáo án lấy theo ngày tạo, đến ngày hiện tại; hồ sơ nháp có ghi trạng thái.</p>
       <div className="flex flex-wrap gap-3 text-sm"><label>Từ ngày <input type="date" value={start} onChange={e => setStart(e.target.value)}/></label><label>Đến ngày <input type="date" value={end} onChange={e => setEnd(e.target.value)}/></label></div>
       <div className="grid sm:grid-cols-2 gap-2 text-sm">{groups.map(g => <label key={g.key}><input type="checkbox" checked={selected.includes(g.key)} onChange={e => setSelected(e.target.checked ? [...selected,g.key] : selected.filter(k => k !== g.key))}/> {g.title} ({g.records.length})</label>)}</div>
-      <div className="flex gap-3"><button disabled={busy || !selected.length} onClick={prepare} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-50">{busy ? 'Đang tải đầy đủ hồ sơ…' : 'Tạo bản xem trước'}</button><button disabled={!prepared || busy} onClick={print} className="border rounded px-4 py-2 disabled:opacity-50">In toàn bộ / Lưu PDF</button></div>
+      <div className="flex flex-wrap gap-3"><button disabled={busy || !selected.length} onClick={prepare} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-50">{busy ? 'Đang tải đầy đủ hồ sơ…' : 'Tạo bản xem trước'}</button><button disabled={!prepared || busy} onClick={print} title="Mở hộp thoại in, chọn máy in hoặc «Lưu dưới dạng PDF»" className="border rounded px-4 py-2 disabled:opacity-50 inline-flex items-center gap-2"><Printer className="w-4 h-4"/>In / Xuất PDF</button><button disabled={!prepared || busy || !!exporting} onClick={exportWord} className="border border-blue-300 text-blue-800 rounded px-4 py-2 disabled:opacity-50 inline-flex items-center gap-2"><FileText className="w-4 h-4"/>{exporting === 'word' ? 'Đang tạo file Word…' : 'Xuất Word'}</button><button disabled={!prepared || busy || !!exporting} onClick={exportExcel} className="border border-emerald-300 text-emerald-800 rounded px-4 py-2 disabled:opacity-50 inline-flex items-center gap-2"><FileSpreadsheet className="w-4 h-4"/>{exporting === 'excel' ? 'Đang tạo file Excel…' : 'Xuất Excel'}</button></div>
+      {!prepared && <p className="text-xs text-slate-500">Bấm «Tạo bản xem trước» trước, sau đó chọn In / Xuất PDF, Xuất Word hoặc Xuất Excel.</p>}
     </div>
     {prepared && <div ref={ref} className="booklet bg-white p-8 border rounded">
       <div className="book-cover"><p>{config.schoolName}</p><h1>SỔ SINH HOẠT CHUYÊN MÔN</h1><h2>{config.departmentName.toUpperCase()}</h2><p>Năm học: {config.academicYear}</p><p>Phạm vi hoạt động: {start} – {end}</p><p>Tổ trưởng: {allMembers.find(m => m.role === 'head')?.displayName || 'Chưa khai báo – cần bổ sung'}</p></div>
