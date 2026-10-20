@@ -311,6 +311,33 @@ export interface DepartmentConfig {
   externalLinks?: ExternalLinksConfig;
   /** Ban giám hiệu nhà trường (hiển thị ở thanh bên, ký duyệt kế hoạch) */
   schoolLeaders?: SchoolLeader[];
+  /** Nhắc việc hằng tuần / mốc thời gian của tổ (xuất ra Google Lịch dạng .ics) */
+  weeklyReminders?: WeeklyReminder[];
+}
+
+/** Nhắc việc của tổ: lặp hằng tuần (hoặc 2 tuần/lần) hay một mốc ngày cụ thể. */
+export interface WeeklyReminder {
+  id: string;
+  title: string;
+  note?: string;
+  kind: 'weekly' | 'once';
+  /** 1 = Thứ Hai … 6 = Thứ Bảy, 7 = Chủ nhật (dùng khi kind = weekly) */
+  weekday?: number;
+  /** Lặp mỗi 1 hay 2 tuần */
+  intervalWeeks?: number;
+  /** YYYY-MM-DD (dùng khi kind = once) */
+  date?: string;
+  /** HH:MM; để trống = cả ngày */
+  time?: string;
+  durationMinutes?: number;
+  /** Báo trước bao nhiêu phút (0 = đúng giờ) */
+  alarmMinutes?: number;
+  audience: 'all' | 'leaders' | 'members';
+  memberIds?: string[];
+  /** Khoảng áp dụng của nhắc việc lặp lại (mặc định theo năm học) */
+  startDate?: string;
+  endDate?: string;
+  active: boolean;
 }
 
 export interface SchoolLeader {

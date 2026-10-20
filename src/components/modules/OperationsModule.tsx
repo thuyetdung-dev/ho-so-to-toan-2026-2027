@@ -4,6 +4,7 @@ import type { WorkTask, WorkTaskPriority, WorkTaskStatus } from '../../types';
 import { newId, safeUrl } from '../../utils/ids';
 import { priorityFor, todayIso } from '../../utils/management';
 import { openMonthlyReport } from '../../report/navigation';
+import { WeeklyRemindersPanel } from './WeeklyRemindersPanel';
 import { AlertTriangle, CheckCircle2, ClipboardList, ExternalLink, FileText, Filter, Pencil, Plus, Send, Trash2, UserCheck } from 'lucide-react';
 
 const STATUS: Record<WorkTaskStatus, {label:string; cls:string}> = {
@@ -150,6 +151,8 @@ export const OperationsModule: React.FC = () => {
       <div><div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-indigo-600"/><h1 className="text-xl font-bold">{permissions.isLeader?'Điều hành công việc & minh chứng':'Việc của tôi'}</h1></div><p className="text-xs text-slate-500 mt-1">{permissions.isLeader?'Giao việc → thực hiện → nộp minh chứng → duyệt → tự động đưa vào định mức.':'Việc tổ giao và đầu việc tự chọn từ công văn: bắt đầu → nộp minh chứng → chờ lãnh đạo tổ xác nhận.'}</p></div>
       {permissions.isLeader&&<button onClick={()=>{if(showForm)closeForm();else{setEditingId(null);setShowForm(true);}}} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2"><Plus className="w-4 h-4"/>Giao việc mới</button>}
     </div>
+
+    <WeeklyRemindersPanel/>
 
     {showForm&&permissions.isLeader&&<form onSubmit={createTask} className="bg-white border border-indigo-200 rounded-xl p-5 grid md:grid-cols-2 gap-3">
       {editingId&&<div className="md:col-span-2 text-xs font-bold text-indigo-700">Sửa công việc{workTasks.find(t=>t.id===editingId)?.status==='completed'?' (đã hoàn thành: giữ nguyên người phụ trách và kết quả xác nhận)':''}</div>}<label className="text-xs font-semibold md:col-span-2">Tên công việc<input required value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 font-normal" placeholder="Ví dụ: Hoàn thiện hồ sơ chuyên đề tháng 10"/></label>
