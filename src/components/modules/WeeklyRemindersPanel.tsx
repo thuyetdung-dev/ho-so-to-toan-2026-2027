@@ -36,7 +36,7 @@ export const WeeklyRemindersPanel: React.FC = () => {
   const thisWeek = useMemo(() => {
     const items: { date: string; time?: string; title: string; kind: 'reminder' | 'task' }[] = [];
     for (const r of mine) for (const d of occurrencesBetween(r, weekStart, weekEnd, yearStart, yearEnd)) items.push({ date: d, time: r.time, title: r.title, kind: 'reminder' });
-    for (const t of myTasks) if (t.status !== 'completed' && t.deadline >= weekStart && t.deadline <= weekEnd) items.push({ date: t.deadline, title: `Hạn: ${t.title}`, kind: 'task' });
+    for (const t of myTasks) if (t.status !== 'completed' && t.deadline >= weekStart && t.deadline <= weekEnd) items.push({ date: t.deadline, title: t.title, kind: 'task' });
     return items.sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
   }, [mine, myTasks, weekStart, weekEnd, yearStart, yearEnd]);
   const upcoming = useMemo(() => mine.filter(r => r.kind === 'once' && r.active && isoDate(r.date) && r.date > weekEnd && r.date <= addDays(weekEnd, 21))
@@ -79,9 +79,9 @@ export const WeeklyRemindersPanel: React.FC = () => {
 
     <div className="grid md:grid-cols-2 gap-3">
       <div className="rounded-lg bg-amber-50/60 border border-amber-100 p-3">
-        <div className="text-[11px] font-bold text-amber-900 mb-2">Trong tuần này</div>
+        <div className="text-[11px] font-bold text-amber-900 mb-2">Trong tuần này <span className="font-normal text-slate-500">(nhắc việc + hạn việc được giao)</span></div>
         {thisWeek.length === 0 ? <div className="text-[11px] text-slate-500">Không có nhắc việc nào.</div> : <ul className="space-y-1">{thisWeek.map((x, i) =>
-          <li key={i} className={`text-xs flex gap-2 ${x.date < today ? 'text-slate-400 line-through' : ''}`}><span className="font-semibold w-24 shrink-0">{WEEKDAYS[weekdayOf(x.date)]} {fmt(x.date)}</span><span className="w-11 shrink-0 text-slate-500">{x.time || ''}</span><span className={x.kind === 'task' ? 'text-rose-700 font-semibold' : ''}>{x.title}</span></li>)}</ul>}
+          <li key={i} className={`text-xs flex gap-2 ${x.kind === 'reminder' && x.date < today ? 'text-slate-400 line-through' : ''}`}><span className="font-semibold w-24 shrink-0">{WEEKDAYS[weekdayOf(x.date)]} {fmt(x.date)}</span><span className="w-11 shrink-0 text-slate-500">{x.time || (x.kind === 'task' ? 'Hạn' : '')}</span><span className={`min-w-0 line-clamp-2 ${x.kind === 'task' ? 'text-rose-700 font-semibold' : ''}`} title={x.title}>{x.kind === 'task' && x.date < today && <span className="mr-1 px-1.5 py-0.5 rounded bg-rose-100 text-[10px] font-bold">Quá hạn</span>}{x.title}</span></li>)}</ul>}
       </div>
       <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
         <div className="text-[11px] font-bold text-slate-700 mb-2">Mốc sắp tới (3 tuần)</div>
