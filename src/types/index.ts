@@ -698,6 +698,12 @@ export interface Meeting {
   status: 'draft' | 'finalized';
   lockedAt?: string;
   updatedAt: string;
+  /** Mẫu biên bản theo cấu trúc Hội nghị VC-NLĐ (các trường thêm từ v2.23, có thể trống ở biên bản cũ) */
+  startTime?: string; // 'HH:MM'
+  endTime?: string; // 'HH:MM'
+  chairRole?: string; // Chức vụ người chủ trì
+  guests?: { name: string; role: string }[]; // Đại diện lãnh đạo / khách mời dự họp
+  voteAgree?: number | null; // Số người tán thành khi biểu quyết thông qua biên bản
 }
 
 export interface LessonStudyCycle {

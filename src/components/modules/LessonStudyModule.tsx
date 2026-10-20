@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useConfirm } from '../common/ConfirmDialog';
 import { newId, todayISO } from '../../utils/ids';
+import { attendanceTotal, dateParts, departmentShortName, minutesHeading, parseNameRoleLines, roleTitle, timeText, voteText } from '../../utils/minutes';
 
 export const LessonStudyModule: React.FC = () => {
   const {
@@ -56,7 +57,12 @@ export const LessonStudyModule: React.FC = () => {
     secretary: '',
     content: '',
     conclusions: '',
+    startTime: '',
+    endTime: '',
+    chairRole: '',
+    voteAgree: '',
   });
+  const [guestsText, setGuestsText] = useState('');
   const [opinionText, setOpinionText] = useState('');
   const [opinionAuthor, setOpinionAuthor] = useState('');
   const [editingOpinion, setEditingOpinion] = useState<{ index: number; author: string; content: string } | null>(null);
@@ -80,9 +86,14 @@ export const LessonStudyModule: React.FC = () => {
       secretary: isSecretary ? activeMember.displayName : secretaryNames.length === 1 ? secretaryNames[0] : '',
       content: '',
       conclusions: '',
+      startTime: '',
+      endTime: '',
+      chairRole: isLeader ? roleTitle(activeMember.role) : '',
+      voteAgree: '',
     });
     setAttendees(activeMembers.map(m => m.displayName));
     setAbsenteesText('');
+    setGuestsText('');
     setShowAddModal(true);
   };
 
@@ -97,7 +108,12 @@ export const LessonStudyModule: React.FC = () => {
       secretary: m.secretary,
       content: m.content,
       conclusions: m.conclusions,
+      startTime: m.startTime || '',
+      endTime: m.endTime || '',
+      chairRole: m.chairRole ?? roleTitle(allMembers.find(x => x.displayName === m.chairPerson)?.role),
+      voteAgree: m.voteAgree === undefined || m.voteAgree === null ? '' : String(m.voteAgree),
     });
+    setGuestsText((m.guests || []).map(g => `${g.name}${g.role ? ` - ${g.role}` : ''}`).join('\n'));
     setAttendees(m.attendees || []);
     setAbsenteesText((m.absentees || []).map(a => `${a.name}${a.reason ? ` - ${a.reason}` : ''}`).join('\n'));
     setShowAddModal(true);
@@ -265,6 +281,11 @@ export const LessonStudyModule: React.FC = () => {
       content: newMeeting.content.trim(),
       memberOpinions: existing?.memberOpinions || [],
       conclusions: newMeeting.conclusions.trim(),
+      startTime: newMeeting.startTime,
+      endTime: newMeeting.endTime,
+      chairRole: newMeeting.chairRole.trim(),
+      guests: parseNameRoleLines(guestsText),
+      voteAgree: newMeeting.voteAgree.trim() === '' ? null : Math.max(0, Math.min(attendees.length, Number(newMeeting.voteAgree) || 0)),
       tasks: existing?.tasks || [],
       status: existing?.status || 'draft',
       updatedAt: new Date().toISOString(),
@@ -283,13 +304,21 @@ export const LessonStudyModule: React.FC = () => {
       secretary: '',
       content: '',
       conclusions: '',
+      startTime: '',
+      endTime: '',
+      chairRole: '',
+      voteAgree: '',
     });
+    setGuestsText('');
   };
+
+  const dept = departmentShortName(config?.departmentName) || 'Toán';
+  const selDate = selectedMeeting ? dateParts(selectedMeeting.date) : null;
 
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Presentation className="w-5 h-5 text-blue-600" />
@@ -313,7 +342,7 @@ export const LessonStudyModule: React.FC = () => {
       </div>
 
       {/* Chu trình 4 bước Nghiên cứu bài học banner */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs print:hidden">
         <div className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3">
           Chu trình 4 bước sinh hoạt chuyên môn theo Nghiên cứu bài học
         </div>
@@ -373,9 +402,9 @@ export const LessonStudyModule: React.FC = () => {
       </div>
 
       {/* Meetings Layout: Left Meetings List / Right Minutes */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block">
         {/* Left List */}
-        <div className="lg:col-span-4 space-y-3">
+        <div className="lg:col-span-4 space-y-3 print:hidden">
           <div className="text-xs font-bold text-slate-700 px-1">Danh sách các kỳ họp ({meetings.length})</div>
           <div className="space-y-2">
             {sortedMeetings.length === 0 && (
@@ -423,9 +452,9 @@ export const LessonStudyModule: React.FC = () => {
         {/* Right Minutes Document */}
         <div className="lg:col-span-8 space-y-6">
           {selectedMeeting ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6">
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6 print:border-0 print:shadow-none print:p-0 print:font-serif">
               {/* Header */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 print:hidden">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800">
@@ -481,48 +510,66 @@ export const LessonStudyModule: React.FC = () => {
                 </div>
               )}
 
-              {/* Thông tin chung */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-slate-50 p-3.5 rounded-lg border border-slate-200">
-                <div>
-                  <span className="text-slate-500">Địa điểm: </span>
-                  <span className="font-semibold text-slate-800">{selectedMeeting.location}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Chủ trì: </span>
-                  <span className="font-semibold text-slate-800">{selectedMeeting.chairPerson}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Thư ký: </span>
-                  <span className="font-semibold text-slate-800">{selectedMeeting.secretary}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Có mặt: </span>
-                  <span className="font-semibold text-slate-800">{selectedMeeting.attendees?.join(', ') || '—'}</span>
-                </div>
-                {selectedMeeting.absentees?.length > 0 && (
-                  <div className="sm:col-span-2">
-                    <span className="text-slate-500">Vắng: </span>
-                    <span className="font-semibold text-slate-800">
-                      {selectedMeeting.absentees.map(a => `${a.name}${a.reason ? ` (${a.reason})` : ''}`).join(', ')}
-                    </span>
+              {/* Biên bản theo cấu trúc biên bản Hội nghị VC-NLĐ */}
+              <div className="font-serif text-[13px] leading-relaxed text-slate-900 space-y-1.5">
+                <div className="grid grid-cols-2 gap-4 text-center text-[12px]">
+                  <div>
+                    <div className="uppercase">{config?.schoolName || 'Trường THPT'}</div>
+                    <div className="font-bold">TỔ: {dept.toLocaleUpperCase('vi-VN')}</div>
                   </div>
+                  <div>
+                    <div className="font-bold">CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                    <div className="font-bold">Độc lập – Tự do – Hạnh phúc</div>
+                  </div>
+                </div>
+                <div className="text-center pt-3">
+                  <div className="font-bold text-[15px]">{minutesHeading(selectedMeeting)}</div>
+                  {config?.academicYear && <div className="font-bold">NĂM HỌC {config.academicYear.replace('-', ' – ')}</div>}
+                </div>
+                <p className="pt-2 indent-8">
+                  Hôm nay, ngày {selDate?.d || '……'} tháng {selDate?.m || '……'} năm {selDate?.y || '……'}, vào lúc: {timeText(selectedMeeting.startTime)}.
+                </p>
+                <p className="indent-8">
+                  Tại: {selectedMeeting.location || '…………'}, tập thể cán bộ, giáo viên Tổ: {dept}.
+                </p>
+                <p className="indent-8">
+                  Với sự hiện diện của: <strong>{selectedMeeting.attendees?.length || 0}/{attendanceTotal(selectedMeeting)}</strong> người
+                  {selectedMeeting.attendees?.length ? <>, gồm: {selectedMeeting.attendees.join(', ')}</> : null};
+                </p>
+                <p className="indent-8">Vắng mặt: {selectedMeeting.absentees?.length || 0} người{selectedMeeting.absentees?.length ? ', gồm:' : '.'}</p>
+                {selectedMeeting.absentees?.map((x, i) => (
+                  <p key={i} className="pl-8">- {x.name}, lý do: {x.reason || '……………'}</p>
+                ))}
+                <p className="indent-8">
+                  Tiến hành cuộc họp dưới sự chủ trì của: <strong>{selectedMeeting.chairPerson || '…………'}</strong>, chức vụ: {selectedMeeting.chairRole || '…………'}.
+                </p>
+                {selectedMeeting.guests && selectedMeeting.guests.length > 0 && (
+                  <>
+                    <p className="indent-8">Tới dự cuộc họp còn có:</p>
+                    {selectedMeeting.guests.map((g, i) => (
+                      <p key={i} className="pl-8">{i + 1}- {g.name}{g.role ? `, chức vụ: ${g.role}` : ''}</p>
+                    ))}
+                  </>
                 )}
+                <p className="indent-8">Thư ký cuộc họp: <strong>{selectedMeeting.secretary || '…………'}</strong>.</p>
+                {selectedMeeting.isOnline && <p className="indent-8 italic">(Họp trực tuyến)</p>}
               </div>
 
-              {/* Nội dung họp */}
+              {/* 1. Nội dung chủ trì triển khai */}
               <div className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1">
-                  1. Nội dung sinh hoạt chuyên môn
+                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1 print:text-slate-900">
+                  Nội dung cuộc họp
                 </h3>
-                <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50/50 p-3 rounded-lg border border-slate-100 font-mono text-[11px]">
-                  {selectedMeeting.content}
+                <div className="text-xs font-bold text-slate-800">1- Chủ trì triển khai các nội dung:</div>
+                <div className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed bg-slate-50/50 p-3 rounded-lg border border-slate-100 print:bg-transparent print:border-0 print:p-0">
+                  {selectedMeeting.content || '…………'}
                 </div>
               </div>
 
               {/* Ý kiến các thành viên */}
               <div className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1">
-                  2. Ý kiến thảo luận của các thành viên ({selectedMeeting.memberOpinions?.length || 0})
+                <h3 className="text-xs font-bold text-slate-800">
+                  2- Thảo luận: ý kiến từng người ({selectedMeeting.memberOpinions?.length || 0})
                 </h3>
 
                 <div className="space-y-2">
@@ -564,11 +611,11 @@ export const LessonStudyModule: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <div key={idx} className="group p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+                      <div key={idx} className="group p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs print:bg-transparent print:border-0 print:p-0">
                         <div className="flex items-start justify-between gap-2">
                           <div className="font-bold text-slate-800 mb-0.5">{op.author}:</div>
                           {canEditOpinion(op) && (
-                            <div className="flex gap-1 shrink-0">
+                            <div className="flex gap-1 shrink-0 print:hidden">
                               <button
                                 type="button"
                                 title="Sửa ý kiến"
@@ -601,7 +648,7 @@ export const LessonStudyModule: React.FC = () => {
 
                 {/* Form thêm ý kiến */}
                 {selectedMeeting.status !== 'finalized' && (
-                  <form onSubmit={handleAddOpinion} className="flex flex-wrap gap-2 pt-2">
+                  <form onSubmit={handleAddOpinion} className="flex flex-wrap gap-2 pt-2 print:hidden">
                     {canManageMinutes && (
                       <input
                         list="meeting-opinion-authors"
@@ -632,17 +679,15 @@ export const LessonStudyModule: React.FC = () => {
 
               {/* Kết luận và giao việc */}
               <div className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900 border-b border-slate-200 pb-1">
-                  3. Kết luận & Phân công nhiệm vụ
-                </h3>
-                <div className="text-xs text-slate-800 bg-blue-50/50 p-3 rounded-lg border border-blue-100">
-                  {selectedMeeting.conclusions}
+                <h3 className="text-xs font-bold text-slate-800">3- Chủ trì tổng hợp ý kiến đóng góp và kết luận:</h3>
+                <div className="text-xs text-slate-800 whitespace-pre-wrap bg-blue-50/50 p-3 rounded-lg border border-blue-100 print:bg-transparent print:border-0 print:p-0">
+                  {selectedMeeting.conclusions || '…………'}
                 </div>
 
                 {/* Nhiệm vụ có hạn */}
                 {(selectedMeeting.tasks?.length > 0 || isLeader) && (
                   <div className="space-y-2 pt-2">
-                    <div className="text-xs font-bold text-slate-700">Các công việc được giao:</div>
+                    <div className="text-xs font-bold text-slate-800">4- Phân công thực hiện:</div>
                     <div className="space-y-1.5">
                       {selectedMeeting.tasks.map(t => (
                         <div
@@ -651,7 +696,7 @@ export const LessonStudyModule: React.FC = () => {
                         >
                           <div>
                             <span className="font-medium text-slate-900">{t.title}</span>
-                            <span className="text-slate-500 ml-2">({t.assigneeName} • Hạn: {t.deadline}){!t.assigneeId && <span className="text-amber-700 ml-2">Cần tổ trưởng xác nhận người thực hiện</span>}
+                            <span className="text-slate-500 ml-2">({t.assigneeName} • Hạn: {t.deadline}){!t.assigneeId && <span className="text-amber-700 ml-2 print:hidden">Cần tổ trưởng xác nhận người thực hiện</span>}
                             {isLeader && <select aria-label={`Xác nhận người thực hiện: ${t.title}`} value={t.assigneeId || ''}
                               onChange={e=>assignExistingTask(t.id,e.target.value)} className="block mt-1 px-2 py-1 border rounded bg-white text-xs print:hidden">
                               <option value="">Chọn giáo viên để xác nhận</option>{activeMembers.map(m=><option key={m.id} value={m.id}>{m.displayName}{m.email?` · ${m.email}`:` · ${m.id}`}</option>)}
@@ -690,6 +735,29 @@ export const LessonStudyModule: React.FC = () => {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* 5. Kết thúc, biểu quyết, chữ ký */}
+              <div className="text-xs text-slate-800 space-y-1.5 border-t border-slate-200 pt-3 print:border-0">
+                <p>
+                  <strong>5- Trước khi kết thúc,</strong> cuộc họp đã nghe Thư ký đọc lại toàn văn biên bản và biểu quyết thông qua với tỉ lệ:{' '}
+                  {voteText(selectedMeeting)}.
+                </p>
+                <p>Cuộc họp kết thúc lúc: {timeText(selectedMeeting.endTime)} cùng ngày./.</p>
+                <div className="grid grid-cols-2 text-center pt-3 break-inside-avoid">
+                  <div>
+                    <div className="font-bold">CHỦ TRÌ</div>
+                    <div className="italic text-[11px]">(Ký và ghi rõ họ tên)</div>
+                    <div className="h-16" />
+                    <div className="font-bold">{selectedMeeting.chairPerson}</div>
+                  </div>
+                  <div>
+                    <div className="font-bold">THƯ KÝ</div>
+                    <div className="italic text-[11px]">(Ký và ghi rõ họ tên)</div>
+                    <div className="h-16" />
+                    <div className="font-bold">{selectedMeeting.secretary}</div>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -730,6 +798,14 @@ export const LessonStudyModule: React.FC = () => {
                 Ngày họp <span className="text-rose-600">*</span>
                 <input required type="date" value={newMeeting.date} onChange={e => setNewMeeting(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
               </label>
+              <label className="font-semibold text-slate-700">
+                Giờ bắt đầu
+                <input type="time" value={newMeeting.startTime} onChange={e => setNewMeeting(v => ({ ...v, startTime: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">
+                Giờ kết thúc
+                <input type="time" value={newMeeting.endTime} onChange={e => setNewMeeting(v => ({ ...v, endTime: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
               <label className="sm:col-span-2 font-semibold text-slate-700">
                 Địa điểm <span className="text-rose-600">*</span>
                 <input required value={newMeeting.location} onChange={e => setNewMeeting(v => ({ ...v, location: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
@@ -737,6 +813,10 @@ export const LessonStudyModule: React.FC = () => {
               <label className="font-semibold text-slate-700">
                 Chủ trì
                 <input value={newMeeting.chairPerson} onChange={e => setNewMeeting(v => ({ ...v, chairPerson: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" />
+              </label>
+              <label className="font-semibold text-slate-700">
+                Chức vụ người chủ trì
+                <input value={newMeeting.chairRole} onChange={e => setNewMeeting(v => ({ ...v, chairRole: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder="Ví dụ: Tổ trưởng chuyên môn" />
               </label>
               <label className="font-semibold text-slate-700">
                 Thư ký
@@ -769,13 +849,24 @@ export const LessonStudyModule: React.FC = () => {
                 <textarea rows={2} value={absenteesText} onChange={e => setAbsenteesText(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" />
               </label>
               <label className="sm:col-span-2 font-semibold text-slate-700">
-                Nội dung
+                Đại diện lãnh đạo trường / khách mời dự họp (mỗi dòng: Họ tên - Chức vụ)
+                <textarea rows={2} value={guestsText} onChange={e => setGuestsText(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" placeholder="Ví dụ: Mai Thị Ngọc Nhung - Phó Hiệu trưởng" />
+              </label>
+              <label className="sm:col-span-2 font-semibold text-slate-700">
+                1- Nội dung chủ trì triển khai
                 <textarea rows={5} value={newMeeting.content} onChange={e => setNewMeeting(v => ({ ...v, content: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" placeholder="Các nội dung cần thảo luận..." />
               </label>
               <label className="sm:col-span-2 font-semibold text-slate-700">
-                Kết luận
+                3- Tổng hợp ý kiến và kết luận
                 <textarea rows={3} value={newMeeting.conclusions} onChange={e => setNewMeeting(v => ({ ...v, conclusions: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg resize-y font-normal" />
               </label>
+              <label className="font-semibold text-slate-700">
+                5- Số người tán thành khi biểu quyết
+                <input type="number" min={0} max={attendees.length} value={newMeeting.voteAgree} onChange={e => setNewMeeting(v => ({ ...v, voteAgree: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg font-normal" placeholder={`Trên ${attendees.length} người có mặt`} />
+              </label>
+              <p className="sm:col-span-2 text-[11px] text-slate-500 -mt-1">
+                Mục 2 (ý kiến từng người) và mục 4 (phân công) ghi trực tiếp trên biên bản sau khi tạo.
+              </p>
               <div className="sm:col-span-2 flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
                 <button type="submit" className="px-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5"><Plus className="w-4 h-4" /> {editingId ? 'Lưu thay đổi' : 'Tạo và lưu'}</button>
